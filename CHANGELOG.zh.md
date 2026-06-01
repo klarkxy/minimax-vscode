@@ -2,6 +2,20 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.0.0 — 改名为 MiniMax Copilot
+
+**破坏性变更**（仅展示名）。扩展在 Marketplace 上的展示名已改为 **MiniMax Copilot**，让"为 GitHub Copilot 提供 MiniMax 模型"这层意图一眼可读。扩展 ID、publisher、命令名、配置项、walkthrough、SecretStorage key **均不变**——已安装用户原地升级，扩展列表里看到新名字，所有配置原封不动。
+
+### 为什么要改名？
+
+- 旧名 `MiniMax (coding)` 读起来像模型名而非 Copilot 扩展，容易和 MiniMax 其他模型/工具混淆。
+- 新名贴合用户心智模型：装 **MiniMax Copilot** 就是为 GitHub Copilot Chat 加 MiniMax 模型供应方。
+
+### 备注
+
+- 1.6.0 → 2.0.0 之间**没有任何代码改动**，仅是 UX / Marketplace 信号的版本号提升。
+- 如果你在 settings sync、DevOps 脚本里硬编码了 `klarkxy.minimax-vscode`，ID 不变，放心用。
+
 ## 1.6.0 — 仅 Anthropic 协议、M3 锁 512K、模型选择器内显示价格、端点自动选择、Git 提交信息生成
 
 这是一个**破坏性更新**。扩展现在**只**走 MiniMax 的 Anthropic 兼容端点，原有的 OpenAI 兼容传输已被彻底移除。

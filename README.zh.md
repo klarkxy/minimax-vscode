@@ -1,4 +1,11 @@
-# MiniMax (coding) for VS Code
+# MiniMax Copilot
+
+<!-- marketplace-readme:remove-start -->
+<a href="https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode"><img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install-007ACC?logo=visualstudiocode&logoColor=white&style=for-the-badge" alt="从 VS Code Marketplace 安装"></a>
+<a href="https://open-vsx.org/extension/klarkxy/minimax-vscode"><img src="https://img.shields.io/badge/Open%20VSX-Install-2F81F7?logo=openvsx&logoColor=white&style=for-the-badge" alt="从 Open VSX 安装"></a>
+<!-- marketplace-readme:remove-end -->
+
+<img src="https://vsmarketplacebadges.dev/installs-short/klarkxy.minimax-vscode.svg?style=for-the-badge" alt="安装量" />
 
 > 🇨🇳 简体中文 | [🇬🇧 English documentation](./README.md)
 

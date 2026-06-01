@@ -8,10 +8,23 @@ esbuild.mjs
 package-lock.json
 **/*.map
 
+# GitHub-side: the marketplace README is rewritten to dist/README.marketplace.md
+# by .github/scripts/prepare-marketplace-readme.mjs and passed to vsce via
+# --readme-path, so neither the source README files nor the .github tooling
+# should end up inside the VSIX. The LICENSE file is left in so vsce can
+# pick it up and ship it as LICENSE.txt (a hard Marketplace requirement).
+.github/**
+README.md
+README.zh.md
+CHANGELOG.md
+CHANGELOG.zh.md
+.gitignore
+
 # Reference / scratch directories that must not be shipped
 deepseek-v4-for-copilot/**
 minimax-status/**
 docs/**
 
 # Local build artefacts
+dist/**
 **/*.vsix

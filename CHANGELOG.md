@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.0.0 — Renamed to MiniMax Copilot
+
+**Breaking change** (display name only). The extension's marketplace
+listing is now shown as **MiniMax Copilot** to make the GitHub
+Copilot integration intent obvious at a glance. The extension ID,
+publisher, command names, configuration keys, walkthrough, and
+`SecretStorage` key are all unchanged — existing installations will
+upgrade in place, see the new display name in their extension list,
+and keep all their settings.
+
+### Why the rename?
+
+- The previous display name (`MiniMax (coding)`) read like a model
+  name rather than a Copilot provider; renaming reduces confusion
+  with other MiniMax models / tools.
+- The new name aligns with the user's mental model: install
+  **MiniMax Copilot** to add MiniMax as a model provider in GitHub
+  Copilot Chat.
+
+### Notes
+
+- No code change between 1.6.0 and 2.0.0. The version bump is solely
+  a UX / marketplace signal.
+- If you've pinned to `klarkxy.minimax-vscode` in a settings sync or
+  DevOps manifest, the ID is unchanged.
+
 ## 1.6.0 — Anthropic-only, 512K M3, in-picker pricing, endpoint auto-select, commit-message generator
 
 Breaking-change release. The extension now talks exclusively to the

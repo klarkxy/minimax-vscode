@@ -1,8 +1,8 @@
 {
   "name": "minimax-vscode",
-  "displayName": "MiniMax (coding)",
-  "description": "Language model provider for GitHub Copilot in VS Code: use MiniMax M2/M2.5/M2.7/M3 models for programming with a Token Plan API key over the Anthropic-compatible API. Does not add speech, video, or image generation APIs.",
-  "version": "1.6.0",
+  "displayName": "MiniMax Copilot",
+  "description": "Language model provider for GitHub Copilot in VS Code: use MiniMax M2.7 / M2.7-highspeed / M3 models for programming with a Token Plan API key over the Anthropic-compatible API. Does not add speech, video, or image generation APIs.",
+  "version": "2.0.0",
   "publisher": "klarkxy",
   "license": "SATA-2.0",
   "icon": "icon/icon.png",
@@ -266,9 +266,11 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run build",
+    "vscode:prepublish": "node .github/scripts/prepare-marketplace-readme.mjs && npm run build",
     "compile": "tsc -p ./ --noEmit",
     "build": "node esbuild.mjs --production",
+    "package": "vsce package --no-dependencies --readme-path dist/README.marketplace.md -o dist/",
+    "prepare:readme": "node .github/scripts/prepare-marketplace-readme.mjs",
     "watch:esbuild": "node esbuild.mjs --watch",
     "watch:tsc": "tsc -p ./ --noEmit --watch",
     "test": "node ./out/test/runTest.js"
@@ -278,6 +280,8 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@vscode/vsce": "^3.9.1",
+    "ovsx": "0.10.12",
     "@types/vscode": "^1.111.0",
     "esbuild": "^0.28.0",
     "typescript": "^5.3.0"
