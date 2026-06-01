@@ -1,16 +1,21 @@
 {
   "name": "minimax-vscode",
   "displayName": "MiniMax (coding)",
-  "description": "Language model provider for GitHub Copilot in VS Code: use MiniMax text models for programming with a Token Plan API key. Does not add speech, video, or image generation APIs.",
-  "version": "1.4.2",
-  "publisher": "denizhandaklr",
-  "license": "MIT",
+  "description": "Language model provider for GitHub Copilot in VS Code: use MiniMax M2/M2.5/M2.7/M3 models for programming with a Token Plan API key over the Anthropic-compatible API. Does not add speech, video, or image generation APIs.",
+  "version": "1.6.0",
+  "publisher": "klarkxy",
+  "license": "SATA-2.0",
   "icon": "icon/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/zelosleone/minimax-vscode"
+    "url": "https://github.com/klarkxy/minimax-vscode"
   },
+  "bugs": {
+    "url": "https://github.com/klarkxy/minimax-vscode/issues"
+  },
+  "homepage": "https://github.com/klarkxy/minimax-vscode#readme",
   "main": "./out/extension.js",
+  "changelog": "CHANGELOG.md",
   "engines": {
     "vscode": "^1.111.0"
   },
@@ -25,12 +30,17 @@
   "keywords": [
     "ai",
     "minimax",
+    "minimax-m3",
     "minimax m2.7",
     "token plan",
     "language model",
     "github copilot",
     "chat",
-    "coding"
+    "coding",
+    "thinking",
+    "tool calling",
+    "multimodal",
+    "anthropic"
   ],
   "activationEvents": [
     "onStartupFinished",
@@ -42,12 +52,44 @@
   "contributes": {
     "commands": [
       {
+        "command": "minimax.setApiKey",
+        "title": "MiniMax: Set API Key",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.clearApiKey",
+        "title": "MiniMax: Clear API Key",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.setVisionModel",
+        "title": "MiniMax: Set Vision Proxy Model",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.showLogs",
+        "title": "MiniMax: Show Logs",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.openRequestDumpsFolder",
+        "title": "MiniMax: Open Request Dumps Folder",
+        "category": "MiniMax"
+      },
+      {
         "command": "minimax.switchToGlobal",
-        "title": "MiniMax: Switch to Global API (minimax.io)"
+        "title": "MiniMax: Switch to Global API (minimax.io/anthropic)",
+        "category": "MiniMax"
       },
       {
         "command": "minimax.switchToChina",
-        "title": "MiniMax: Switch to Chinese API (minimaxi.com)"
+        "title": "MiniMax: Switch to Chinese API (minimaxi.com/anthropic)",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.showPricing",
+        "title": "MiniMax: Show Pricing",
+        "category": "MiniMax"
       }
     ],
     "configuration": {
@@ -55,39 +97,128 @@
       "properties": {
         "minimax.apiBaseUrl": {
           "type": "string",
-          "default": "https://api.minimax.io/v1",
+          "default": "https://api.minimaxi.com/anthropic",
           "scope": "application",
-          "markdownDescription": "MiniMax API base URL. Use `https://api.minimax.io/v1` for international users or `https://api.minimaxi.com/v1` for users in China. Must end with `/v1`."
+          "markdownDescription": "MiniMax Anthropic-compatible API base URL. Use `https://api.minimaxi.com/anthropic` for users in China, or `https://api.minimax.io/anthropic` for international users. The Anthropic SDK appends `/v1/messages` automatically."
+        },
+        "minimax.apiKey": {
+          "type": "string",
+          "markdownDescription": "Fallback MiniMax API key when SecretStorage is unavailable (e.g. CI/automation). Prefer the in-product API key navigation action, which stores the key in SecretStorage."
         },
         "minimax.visibleModels": {
           "type": "array",
           "items": {
             "type": "string",
             "enum": [
+              "MiniMax-M3",
               "MiniMax-M2.7",
-              "MiniMax-M2.7-highspeed",
-              "MiniMax-M2.5",
-              "MiniMax-M2.5-highspeed",
-              "MiniMax-M2.1",
-              "MiniMax-M2.1-highspeed",
-              "MiniMax-M2"
+              "MiniMax-M2.7-highspeed"
             ]
           },
           "default": [
+            "MiniMax-M3",
             "MiniMax-M2.7",
-            "MiniMax-M2.7-highspeed",
-            "MiniMax-M2.5",
-            "MiniMax-M2.5-highspeed",
-            "MiniMax-M2.1",
-            "MiniMax-M2.1-highspeed",
-            "MiniMax-M2"
+            "MiniMax-M2.7-highspeed"
           ],
           "uniqueItems": true,
           "scope": "application",
-          "markdownDescription": "Programming text models (M2 / M2.1 / M2.5 / M2.7) for Token Plan. Order matches [MiniMax M2.7 for AI coding](https://platform.minimax.io/docs/guides/text-ai-coding-tools). Role-play (M2-her) is not included."
+          "markdownDescription": "Programming text models (M2.7 / M2.7-highspeed / M3) for Token Plan. M3 is the latest native-multimodal frontier coding model (officially 1M context; effective 512K until the >512K tier is fully rolled out). MiniMax no longer recommends M2.5 and earlier."
+        },
+        "minimax.maxTokens": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "Maximum number of output tokens. `0` (default) lets the model decide. Hard cap: 524288 for M2.x, 512000 for M3."
+        },
+        "minimax.debugMode": {
+          "type": "string",
+          "default": "minimal",
+          "enum": [
+            "minimal",
+            "metadata",
+            "verbose"
+          ],
+          "enumItemLabels": [
+            "Minimal (default)",
+            "Metadata",
+            "Verbose (dumps every request to disk)"
+          ],
+          "markdownDescription": "Diagnostic verbosity. `verbose` writes full request payloads to `<globalStorage>/request-dumps/<segmentId>/` for debugging."
+        },
+        "minimax.modelIdOverrides": {
+          "type": "object",
+          "default": {
+            "MiniMax-M3": "MiniMax-M3",
+            "MiniMax-M2.7": "MiniMax-M2.7",
+            "MiniMax-M2.7-highspeed": "MiniMax-M2.7-highspeed",
+            "MiniMax-M2.5": "MiniMax-M2.5",
+            "MiniMax-M2.5-highspeed": "MiniMax-M2.5-highspeed",
+            "MiniMax-M2.1": "MiniMax-M2.1",
+            "MiniMax-M2.1-highspeed": "MiniMax-M2.1-highspeed",
+            "MiniMax-M2": "MiniMax-M2"
+          },
+          "markdownDescription": "Override the API model ID for each picker model ID. Useful when routing through a third-party proxy that uses different model names.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "minimax.visionModel": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Language model chat ID used to describe image attachments for non-multimodal MiniMax models. Leave empty to auto-detect. Has no effect on `MiniMax-M3` which receives images directly."
+        },
+        "minimax.visionPrompt": {
+          "type": "string",
+          "editPresentation": "multilineText",
+          "default": "Describe all image attachments in this message.\n\nIf there is one image, describe it directly.\nIf there are multiple images:\n1. Describe each image separately, preserving their order.\n2. Then provide a combined description explaining the overall context and relationships across the images.\n\nReturn one concise factual description suitable for inserting into a text-only chat prompt. Include visible text, objects, UI elements, people, and relevant context. Do not invent details.",
+          "markdownDescription": "Prompt sent to the vision proxy when describing image attachments for non-multimodal MiniMax models."
+        },
+        "minimax.experimental.stabilizeToolList": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "**Experimental.** When the Copilot host presents placeholder `activate_*` tools, synthesise preflight tool calls so the tool list stays stable across turns. Improves cache hit rate but adds extra round-trips. Restart the chat session after changing.",
+          "tags": [
+            "experimental"
+          ]
         }
       }
     },
+    "walkthroughs": [
+      {
+        "id": "minimaxGettingStarted",
+        "title": "Get started with MiniMax",
+        "description": "Configure the MiniMax Token Plan API key, pick a model, and tune advanced settings.",
+        "steps": [
+          {
+            "id": "setApiKey",
+            "title": "Set your API key",
+            "description": "Use the **MiniMax: Set API Key** command to store your Token Plan API key in VS Code SecretStorage.",
+            "completionEvents": [
+              "onCommand:minimax.setApiKey"
+            ]
+          },
+          {
+            "id": "switchEndpoint",
+            "title": "Pick your API endpoint",
+            "description": "International users can use **MiniMax: Switch to Global API**; users in China can use **MiniMax: Switch to Chinese API**. Both use the Anthropic-compatible protocol.",
+            "completionEvents": [
+              "onCommand:minimax.switchToGlobal",
+              "onCommand:minimax.switchToChina"
+            ]
+          },
+          {
+            "id": "chooseModel",
+            "title": "Choose a model",
+            "description": "Open the Copilot Chat model picker and select any **MiniMax** model. Run **MiniMax: Show Pricing** to compare cost."
+          },
+          {
+            "id": "configureAdvanced",
+            "title": "Tune advanced settings",
+            "description": "Adjust `minimax.visibleModels`, `minimax.maxTokens`, `minimax.debugMode`, and `minimax.experimental.stabilizeToolList` from the Settings UI."
+          }
+        ]
+      }
+    ],
     "languageModelChatProviders": [
       {
         "vendor": "minimax",
@@ -118,7 +249,7 @@
     "test": "node ./out/test/runTest.js"
   },
   "dependencies": {
-    "openai": "^6.5.0"
+    "@anthropic-ai/sdk": "^0.100.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

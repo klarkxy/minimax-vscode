@@ -1,10 +1,44 @@
-import "vscode";
+/**
+ * Proposed `languageModelThinkingPart` API.
+ *
+ * Copied from VS Code repository (src/vscode-dts/vscode.proposed.languageModelThinkingPart.d.ts).
+ * Defines the proposed `languageModelThinkingPart` API not yet in @types/vscode.
+ * To update: npx @vscode/dts dev
+ * Can be removed once the API graduates to stable.
+ */
 
 declare module "vscode" {
+  /**
+   * A language model response part containing thinking/reasoning content.
+   * Thinking tokens represent the model's internal reasoning process that
+   * typically streams before the final response.
+   */
   export class LanguageModelThinkingPart {
-    thinking: string;
-    metadata?: Readonly<Record<string, unknown>>;
+    /**
+     * The thinking/reasoning text content.
+     */
+    value: string | string[];
 
-    constructor(thinking: string, metadata?: Readonly<Record<string, unknown>>);
+    /**
+     * Optional unique identifier for this thinking sequence.
+     */
+    id?: string;
+
+    /**
+     * Optional metadata associated with this thinking sequence.
+     */
+    metadata?: { readonly [key: string]: any };
+
+    /**
+     * Construct a thinking part with the given content.
+     * @param value The thinking text content.
+     * @param id Optional unique identifier for this thinking sequence.
+     * @param metadata Optional metadata associated with this thinking sequence.
+     */
+    constructor(
+      value: string | string[],
+      id?: string,
+      metadata?: { readonly [key: string]: any },
+    );
   }
 }

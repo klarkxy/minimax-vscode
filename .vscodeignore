@@ -7,3 +7,11 @@ tsconfig.json
 esbuild.mjs
 package-lock.json
 **/*.map
+
+# Reference / scratch directories that must not be shipped
+deepseek-v4-for-copilot/**
+minimax-status/**
+docs/**
+
+# Local build artefacts
+**/*.vsix
