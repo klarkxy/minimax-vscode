@@ -1,55 +1,92 @@
 # Changelog
 
-## Unreleased — Drop the thinking-effort picker
+## 2.0.0 — Renamed to MiniMax Copilot + thinking-effort picker removed
 
-MiniMax's Anthropic-compatible endpoint only accepts a binary
-`thinking: { type: "disabled" | "adaptive" }` toggle. There is **no**
-`budget_tokens` field, no `reasoning_effort` URL parameter, and no
-`reasoning_split` field on the Anthropic surface (see the
-[OpenAPI spec](https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json)).
-The official `Mini-Agent` reference client confirms this: it ships
-`extra_body={"reasoning_split": true}` hardcoded and has no UI for
-depth. We therefore:
+This release bundles the marketplace rename with a round of
+behavioural fixes. Some of these are user-visible (a UI element is
+gone, the Copilot status-bar context widget now reports the right
+numbers); most are behind-the-scenes hardening.
 
-- **Removed** the four-level Thinking mode dropdown from the model
-  picker. There is no `configurationSchema` on any model anymore.
-- **Stopped** sending the typed `thinking: { type: "enabled",
-  budget_tokens: … }` payload (it triggered 404 on the gateway) and
-  the `reasoning_effort` / `reasoning_split` query parameters.
-- **Always** send `thinking: { type: "adaptive" }` for thinking-
-  capable models, force `temperature: 1`, and drop `top_p` per the
-  Anthropic constraint.
-- Updated README/CHANGELOG prose to be honest about what MiniMax
-  actually exposes (the binary `disabled | adaptive` toggle).
+### Breaking changes
 
-Restoring the picker, once MiniMax ships a typed effort parameter, is
-a single-file change in `src/provider/models.ts`.
+- **Marketplace listing renamed to "MiniMax Copilot"** so the
+  GitHub Copilot integration intent is obvious at a glance. The
+  extension ID (`klarkxy.minimax-vscode`), publisher, command
+  names, configuration keys, walkthrough, and `SecretStorage` key
+  are all unchanged — existing installations upgrade in place and
+  keep all their settings.
+- **Four-level Thinking mode dropdown removed from the model
+  picker.** MiniMax's Anthropic-compatible endpoint only accepts a
+  binary `thinking: { type: "disabled" | "adaptive" }` toggle (see
+  the [OpenAPI spec](https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json));
+  the `budget_tokens` field, the `reasoning_effort` URL parameter,
+  and the `reasoning_split` field on the Anthropic surface simply
+  do not exist, and the official `Mini-Agent` reference client
+  confirms this by shipping `extra_body={"reasoning_split": true}`
+  hardcoded with no UI for depth. Sending any of those triggered
+  HTTP 404 on the gateway.
+  - We **always** send `thinking: { type: "adaptive" }` for
+    thinking-capable models, force `temperature: 1`, and drop
+    `top_p` per the Anthropic constraint.
+  - Restoring the picker, once MiniMax ships a typed effort
+    parameter, is a single-file change in `src/provider/models.ts`.
 
-## 2.0.0 — Renamed to MiniMax Copilot
+### New features
 
-**Breaking change** (display name only). The extension's marketplace
-listing is now shown as **MiniMax Copilot** to make the GitHub
-Copilot integration intent obvious at a glance. The extension ID,
-publisher, command names, configuration keys, walkthrough, and
-`SecretStorage` key are all unchanged — existing installations will
-upgrade in place, see the new display name in their extension list,
-and keep all their settings.
+- **Per-model sampling overrides.** New top-level
+  `minimax.sampling` configuration object lets you set
+  `temperature` / `topP` / `topK` / `frequencyPenalty` per model ID
+  without code changes. `temperature` and `topP` are ignored when
+  the model is in `thinking: adaptive` mode (Anthropic's
+  constraint); `topK` and `frequencyPenalty` are always honoured.
+  Example: `{ "MiniMax-M2.7": { "temperature": 0.2, "topK": 40 } }`.
+- **Per-model `extra` escape hatch.** New experimental
+  `minimax.experimental.modelDefPresets` object lets you merge
+  arbitrary keys into the Anthropic request body — useful for
+  `stop_sequences`, `service_tier`, `metadata`, or whatever
+  MiniMax adds next. 11 reserved keys (the Anthropic-required
+  fields and the constrained `temperature` / `top_p` / `top_k` /
+  `frequency_penalty`) are rejected; `tools` is concatenated
+  rather than replaced.
+- **Anthropic `cache_control` breakpoints on system + last tool.**
+  The system prompt and the last tool definition now carry
+  `cache_control: { type: "ephemeral" }` so they count toward the
+  cached prefix on subsequent turns. A new
+  `enforceCacheControlBudget()` helper caps the total at the
+  Anthropic-imposed 4-breakpoint ceiling and trims in-message
+  breakpoints first when the host already emits its own
+  breakpoints (preventing HTTP 400 from too many breakpoints).
 
-### Why the rename?
+### Fixes
 
-- The previous display name (`MiniMax (coding)`) read like a model
-  name rather than a Copilot provider; renaming reduces confusion
-  with other MiniMax models / tools.
-- The new name aligns with the user's mental model: install
-  **MiniMax Copilot** to add MiniMax as a model provider in GitHub
-  Copilot Chat.
+- **Copilot status-bar context widget now reports cache writes.**
+  `reportCopilotContextUsage` previously sent only
+  `usage.input_tokens` as `prompt_tokens`, which understated the
+  full computational cost on cache-creation turns (Anthropic
+  charges for the full input prefix when *writing* the cache
+  entry). The data part now aggregates
+  `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`,
+  matches the oai-compatible-copilot upstream, and skips the part
+  entirely on zero-usage turns.
+- **Git commit-message generator now actually fetches the diff.**
+  `buildScmContext` used to read the diff from the VS Code Git
+  extension's typed `state.diff` shape, which is empty in modern
+  VS Code — so the prompt contained only the file list and the
+  model had to "invent" the diff. A new `extractDiffViaGitCli`
+  helper spawns `git --no-pager diff --staged --diff-filter=d`
+  (falling back to `git --no-pager diff HEAD --diff-filter=d`) as
+  a 16 MiB / 10 s bounded fallback. Spawn errors degrade
+  gracefully to the file-list-only prompt.
 
 ### Notes
 
-- No code change between 1.6.0 and 2.0.0. The version bump is solely
-  a UX / marketplace signal.
-- If you've pinned to `klarkxy.minimax-vscode` in a settings sync or
-  DevOps manifest, the ID is unchanged.
+- The 1.6.0 → 2.0.0 version bump is **partly cosmetic** (the
+  rename) and **partly substantive** (everything above). If you've
+  pinned to `klarkxy.minimax-vscode` in a settings sync or DevOps
+  manifest, the ID is unchanged.
+- The `configurationSchema` field on `MiniMax*` chat info entries
+  is now always undefined. Custom automation that introspected the
+  picker schema for a `reasoningEffort` field must adapt.
 
 ## 1.6.0 — Anthropic-only, 512K M3, in-picker pricing, endpoint auto-select, commit-message generator
 

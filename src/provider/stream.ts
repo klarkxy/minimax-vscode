@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { createUserFacingError, MiniMaxClient } from '../client';
 import { getBaseUrl } from '../config';
+import { COPILOT_USAGE_DATA_PART_MIME } from '../consts';
 import { logger } from '../logger';
 import { t } from '../i18n';
 import type {
@@ -27,8 +28,6 @@ interface ResponseStreamState {
 	// with the most recent thinking block on the same index).
 	pendingThinkingIndex: number | undefined;
 }
-
-const COPILOT_USAGE_DATA_PART_MIME = 'usage';
 
 export interface StreamChatCompletionOptions {
 	prepared: PreparedChatRequest;
@@ -287,21 +286,49 @@ function reportCopilotContextUsage(
 	progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 	usage: MiniMaxUsage,
 ): void {
+	// Anthropic charges for the full input prefix on cache-creation turns
+	// (the prompt that *wrote* the cache entry, which is then re-used on
+	// subsequent turns). Aggregating all three counters into `prompt_tokens`
+	// matches both the oai-compatible-copilot upstream and what Copilot
+	// Chat's status-bar widget actually expects to see.
+	const inputTokens = usage.input_tokens ?? 0;
+	const cacheCreateTokens = usage.cache_creation_input_tokens ?? 0;
+	const cacheReadTokens = usage.cache_read_input_tokens ?? 0;
+	const outputTokens = usage.output_tokens ?? 0;
+	const promptTokens = inputTokens + cacheCreateTokens + cacheReadTokens;
+
+	// Skip the data part entirely on a zero-usage turn so we don't churn
+	// the status bar with empty `0 + 0 = 0` updates.
+	if (promptTokens === 0 && outputTokens === 0) {
+		return;
+	}
+
 	const data = {
-		prompt_tokens: usage.input_tokens ?? 0,
-		completion_tokens: usage.output_tokens ?? 0,
-		total_tokens: (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0),
+		prompt_tokens: promptTokens,
+		completion_tokens: outputTokens,
+		total_tokens: promptTokens + outputTokens,
 		prompt_tokens_details: {
-			cached_tokens: usage.cache_read_input_tokens ?? 0,
+			cached_tokens: cacheReadTokens,
 		},
 	};
 
-	progress.report(
-		new vscode.LanguageModelDataPart(
-			new TextEncoder().encode(JSON.stringify(data)),
-			COPILOT_USAGE_DATA_PART_MIME,
-		),
-	);
+	logger.debug('usage.report', {
+		usage,
+		emitted: data,
+	});
+
+	try {
+		progress.report(
+			new vscode.LanguageModelDataPart(
+				new TextEncoder().encode(JSON.stringify(data)),
+				COPILOT_USAGE_DATA_PART_MIME,
+			),
+		);
+	} catch (error) {
+		logger.error('usage.report.error', {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
 }
 
 // Re-export the event type for downstream diagnostics.

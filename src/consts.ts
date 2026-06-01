@@ -48,3 +48,11 @@ export const MINIMAX_TOOLS_LIMIT = 128;
 
 /** MIME type used to embed stateful replay markers in chat messages. */
 export const REPLAY_MARKER_MIME = 'minimax_marker';
+
+/**
+ * MIME type for the per-turn `usage` data part that Copilot Chat uses
+ * to populate the context-usage widget in its status bar. The value
+ * matches the oai-compatible-copilot upstream and what Copilot Chat
+ * expects on the receiving end.
+ */
+export const COPILOT_USAGE_DATA_PART_MIME = 'usage';

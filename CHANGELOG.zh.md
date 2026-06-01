@@ -2,44 +2,61 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
-## 未发布 — 移除「思考强度」选择器
+## 2.0.0 — 改名为 MiniMax Copilot + 移除思考强度选择器
 
-MiniMax 的 Anthropic 兼容端点只接受一个二值开关
-`thinking: { type: "disabled" | "adaptive" }`——没有 `budget_tokens`
-字段、没有 `reasoning_effort` URL 参数、Anthropic 兼容通道上也没有
-`reasoning_split` 字段（详见
-[OpenAPI 规范](https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json)）。
-官方的 `Mini-Agent` 参考实现也印证了这一点：写死
-`extra_body={"reasoning_split": true}`，根本没有 UI / 配置项 /
-环境变量可调。所以：
+这一版把市场化的改名和一轮行为修复打包发布。其中一部分对用户可见（UI 元素没了、Copilot 状态栏的上下文统计数字变正确了）；大部分是底层加固。
 
-- **移除**模型选择器里的四档「思考模式」下拉菜单，所有模型不再带
-  `configurationSchema`。
-- **不再**发送 typed `thinking: { type: "enabled", budget_tokens: … }`
-  请求体（这正是导致 404 的根因），也不再发 `reasoning_effort` /
-  `reasoning_split` 这两个 query 参数。
-- 对于支持 thinking 的模型，**永远**只发
-  `thinking: { type: "adaptive" }`，并强制 `temperature: 1`、
-  去掉 `top_p`，遵守 Anthropic 约束。
-- 同步更新了 README / CHANGELOG 措辞，与 MiniMax 实际暴露的二值
-  开关对齐。
+### 破坏性变更
 
-将来若 MiniMax 真的发布档位参数，把下拉菜单加回来只需要改
-`src/provider/models.ts` 一个文件。
+- **Marketplace 展示名改为 MiniMax Copilot**，让「为 GitHub Copilot 提供 MiniMax 模型」这层意图一眼可读。扩展 ID（`klarkxy.minimax-vscode`）、publisher、命令名、配置项、walkthrough、SecretStorage key **均不变**——已安装用户原地升级，所有配置原封不动。
+- **移除模型选择器里的四档「思考模式」下拉菜单。** MiniMax 的 Anthropic 兼容端点只接受一个二值开关
+  `thinking: { type: "disabled" | "adaptive" }`（详见
+  [OpenAPI 规范](https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json)），根本没有
+  `budget_tokens` 字段、没有 `reasoning_effort` URL 参数、Anthropic 兼容通道上也没有 `reasoning_split` 字段。官方的 `Mini-Agent` 参考实现也印证了这一点：写死
+  `extra_body={"reasoning_split": true}`，根本没有 UI / 配置项 / 环境变量可调。发这些字段直接触发 HTTP 404。
+  - 对所有支持 thinking 的模型，**永远**只发
+    `thinking: { type: "adaptive" }`，并强制 `temperature: 1`、去掉 `top_p`，遵守 Anthropic 约束。
+  - 将来若 MiniMax 真的发布档位参数，把下拉菜单加回来只需要改 `src/provider/models.ts` 一个文件。
 
-## 2.0.0 — 改名为 MiniMax Copilot
+### 新增功能
 
-**破坏性变更**（仅展示名）。扩展在 Marketplace 上的展示名已改为 **MiniMax Copilot**，让「为 GitHub Copilot 提供 MiniMax 模型」这层意图一眼可读。扩展 ID、publisher、命令名、配置项、walkthrough、SecretStorage key **均不变**——已安装用户原地升级，扩展列表里看到新名字，所有配置原封不动。
+- **per-model sampling 覆盖。** 新增顶层
+  `minimax.sampling` 配置对象，按 model ID 单独设置
+  `temperature` / `topP` / `topK` / `frequencyPenalty`，免改代码。
+  当模型处于 `thinking: adaptive` 模式时 `temperature` / `topP` 被忽略（Anthropic 约束），
+  `topK` / `frequencyPenalty` 永远生效。示例：
+  `{ "MiniMax-M2.7": { "temperature": 0.2, "topK": 40 } }`。
+- **per-model `extra` 转义舱。** 新增实验性
+  `minimax.experimental.modelDefPresets` 对象，把任意键合并进 Anthropic 请求体——
+  `stop_sequences` / `service_tier` / `metadata` 或将来 MiniMax 加的任何字段都能用。
+  11 个 reserved keys（Anthropic 必需的字段以及被约束的
+  `temperature` / `top_p` / `top_k` / `frequency_penalty`）会被拒绝覆盖；
+  `tools` 与现有工具数组合并而非替换。
+- **Anthropic `cache_control` 断点（system + 最后一个 tool）。**
+  系统提示词和最后一个工具定义现在都挂上
+  `cache_control: { type: "ephemeral" }`，让它们计入后续轮次的缓存前缀。
+  新增的 `enforceCacheControlBudget()` helper 把总数控制在 Anthropic 的 4 断点上限以内；
+  主机（Copilot）自己也会发断点，超出 4 时会先砍 in-message 的那批，避免 400。
 
-### 为什么要改名？
+### 修复
 
-- 旧名 `MiniMax (coding)` 读起来像模型名而非 Copilot 扩展，容易和 MiniMax 其他模型/工具混淆。
-- 新名贴合用户心智模型：装 **MiniMax Copilot** 就是为 GitHub Copilot Chat 加 MiniMax 模型供应方。
+- **Copilot 状态栏的上下文统计现在能正确显示 cache 写入成本。**
+  `reportCopilotContextUsage` 之前只把 `usage.input_tokens` 当成 `prompt_tokens` 上报，
+  这会在 cache 写入轮次严重低估真实计算开销（Anthropic 对写 cache 的输入前缀按完整输入价收费）。
+  现在 data part 把 `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` 三者聚合，
+  与 oai-compatible-copilot 上游一致；零用量轮次直接跳过，不再闪 `0+0=0`。
+- **Git commit message 生成器现在能真正拿到 diff。**
+  `buildScmContext` 之前从 VS Code Git 扩展的 typed `state.diff` 字段读 diff，
+  但现代 VS Code 里这个字段总是空的，导致 prompt 里只有文件列表、模型只能凭文件名瞎编。
+  新增的 `extractDiffViaGitCli` 兜底层用 `child_process.spawn` 跑
+  `git --no-pager diff --staged --diff-filter=d`（拿不到 staged 时退到
+  `git --no-pager diff HEAD --diff-filter=d`），并有 16 MiB / 10 秒的硬上限。
+  spawn 错误优雅退化，prompt 至少还能给出文件列表。
 
 ### 备注
 
-- 1.6.0 → 2.0.0 之间**没有任何代码改动**，仅是 UX / Marketplace 信号的版本号提升。
-- 如果你在 settings sync、DevOps 脚本里硬编码了 `klarkxy.minimax-vscode`，ID 不变，放心用。
+- 1.6.0 → 2.0.0 的版本号提升**部分是表面改动**（改名）**部分是实质改动**（以上所有项）。如果你在 settings sync、DevOps 脚本里硬编码了 `klarkxy.minimax-vscode`，ID 不变，放心用。
+- `MiniMax*` chat info 上的 `configurationSchema` 字段现在永远是 undefined。自定义自动化如果之前 introspection 这个选择器 schema 找 `reasoningEffort` 字段，需要适配。
 
 ## 1.6.0 — 仅 Anthropic 协议、M3 锁 512K、模型选择器内显示价格、端点自动选择、Git 提交信息生成
 

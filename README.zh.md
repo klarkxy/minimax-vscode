@@ -5,81 +5,52 @@
 <a href="https://open-vsx.org/extension/klarkxy/minimax-vscode"><img src="https://img.shields.io/badge/Open%20VSX-Install-2F81F7?logo=openvsx&logoColor=white&style=for-the-badge" alt="从 Open VSX 安装"></a>
 <!-- marketplace-readme:remove-end -->
 
-<img src="https://vsmarketplacebadges.dev/installs-short/klarkxy.minimax-vscode.svg?style=for-the-badge" alt="安装量" />
+<img src="https://vsmarketplacebadges.dev/installs-short/klarkxy.minimax-vscode.vsix.svg?style=for-the-badge" alt="安装量" />
 
 > 🇨🇳 简体中文 | [🇬🇧 English documentation](./README.md)
 
-为 GitHub Copilot 提供 MiniMax M 系列语言模型的 VS Code Chat Provider，使用 Token Plan API Key。本扩展只走 **Anthropic 兼容** 协议 —— 这是 MiniMax 官方推荐的新接入方式。
+为 [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat)
+增加 **MiniMax M3 / M2.7** 模型供应方的 VS Code 扩展。用 [Token Plan](https://platform.minimax.io/user-center/payment/token-plan)
+API Key 就能直接用。
 
 > 架构借鉴自 [`deepseek-v4-for-copilot`](https://github.com/Vizards/deepseek-v4-for-copilot)（MIT 协议），并针对 MiniMax Anthropic 兼容 API 进行了适配。
 
-## 特性
+## 能做什么
 
-- **Token Plan API Key** 来自 [platform.minimaxi.com](https://platform.minimaxi.com)，使用 VS Code SecretStorage 存储。
-- **Anthropic 兼容协议** 直连 `https://api.minimaxi.com/anthropic`（国内）或 `https://api.minimax.io/anthropic`（国际），基于官方 [`@anthropic-ai/sdk`](https://www.npmjs.com/package/@anthropic-ai/sdk)。激活时**自动**根据 VS Code 显示语言（`zh*` 走国内端点，否则走国际端点）选择默认端点，已配置过的端点不会被覆盖。
-- **覆盖官方推荐的 MiniMax 编程模型**：
-  - **MiniMax M3** — 1M 上下文（>512K 输入层级当前限量供应，**实际可用 512K**），原生多模态，输出上限 512K，思考深度由模型在 `adaptive` 模式下自行决定。
-  - **MiniMax M2.7 / M2.7-highspeed** — 200K 上下文，纯文本，原生 Anthropic thinking。
-- **工具调用** 支持实验性的 `stabilizeToolList` 开关 —— 合成 preflight 调用以保持上游 prompt cache 命中。
-- **自适应 token 计数**，每次 API usage 上报都会校准。
-- **丰富的诊断能力**：请求分类器、缓存命中统计、verbose 模式下的完整请求 dump、本地化错误消息 + 可点击的动作链接。
-- **模型选择器里直接展示价格**：每个模型的每百万 token 成本（输入 / 输出 / 缓存读取 / 缓存写入）都会显示在 tooltip 里。运行 **MiniMax: Show Pricing** 打开完整价格表。
-- **Git commit message 生成**：SCM 输入框右上角直接可触发。默认用 `MiniMax-M2.7`，复杂改动可手动切到 `MiniMax-M3`。
-- **Replay markers** 用于跨会话的推理上下文。
-- **双语 UI**（英文 + 简体中文），自动跟随 VS Code 显示语言。
+- **M3 / M2.7 / M2.7-highspeed** 出现在 Copilot 模型选择器里，每个模型都显示上下文、输出上限和价格。
+- **M3 原生多模态**（图片直传）；M2.x 系列走视觉代理 fallback，图片附件在所有模型上都能用。
+- **工具调用**，可选实验性 `stabilizeToolList` 开关来稳住上游 prompt cache。
+- **Git commit message 生成**，挂在 SCM 输入框上。默认 Conventional Commits + gitmoji 风格，会把已有草稿当作「待润色」输入。
+- **按模型微调采样参数**（`temperature` / `topK` 等），不用改代码。
+- **累计用量统计**（输入 / 输出 / 缓存读取 token 跨会话累加），有专门的状态命令查看。
+- **诊断能力**：每个请求自动分类、缓存命中统计；verbose 模式下把完整请求 dump 到磁盘。
+- **双语 UI**（英文 + 简体中文），跟随 VS Code 显示语言自动切换。
 
 ## 环境要求
 
 - VS Code 1.111.0+
-- MiniMax Token Plan 订阅与 API Key
+- MiniMax [Token Plan](https://platform.minimax.io/user-center/payment/token-plan) 订阅与 API Key
 - 需要 VS Code Insiders 才能通过 proposed `languageModelThinkingPart` API 渲染思考折叠块
 - 提交信息生成依赖 VS Code 自带的 Git 扩展，请保持启用
 
 ## 快速开始
 
-1. 在 [Account / Token Plan](https://platform.minimaxi.com/user-center/payment/token-plan) 获取 Token Plan API Key。
+1. 在 [Account / Token Plan](https://platform.minimax.io/user-center/payment/token-plan) 拿到 Token Plan API Key。
 2. 在命令面板运行 **MiniMax: Set API Key**。
 3. 在 Copilot 模型选择器里选一个模型。运行 **MiniMax: Show Pricing** 查看价格对比。
-
-## 配置项
-
-| 设置项 | 默认值 | 用途 |
-| --- | --- | --- |
-| `minimax.apiBaseUrl` | `https://api.minimaxi.com/anthropic` | Anthropic 兼容 base URL。国际用户改用 `https://api.minimax.io/anthropic`。SDK 会自动追加 `/v1/messages`。激活时若用户尚未配置，会按 VS Code 显示语言自动选择。 |
-| `minimax.visibleModels` | _全部 M 系列_ | 限制模型选择器中出现的模型。 |
-| `minimax.commitModel` | `MiniMax-M2.7` | **MiniMax: Generate Commit Message** 使用的模型。复杂重构可手动切到 `MiniMax-M3`。 |
-| `minimax.maxTokens` | `0` | 输出 token 上限，`0` 表示由模型自行决定。硬上限：M2.7 系列是 131072，M3 是 512000。 |
-| `minimax.debugMode` | `minimal` | `minimal` / `metadata` / `verbose`（verbose 把每次请求 dump 到磁盘）。 |
-| `minimax.modelIdOverrides` | _恒等映射_ | 把 picker ID 映射到 API ID（用于第三方代理）。 |
-| `minimax.visionModel` | _自动_ | 非 M3 模型使用的视觉代理。对 M3 无效。 |
-| `minimax.visionPrompt` | _见 package.json_ | 视觉代理 prompt。 |
-| `minimax.experimental.stabilizeToolList` | `false` | 合成 preflight 工具调用。**实验性。** |
-
-## 命令
-
-| 命令 | 用途 |
-| --- | --- |
-| `MiniMax: Set API Key` | 把 Token Plan Key 存到 SecretStorage |
-| `MiniMax: Clear API Key` | 删除已存储的 Key |
-| `MiniMax: Switch to Global API (minimax.io/anthropic)` | 切换到国际版 Anthropic 端点 |
-| `MiniMax: Switch to Chinese API (minimaxi.com/anthropic)` | 切换到国内版 Anthropic 端点 |
-| `MiniMax: Set Vision Proxy Model` | 选择用于图片描述的非 MiniMax 模型 |
-| `MiniMax: Generate Commit Message` | 按暂存区 diff 自动生成 Conventional Commits 风格的提交信息 |
-| `MiniMax: Show Pricing` | 在 Markdown 预览里打开价格表 |
-| `MiniMax: Show Logs` | 聚焦 MiniMax 输出通道 |
-| `MiniMax: Open Request Dumps Folder` | 在文件管理器中打开请求 dump 目录 |
+4. 完成——直接在 Copilot Chat 里跟模型对话，或者在 SCM 输入框里用 **MiniMax: Generate Commit Message**。
 
 ## 模型
 
-| 模型 | 上下文 | 实际输入上限 | 输出上限 | 说明 |
-| --- | ---: | ---: | ---: | --- |
-| MiniMax M3 | 1,000,000 | 512,000 | 512,000 | 原生多模态 frontier 编程模型 |
-| MiniMax M2.7 | 204,800 | 196,608 | 131,072 | 自我迭代模型 |
-| MiniMax M2.7-highspeed | 204,800 | 196,608 | 131,072 | M2.7 高速版 |
+| 模型 | 上下文 | 实际输入上限 | 输出上限 | 图片输入 | 说明 |
+| --- | ---: | ---: | ---: | --- | --- |
+| MiniMax M3 | 1,000,000 | 512,000 | 512,000 | ✅ 原生 | Frontier 编程模型 |
+| MiniMax M2.7 | 204,800 | 196,608 | 131,072 | ✅ 视觉代理 | 自我迭代模型，约 60 TPS |
+| MiniMax M2.7-highspeed | 204,800 | 196,608 | 131,072 | ✅ 视觉代理 | 效果不变，约 100 TPS |
 
-> **M3 1M 上下文说明**：官方规格是 1M，但 >512K 输入层级当前处于「限时限量供应」状态，且 API 会拒绝 `max_tokens > 512_000` 的请求。因此实际可用输入上限为 512K，待官方完全开放后会自动放宽。
+> **M3 1M 上下文说明**：官方规格是 1M，但 >512K 输入层级目前限量供应，且 API 会拒绝 `max_tokens > 512_000` 的请求。实际可用输入上限锁定 512K，待官方全量开放后会自动放宽。
 >
-> **历史模型**：M2.5 / M2.1 / M2 已被 MiniMax 官方下线，本扩展不再收录。若仍有需求，可把对应 ID 加到 `minimax.modelIdOverrides` 与 `minimax.visibleModels` 后手工启用。
+> **历史模型**：M2.5 / M2.1 / M2 已被 MiniMax 官方下线，本扩展不再收录。如有需求可自行通过 `minimax.modelIdOverrides` + `minimax.visibleModels` 加回来。
 
 ## 价格（每百万 token，人民币）
 
@@ -90,25 +61,62 @@
 | MiniMax M2.7 | 2.10 | 8.40 | 0.42 | 2.625 |
 | MiniMax M2.7-highspeed | 4.20 | 16.80 | 0.42 | 2.625 |
 
-> M3 当前处于 7 天限时五折：输入 ¥2.10 / 输出 ¥8.40 / 缓存读取 ¥0.42。
-> 价格数据来自 [platform.minimaxi.com/docs/guides/pricing-paygo](https://platform.minimaxi.com/docs/guides/pricing-paygo)。
+> M3 当前处于 7 天限时五折：输入 ¥2.10 / 输出 ¥8.40 / 缓存读取 ¥0.42。价格数据来自
+> [platform.minimaxi.com/docs/guides/pricing-paygo](https://platform.minimaxi.com/docs/guides/pricing-paygo)。
 > Token Plan 订阅另计。
 
-## 思考模式
+## 配置项
 
-**MiniMax 官方并没有提供「思考强度」的可调旋钮。** 它的 Anthropic 兼容端点只接受一个二值开关
-`thinking: { type: "disabled" | "adaptive" }`——没有 `budget_tokens` 字段、没有 `reasoning_effort` URL 参数、Anthropic 兼容通道上也没有 `reasoning_split` 字段（详见
-[OpenAPI 规范](https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json)）。官方的 `Mini-Agent` 参考实现也印证了这一点：OpenAI provider 写死
-`extra_body={"reasoning_split": true}`，Anthropic provider 则根本不发送 `thinking` 块；UI、配置文件、环境变量里都没有可调档位。
+| 设置项 | 默认值 | 用途 |
+| --- | --- | --- |
+| `minimax.apiBaseUrl` | `https://api.minimaxi.com/anthropic` | Anthropic 兼容 base URL。国际用户改用 `https://api.minimax.io/anthropic`。SDK 自动追加 `/v1/messages`。激活时若用户尚未配置，会按 VS Code 显示语言自动选择。 |
+| `minimax.visibleModels` | _全部 M 系列_ | 限制模型选择器中出现的模型。 |
+| `minimax.maxTokens` | `0` | 输出 token 上限，`0` 表示由模型自行决定。硬上限：M2.7 系列 131072，M3 是 512000。 |
+| `minimax.commitModel` | `MiniMax-M2.7` | **MiniMax: Generate Commit Message** 使用的模型。 |
+| `minimax.sampling` | `{}` | 按模型设置 `temperature` / `topP` / `topK` / `frequencyPenalty`。详见[按模型调参](#按模型调参)。 |
+| `minimax.experimental.modelDefPresets` | `{}` | 按模型往请求体里塞额外字段的逃生口。详见[按模型调参](#按模型调参)。 |
+| `minimax.debugMode` | `minimal` | `minimal` / `metadata` / `verbose`（verbose 把每次请求 dump 到磁盘）。 |
+| `minimax.modelIdOverrides` | _恒等映射_ | 把 picker ID 映射到 API ID（用于第三方代理）。 |
+| `minimax.visionModel` | _自动_ | 非 M3 模型使用的视觉代理。对 M3 无效。 |
+| `minimax.visionPrompt` | _见 package.json_ | 视觉代理 prompt。 |
+| `minimax.experimental.stabilizeToolList` | `false` | 合成 preflight 工具调用以稳住上游 prompt cache。**实验性。** |
 
-所以本扩展**故意没有**在模型选择器里塞「思考模式」下拉菜单。每次请求的行为是：
+## 命令
 
-| 模型 | 实际发送 |
+| 命令 | 用途 |
 | --- | --- |
-| MiniMax M3 | `thinking: { type: "adaptive" }`（由 M3 自己决定深度） |
-| MiniMax M2.7 / M2.7-highspeed | 不发送 `thinking` 字段；推理过程仍以 `<think>…</think>` 形式出现在 `text` 内容块内 |
+| **MiniMax: Set API Key** | 把 Token Plan Key 存到 SecretStorage |
+| **MiniMax: Clear API Key** | 删除已存储的 Key |
+| **MiniMax: Show Provider Status** | 一屏看完当前配置和上一次请求的用量 |
+| **MiniMax: Show Usage** | 各模型累计 token 用量（自扩展激活以来） |
+| **MiniMax: Reset Usage** | 清空累计用量计数器 |
+| **MiniMax: Show Pricing** | 在 Markdown 预览里打开价格表 |
+| **MiniMax: Set Vision Proxy Model** | 选择用于图片描述的非 MiniMax 模型 |
+| **MiniMax: Generate Commit Message** | 按暂存区 diff 自动生成 Conventional Commits 风格的提交信息 |
+| **MiniMax: Set Commit Model** | 切换 **Generate Commit Message** 使用的模型 |
+| **MiniMax: Switch to Global API (`minimax.io/anthropic`)** | 切换到国际版 Anthropic 端点 |
+| **MiniMax: Switch to Chinese API (`minimaxi.com/anthropic`)** | 切换到国内版 Anthropic 端点 |
+| **MiniMax: Show Logs** | 聚焦 MiniMax 输出通道 |
+| **MiniMax: Open Request Dumps Folder** | 在文件管理器中打开请求 dump 目录 |
 
-当 `thinking` 开启时，我们还会强制把 `temperature` 设为 1 并去掉 `top_p`，遵守 Anthropic 的约束。如果将来 MiniMax 真的发布「档位」参数，把选择器加回来只需要改 `src/provider/models.ts` 一个文件——整条管线已经按 `effort` 字段预留了接口。
+## 按模型调参
+
+两个配置键让你不用改代码就能按模型 ID 微调采样参数和请求体：
+
+```jsonc
+// settings.json
+"minimax.sampling": {
+  "MiniMax-M2.7": { "temperature": 0.2, "topK": 40 },
+  "MiniMax-M3":   { "topK": 80 }
+},
+"minimax.experimental.modelDefPresets": {
+  "MiniMax-M3": { "service_tier": "auto" }
+}
+```
+
+- 模型处于 `thinking: adaptive` 模式时，`temperature` 和 `topP` 会被忽略（Anthropic 约束）。
+- `topK` 和 `frequencyPenalty` 永远生效。
+- `modelDefPresets` 是逃生口——你塞的任意键都会原样合进请求体（标准字段之后）。11 个 reserved 键会被拒绝覆盖；`tools` 是与现有工具数组合并而非替换。
 
 ## Git 提交信息生成
 
@@ -122,6 +130,11 @@
 
 模型由 `minimax.commitModel` 决定（默认 `MiniMax-M2.7`）。当 diff 涉及复杂迁移或重构时，可手动切到 `MiniMax-M3` 获取更强的推理。
 
+## 思考模式
+
+MiniMax 的 Anthropic 兼容端点只接受一个二值开关
+`thinking: { type: "disabled" | "adaptive" }`——**没有**任何「思考强度」旋钮。本扩展对支持 thinking 的模型永远发 `adaptive`、M2.x 系列不发送该字段（它们的推理过程以 `<think>…</think>` 形式直接出现在 `text` 内容块里）。`thinking` 开启时强制 `temperature: 1` 并去掉 `top_p` 是 Anthropic 协议本身的约束，不是我们加的限制。
+
 ## 端点自动选择
 
 激活时如果 `minimax.apiBaseUrl` 仍是出厂默认，扩展会按 VS Code 显示语言自动选择端点：
@@ -129,7 +142,14 @@
 - `zh*`（含 `zh-cn` / `zh-tw` / `zh-hk` / `zh-sg` 等）→ 国内端点 `https://api.minimaxi.com/anthropic`。
 - 其他语言 → 国际端点 `https://api.minimax.io/anthropic`。
 
-一旦你手动改过 `minimax.apiBaseUrl` 或运行过 `switchToGlobal` / `switchToChina` 命令，自动选择就**不再覆盖**你的选择。
+一旦你手动改过 `minimax.apiBaseUrl` 或运行过 `MiniMax: Switch to Global/Chinese API` 命令，自动选择就**不再覆盖**你的选择。
+
+## 故障排查
+
+- **模型选择器里没有模型** —— 运行 **MiniMax: Show Provider Status** 检查 API Key 是否配置、`visibleModels` 是否过滤掉了。
+- **HTTP 404 from the gateway** —— 确认 `minimax.apiBaseUrl` 指向 MiniMax 的 Anthropic 兼容地址（`api.minimaxi.com/anthropic` 或 `api.minimax.io/anthropic`），不是走 OpenAI 协议的第三方代理。
+- **「未配置 API Key」** —— 运行 **MiniMax: Set API Key**；Key 存在 SecretStorage 里，不在 `settings.json`。
+- **生成的 commit message 是空的** —— diff 可能超过 32 KB。运行 **MiniMax: Show Logs** 看生成器实际拿到了什么。
 
 ## 许可证
 
