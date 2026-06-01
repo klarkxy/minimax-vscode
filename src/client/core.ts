@@ -647,8 +647,13 @@ async function consumeAnthropicStream(
 						...(pendingUsage ?? {
 							input_tokens: 0,
 							output_tokens: 0,
+							cache_creation_input_tokens: 0,
+							cache_read_input_tokens: 0,
 						}),
 						output_tokens: event.usage.output_tokens ?? pendingUsage?.output_tokens ?? 0,
+						// Preserve cache tokens from message_start if present
+						cache_creation_input_tokens: pendingUsage?.cache_creation_input_tokens ?? 0,
+						cache_read_input_tokens: pendingUsage?.cache_read_input_tokens ?? 0,
 					};
 				}
 				break;
