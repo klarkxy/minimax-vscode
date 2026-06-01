@@ -7,6 +7,19 @@ behavioural fixes. Some of these are user-visible (a UI element is
 gone, the Copilot status-bar context widget now reports the right
 numbers); most are behind-the-scenes hardening.
 
+### New features
+
+- **Usage dashboard** — new **`MiniMax: Open Usage Dashboard`**
+  command plus a clickable status-bar item that shows today's /
+  7-day / 30-day token usage (input, cache read, cache write,
+  output, requests) sourced from the local cumulative counter.
+  The dashboard also pulls the platform `coding_plan/remains`
+  endpoint (5h reset, weekly limit, subscription expiry) when an
+  API key is configured, and degrades gracefully when it's not.
+  The usage counter now totals `requests` correctly (it didn't
+  before) and persists a per-day bucket so the dashboard's
+  30-day bar chart stays accurate across midnight rollovers.
+
 ### Breaking changes
 
 - **Marketplace listing renamed to "MiniMax Copilot"** so the

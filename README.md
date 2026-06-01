@@ -33,6 +33,12 @@ API key.
   per model without editing code.
 - **Cumulative usage tracker** — input / output / cache-read tokens
   across the whole extension lifetime, with a status command.
+- **Usage dashboard** — a one-click webview (status-bar entry + a
+  command) that renders today / 7-day / 30-day token usage, a
+  30-day bar chart, per-model breakdown, and the platform
+  `coding_plan/remains` data (5h reset, weekly limit, subscription
+  expiry) when an API key is configured. The counter updates live
+  as new requests land.
 - **Diagnostics** — per-request classifier, cache-hit stats, and a
   verbose mode that dumps every request to disk.
 - **Bilingual UI** that follows the VS Code display language.
@@ -120,6 +126,7 @@ API key.
 | **MiniMax: Switch to Chinese API (`minimaxi.com/anthropic`)** | Switch to the China Anthropic endpoint |
 | **MiniMax: Show Logs** | Focus the MiniMax output channel |
 | **MiniMax: Open Request Dumps Folder** | Reveal verbose request dumps |
+| **MiniMax: Open Usage Dashboard** | Open the usage dashboard (today / 7-day / 30-day tokens, per-model breakdown, 30-day bar chart, platform `coding_plan/remains` data) |
 
 ## Per-model sampling
 
@@ -175,6 +182,34 @@ entirely for M2.x (whose reasoning surfaces as `<think>…</think>`
 inside the text content). Forcing `temperature: 1` and dropping
 `top_p` whenever thinking is on is the Anthropic constraint, not a
 choice.
+
+## Usage dashboard
+
+Click the `$(graph) MiniMax …` item in the VS Code status bar, or run
+**MiniMax: Open Usage Dashboard**, to open a side-panel webview that
+combines two data sources:
+
+- **Local token accounting** — every request the extension makes is
+  recorded into a persistent counter. The dashboard aggregates it
+  into three windows: **Today**, **Last 7 days**, and **Last 30
+  days**, with separate columns for `Input`, `Cache read`,
+  `Cache write`, `Output`, and `Requests`. A 30-day bar chart and a
+  per-model breakdown table are rendered below the windows. The
+  counter updates live: every new request the chat provider makes
+  bumps the day bucket and the dashboard re-renders without a
+  manual refresh.
+- **Platform Token Plan** — when an API key is configured, the
+  dashboard also calls `GET /v1/api/openplatform/coding_plan/remains`
+  and renders the 5-hour reset window, the weekly limit, the
+  per-model quota table, and the subscription expiry date.
+  Failures (401, network, malformed payload) are surfaced as a
+  yellow banner; the local counters above remain accurate. The
+  host (`minimaxi.com` vs `minimax.io`) is auto-picked from
+  `minimax.apiBaseUrl`.
+
+The dashboard has a **Reset counters** button that clears the local
+Memento after a confirmation prompt; the platform data cannot be
+reset from the extension.
 
 ## Endpoint auto-selection
 

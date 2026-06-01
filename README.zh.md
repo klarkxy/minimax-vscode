@@ -23,6 +23,7 @@ API Key 就能直接用。
 - **Git commit message 生成**，挂在 SCM 输入框上。默认 Conventional Commits + gitmoji 风格，会把已有草稿当作「待润色」输入。
 - **按模型微调采样参数**（`temperature` / `topK` 等），不用改代码。
 - **累计用量统计**（输入 / 输出 / 缓存读取 token 跨会话累加），有专门的状态命令查看。
+- **用量面板**：状态栏新增可点击入口 + 命令面板 `MiniMax: 打开用量面板`，一屏看完今日 / 近 7 日 / 近 30 日 token 用量、30 日柱状图、按模型拆分明细，以及平台 `coding_plan/remains` 提供的 5h 重置 / 周限额 / 套餐到期（未配置 API Key 时降级为仅本地数据）。
 - **诊断能力**：每个请求自动分类、缓存命中统计；verbose 模式下把完整请求 dump 到磁盘。
 - **双语 UI**（英文 + 简体中文），跟随 VS Code 显示语言自动切换。
 
@@ -98,6 +99,7 @@ API Key 就能直接用。
 | **MiniMax: Switch to Chinese API (`minimaxi.com/anthropic`)** | 切换到国内版 Anthropic 端点 |
 | **MiniMax: Show Logs** | 聚焦 MiniMax 输出通道 |
 | **MiniMax: Open Request Dumps Folder** | 在文件管理器中打开请求 dump 目录 |
+| **MiniMax: 打开用量面板** | 打开用量 Dashboard（今日 / 7 日 / 30 日 token、模型拆分、30 日柱状图、平台 `coding_plan/remains` 数据） |
 
 ## 按模型调参
 
@@ -134,6 +136,15 @@ API Key 就能直接用。
 
 MiniMax 的 Anthropic 兼容端点只接受一个二值开关
 `thinking: { type: "disabled" | "adaptive" }`——**没有**任何「思考强度」旋钮。本扩展对支持 thinking 的模型永远发 `adaptive`、M2.x 系列不发送该字段（它们的推理过程以 `<think>…</think>` 形式直接出现在 `text` 内容块里）。`thinking` 开启时强制 `temperature: 1` 并去掉 `top_p` 是 Anthropic 协议本身的约束，不是我们加的限制。
+
+## 用量面板
+
+点击 VS Code 底部状态栏的 `$(graph) MiniMax …` 按钮，或在命令面板运行 **MiniMax: 打开用量面板**，即可在侧边栏打开一个 Webview 面板，数据来自两个源头：
+
+- **本地 token 统计** —— 扩展发起的每一次请求都会写入持久化计数器，仪表盘把数据按时间窗口聚合：今日 / 近 7 日 / 近 30 日三组卡片，分别列出输入、缓存读取、缓存写入、输出、请求数；下方是一张 30 日柱状图和按模型拆分的明细表。计数器是**实时**的：每次新的 chat 请求结束后，仪表盘会自动重渲染，不需要手动刷新。
+- **平台 Token Plan** —— 配置了 API Key 时，仪表盘额外调用 `GET /v1/api/openplatform/coding_plan/remains`，展示 5 小时重置窗口、周限额、各模型额度表以及套餐到期日。调用失败（401 / 网络异常 / 响应格式异常）会显示一个黄色提示条，但**不会**影响上方本地数据的准确性。Host（`minimaxi.com` vs `minimax.io`）会按 `minimax.apiBaseUrl` 自动选择。
+
+面板里有 **清空计数器** 按钮，会弹确认框后清空本地 Memento；平台侧数据无法在扩展里清零。
 
 ## 端点自动选择
 

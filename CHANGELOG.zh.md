@@ -6,6 +6,10 @@
 
 这一版把市场化的改名和一轮行为修复打包发布。其中一部分对用户可见（UI 元素没了、Copilot 状态栏的上下文统计数字变正确了）；大部分是底层加固。
 
+### 新增功能
+
+- **用量面板（Usage Dashboard）** —— 新增命令 **`MiniMax: Open Usage Dashboard`**，并在状态栏增加可点击入口，展示今日 / 近 7 日 / 近 30 日的 token 用量（输入、缓存读取、缓存写入、输出、请求数），数据来源是本地累计计数器。配置了 API Key 时，仪表盘还会顺带从平台 `coding_plan/remains` 拉取 5h 重置 / 周限额 / 套餐到期时间，未配置时优雅降级。用量计数器现在会正确累加 `requests`（之前没有），并按日分桶，让仪表盘的 30 日柱状图能跨过零点正确累加。
+
 ### 破坏性变更
 
 - **Marketplace 展示名改为 MiniMax Copilot**，让「为 GitHub Copilot 提供 MiniMax 模型」这层意图一眼可读。扩展 ID（`klarkxy.minimax-vscode`）、publisher、命令名、配置项、walkthrough、SecretStorage key **均不变**——已安装用户原地升级，所有配置原封不动。
