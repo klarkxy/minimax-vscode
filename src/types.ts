@@ -173,4 +173,25 @@ export interface ModelDefinition {
 		supportsAdaptive: boolean;
 	};
 	pricing: ModelPricing;
+	/**
+	 * Optional per-model sampling overrides. When set, the values are
+	 * passed to the API as-is. The Anthropic `thinking: { type:
+	 * "adaptive" }` constraint still wins over these: when thinking is
+	 * on we force `temperature: 1` and drop `top_p` regardless of
+	 * what's configured here.
+	 */
+	sampling?: {
+		temperature?: number;
+		topP?: number;
+		topK?: number;
+		frequencyPenalty?: number;
+	};
+	/**
+	 * Escape hatch for MiniMax-specific or Anthropic-specific request
+	 * body fields that don't have a first-class config knob. Keys are
+	 * merged into the request body verbatim (after the standard fields).
+	 * Known safe keys: `stop_sequences`, `service_tier`, `metadata`.
+	 * Unknown keys are forwarded unchanged.
+	 */
+	extra?: Record<string, unknown>;
 }

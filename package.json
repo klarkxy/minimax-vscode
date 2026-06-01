@@ -230,6 +230,49 @@
           "tags": [
             "experimental"
           ]
+        },
+        "minimax.sampling": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Per-model sampling overrides. Map a model ID (`MiniMax-M3`, `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`) to a `{ temperature?, topP?, topK?, frequencyPenalty? }` object. Each field is optional; unset fields fall back to the API default. **Ignored when thinking is on** for `temperature` and `topP` (Anthropic's `thinking: { type: 'adaptive' }` constraint forces `temperature: 1` and drops `topP`). Restart the chat session after changing.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "temperature": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 2,
+                "markdownDescription": "Overrides `temperature`. `0` is greedy, `2` is most random."
+              },
+              "topP": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "markdownDescription": "Overrides `top_p` (nucleus sampling). Ignored when thinking is on."
+              },
+              "topK": {
+                "type": "integer",
+                "minimum": 0,
+                "markdownDescription": "Overrides `top_k` (sampling cutoff). Always honoured, including when thinking is on."
+              },
+              "frequencyPenalty": {
+                "type": "number",
+                "minimum": -2,
+                "maximum": 2,
+                "markdownDescription": "Overrides `frequency_penalty`. Always honoured, including when thinking is on."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "minimax.experimental.modelDefPresets": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "**Experimental.** Per-model `extra` escape hatch. Map a model ID to an object whose keys are merged verbatim into the Anthropic request body. Reserved keys (`model`, `messages`, `stream`, `max_tokens`, `system`, `thinking`, `tools`, `temperature`, `top_p`, `top_k`, `frequency_penalty`) are ignored. Useful for `stop_sequences`, `service_tier`, or whatever MiniMax adds next.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true
+          }
         }
       }
     },

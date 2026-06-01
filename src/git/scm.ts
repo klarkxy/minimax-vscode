@@ -1,3 +1,4 @@
+import { spawn } from 'child_process';
 import * as vscode from 'vscode';
 import { logger } from '../logger';
 
@@ -225,10 +226,10 @@ const MAX_DIFF_BYTES = 32 * 1024;
 const MAX_FILE_LIST = 80;
 const MAX_FILE_PATH_LENGTH = 160;
 
-export function buildScmContext(
+export async function buildScmContext(
 	repository: GitRepository,
 	commandArg?: unknown,
-): ScmContext {
+): Promise<ScmContext> {
 	const existingMessage = repository.inputBox?.value ?? '';
 
 	// 1. Try the SourceControl passed in via `commandArg` first — it's
@@ -286,7 +287,7 @@ export function buildScmContext(
 		summaryLines.push('No staged or working-tree changes detected.');
 	}
 
-	const diffText = extractDiff(repository);
+	const diffText = extractDiff(repository) || (await extractDiffViaGitCli(repository));
 	if (diffText && diffText.length > 0) {
 		summaryLines.push('', 'Diff (truncated to 32KB):', '```diff', diffText, '```');
 	}
@@ -415,6 +416,104 @@ function extractDiff(repository: GitRepository): string {
 		}
 	}
 	return '';
+}
+
+/**
+ * Fallback: shell out to `git diff` when the VS Code Git extension's
+ * typed `state.diff` shape doesn't carry the actual diff (the common
+ * case in modern VS Code). Mirrors the approach used by the
+ * oai-compatible-copilot reference: `git --no-pager diff --staged
+ * --diff-filter=d`, falling back to `git --no-pager diff HEAD
+ * --diff-filter=d` when nothing is staged.
+ *
+ * We use `spawn` (not `exec`) so a 50 MB diff can't blow the shell
+ * argv limit, and we resolve a full 32 KiB cap + a 10 s timeout so a
+ * hung `git` can't block the command palette.
+ */
+async function extractDiffViaGitCli(repository: GitRepository): Promise<string> {
+	const cwd = repository.rootUri?.fsPath;
+	if (!cwd) {
+		return '';
+	}
+	const staged = await runGitDiff(cwd, ['--no-pager', 'diff', '--staged', '--diff-filter=d']);
+	if (staged && staged.length > 0) {
+		return sliceDiff(staged);
+	}
+	const head = await runGitDiff(cwd, ['--no-pager', 'diff', 'HEAD', '--diff-filter=d']);
+	if (head && head.length > 0) {
+		return sliceDiff(head);
+	}
+	return '';
+}
+
+const GIT_CLI_TIMEOUT_MS = 10_000;
+const GIT_CLI_MAX_BUFFER = 16 * 1024 * 1024;
+
+function runGitDiff(cwd: string, args: string[]): Promise<string> {
+	return new Promise<string>((resolve) => {
+		let resolved = false;
+		const finish = (value: string): void => {
+			if (resolved) {
+				return;
+			}
+			resolved = true;
+			resolve(value);
+		};
+		try {
+			const child = spawn('git', args, {
+				cwd,
+				shell: false,
+				windowsHide: true,
+			});
+			const stdoutChunks: Buffer[] = [];
+			const stderrChunks: Buffer[] = [];
+			let totalBytes = 0;
+			let truncated = false;
+			child.stdout.on('data', (chunk: Buffer) => {
+				if (truncated) {
+					return;
+				}
+				totalBytes += chunk.length;
+				if (totalBytes > GIT_CLI_MAX_BUFFER) {
+					truncated = true;
+					return;
+				}
+				stdoutChunks.push(chunk);
+			});
+			child.stderr.on('data', (chunk: Buffer) => {
+				stderrChunks.push(chunk);
+			});
+			const timer = setTimeout(() => {
+				child.kill();
+				logger.debug('git diff CLI timed out', { cwd, args, timeoutMs: GIT_CLI_TIMEOUT_MS });
+				finish('');
+			}, GIT_CLI_TIMEOUT_MS);
+			child.on('error', (error) => {
+				clearTimeout(timer);
+				logger.debug('git diff CLI spawn failed', { cwd, args, error: error.message });
+				finish('');
+			});
+			child.on('close', (code) => {
+				clearTimeout(timer);
+				if (code !== 0) {
+					const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
+					logger.debug('git diff CLI exited non-zero', { cwd, args, code, stderr });
+					finish('');
+					return;
+				}
+				if (truncated) {
+					logger.warn('git diff CLI output exceeded 16 MiB buffer; dropping tail', {
+						cwd,
+						args,
+					});
+				}
+				finish(Buffer.concat(stdoutChunks).toString('utf8'));
+			});
+		} catch (error) {
+			logger.debug('git diff CLI threw synchronously', { cwd, args, error });
+			finish('');
+		}
+	});
 }
 
 function sliceDiff(text: string): string {

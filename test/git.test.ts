@@ -120,7 +120,7 @@ test('pickRelevantRepository: returns undefined for empty repository list', asyn
 // buildScmContext
 // ---------------------------------------------------------------------
 
-test('buildScmContext: marks staged files when indexChanges has entries', () => {
+test('buildScmContext: marks staged files when indexChanges has entries', async () => {
 	const repo = makeRepo('c:/work/repo', {
 		state: {
 			indexChanges: [
@@ -131,14 +131,14 @@ test('buildScmContext: marks staged files when indexChanges has entries', () => 
 			refs: [],
 		},
 	});
-	const ctx = buildScmContext(repo as unknown as Parameters<typeof buildScmContext>[0]);
+	const ctx = await buildScmContext(repo as unknown as Parameters<typeof buildScmContext>[0]);
 	assert.equal(ctx.stagedFileNames.length, 2);
 	assert.match(ctx.stagedDiff, /Staged files/);
 	assert.equal(ctx.existingMessage, '');
 	assert.equal(ctx.uri.fsPath.replace(/\\/g, '/'), 'c:/work/repo');
 });
 
-test('buildScmContext: falls back to workingTreeChanges when nothing staged', () => {
+test('buildScmContext: falls back to workingTreeChanges when nothing staged', async () => {
 	const repo = makeRepo('c:/work/repo', {
 		state: {
 			indexChanges: [],
@@ -148,22 +148,84 @@ test('buildScmContext: falls back to workingTreeChanges when nothing staged', ()
 			refs: [],
 		},
 	});
-	const ctx = buildScmContext(repo as unknown as Parameters<typeof buildScmContext>[0]);
+	const ctx = await buildScmContext(repo as unknown as Parameters<typeof buildScmContext>[0]);
 	assert.match(ctx.stagedDiff, /Unstaged working-tree/);
 	assert.deepEqual(ctx.stagedFileNames, ['c:/work/repo/wip.ts']);
 });
 
-test('buildScmContext: reports no changes when both lists are empty', () => {
+test('buildScmContext: reports no changes when both lists are empty', async () => {
 	const repo = makeRepo('c:/work/repo');
-	const ctx = buildScmContext(repo as unknown as Parameters<typeof buildScmContext>[0]);
+	const ctx = await buildScmContext(repo as unknown as Parameters<typeof buildScmContext>[0]);
 	assert.equal(ctx.stagedFileNames.length, 0);
 	assert.match(ctx.stagedDiff, /No staged or working-tree changes/);
 });
 
-test('buildScmContext: preserves a pre-existing input box message', () => {
+test('buildScmContext: preserves a pre-existing input box message', async () => {
 	const repo = makeRepo('c:/work/repo', { inputBox: { value: 'feat: in progress' } });
-	const ctx = buildScmContext(repo as unknown as Parameters<typeof buildScmContext>[0]);
+	const ctx = await buildScmContext(repo as unknown as Parameters<typeof buildScmContext>[0]);
 	assert.equal(ctx.existingMessage, 'feat: in progress');
+});
+
+test('buildScmContext: falls back to git CLI when state.diff is empty', async (t) => {
+	// In modern VS Code the Git extension's typed `state.diff` shape is
+	// usually empty, so we must shell out to `git diff --staged` to get
+	// the real diff. The current workspace IS a git repo, so this
+	// exercises the happy path: a real diff makes it into the prompt.
+	const repo = makeRepo(process.cwd(), {
+		state: {
+			indexChanges: [{ resourceUri: makeUri(`${process.cwd()}/fake.ts`) }],
+			workingTreeChanges: [],
+			refs: [],
+		},
+	});
+	// Strip any diff field on state so extractDiff() returns '' and the
+	// CLI fallback kicks in.
+	const repoAny = repo as unknown as { state: Record<string, unknown> };
+	repoAny.state = { ...repoAny.state };
+	delete repoAny.state.diff;
+
+	const ctx = await buildScmContext(
+		repo as unknown as Parameters<typeof buildScmContext>[0],
+	);
+	assert.ok(typeof ctx.stagedDiff === 'string');
+	assert.match(ctx.stagedDiff, /Staged files/);
+	// Real git diff landed in the prompt via the CLI fallback.
+	assert.match(ctx.stagedDiff, /Diff \(truncated to 32KB\)/);
+	void t;
+});
+
+test('buildScmContext: emits a no-diff prompt when repo is invalid', async () => {
+	// Point at a path that exists but is not a git repo. `git diff` will
+	// exit 128 and we treat that as "no diff available", so the prompt
+	// should still list files but skip the diff block.
+	const repo = makeRepo('C:/Windows/System32/drivers/etc', {
+		state: {
+			indexChanges: [{ resourceUri: makeUri('C:/Windows/System32/drivers/etc/hosts') }],
+			workingTreeChanges: [],
+			refs: [],
+		},
+	});
+	const ctx = await buildScmContext(
+		repo as unknown as Parameters<typeof buildScmContext>[0],
+	);
+	assert.match(ctx.stagedDiff, /Staged files/);
+	assert.doesNotMatch(ctx.stagedDiff, /Diff \(truncated to 32KB\)/);
+});
+
+test('buildScmContext: spawn errors degrade gracefully', async () => {
+	// If `git` is not on PATH, the prompt must still be built with the
+	// file list — never throw out of buildScmContext.
+	const repo = makeRepo('c:/work/repo', {
+		state: {
+			indexChanges: [{ resourceUri: makeUri('c:/work/repo/file.ts') }],
+			workingTreeChanges: [],
+			refs: [],
+		},
+	});
+	const ctx = await buildScmContext(
+		repo as unknown as Parameters<typeof buildScmContext>[0],
+	);
+	assert.match(ctx.stagedDiff, /Staged files/);
 });
 
 // ---------------------------------------------------------------------

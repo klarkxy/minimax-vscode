@@ -78,7 +78,7 @@ export async function streamChatCompletion({
 	await prepared.client.streamChat(
 		prepared.request.model,
 		prepared.request.messages,
-		{ apiKey, baseUrl: getBaseUrl() },
+		{ apiKey, baseUrl: getBaseUrl(), modelDef: prepared.modelDef },
 		token,
 		prepared.request.system,
 		prepared.request.max_tokens,

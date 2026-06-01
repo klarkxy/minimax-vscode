@@ -18,6 +18,13 @@ export interface ChatOptions {
 	baseUrl?: string;
 	/** Optional Anthropic beta header. */
 	betas?: string[];
+	/**
+	 * Optional per-model overrides that should be merged into the
+	 * request body. Currently used for `sampling` (temperature,
+	 * top_p, top_k, frequency_penalty) and `extra` (escape hatch for
+	 * any future Anthropic / MiniMax field).
+	 */
+	modelDef?: MiniMaxModelSamplingSource;
 }
 
 /**
@@ -47,6 +54,250 @@ export function appendQueryParams(
 	return baseUrl.includes('?') ? `${baseUrl}&${suffix}` : `${baseUrl}?${suffix}`;
 }
 
+
+/**
+ * Anthropic accepts at most 4 `cache_control` breakpoints per request. The
+ * VS Code Copilot host can already emit several breakpoints inside
+ * `messages`; combined with the two we add (system + last tool) the total
+ * can exceed 4 and the API returns 400. This function counts every
+ * breakpoint currently set on `system`, `tools`, and each message content
+ * block, and if the total exceeds 4, strips breakpoints in a stable
+ * priority order:
+ *   1. In-message breakpoints, earliest first (least valuable — covers the
+ *      shortest prefix).
+ *   2. The tools breakpoint, if still over budget after step 1.
+ *   3. The system breakpoint(s), last (most valuable — covers the longest
+ *      stable prefix).
+ *
+ * Mirrors the oai-compatible-copilot `enforceCacheControlBudget` so the
+ * two extensions behave identically under the same host input.
+ */
+const CACHE_CONTROL_BUDGET = 4;
+
+export function enforceCacheControlBudget(
+	params: Record<string, unknown>,
+): void {
+	let total = 0;
+	const systemBlocksWithCC: Array<{ cache_control?: unknown }> = [];
+	const toolsWithCC: Array<{ name?: unknown; cache_control?: unknown }> = [];
+	const msgBlocksWithCC: Array<{ cache_control?: unknown }> = [];
+
+	const system = params.system;
+	if (Array.isArray(system)) {
+		for (const block of system) {
+			if (block && typeof block === 'object' && (block as { cache_control?: unknown }).cache_control) {
+				systemBlocksWithCC.push(block as { cache_control?: unknown });
+				total++;
+			}
+		}
+	}
+	const tools = params.tools;
+	if (Array.isArray(tools)) {
+		for (const tool of tools) {
+			if (tool && typeof tool === 'object' && (tool as { cache_control?: unknown }).cache_control) {
+				toolsWithCC.push(tool as { name?: unknown; cache_control?: unknown });
+				total++;
+			}
+		}
+	}
+	const messages = params.messages;
+	if (Array.isArray(messages)) {
+		for (const msg of messages) {
+			if (!msg || typeof msg !== 'object') {
+				continue;
+			}
+			const content = (msg as { content?: unknown }).content;
+			if (Array.isArray(content)) {
+				for (const block of content) {
+					if (
+						block &&
+						typeof block === 'object' &&
+						(block as { cache_control?: unknown }).cache_control
+					) {
+						msgBlocksWithCC.push(block as { cache_control?: unknown });
+						total++;
+					}
+				}
+			}
+		}
+	}
+
+	if (total <= CACHE_CONTROL_BUDGET) {
+		return;
+	}
+
+	let toRemove = total - CACHE_CONTROL_BUDGET;
+	const removalLog: string[] = [];
+
+	for (const block of msgBlocksWithCC) {
+		if (toRemove === 0) {
+			break;
+		}
+		delete block.cache_control;
+		toRemove--;
+		removalLog.push('message');
+	}
+	for (const tool of toolsWithCC) {
+		if (toRemove === 0) {
+			break;
+		}
+		delete tool.cache_control;
+		toRemove--;
+		removalLog.push('tool');
+	}
+	for (const block of systemBlocksWithCC) {
+		if (toRemove === 0) {
+			break;
+		}
+		delete block.cache_control;
+		toRemove--;
+		removalLog.push('system');
+	}
+
+	logger.debug('anthropic.cache_control.trim', {
+		originalCount: total,
+		finalCount: CACHE_CONTROL_BUDGET,
+		dropped: removalLog,
+	});
+}
+
+/**
+ * Wire the per-model `sampling` block into the request body, but only
+ * when thinking is off (the Anthropic `thinking` constraint overrides
+ * `temperature` and `top_p` when it's on). Always respects
+ * `topK` and `frequencyPenalty` — those are not constrained by thinking.
+ */
+function applyPerModelSampling(
+	params: Record<string, unknown>,
+	modelDef: MiniMaxModelSamplingSource | undefined,
+	thinking: { type: 'adaptive' | 'disabled' } | undefined,
+): void {
+	const sampling = modelDef?.sampling;
+	if (!sampling) {
+		return;
+	}
+	if (thinking) {
+		// Thinking on: Anthropic's constraint wins, so we only forward
+		// the fields that aren't constrained (topK, frequencyPenalty).
+		if (typeof sampling.topK === 'number') {
+			params.top_k = sampling.topK;
+		}
+		if (typeof sampling.frequencyPenalty === 'number') {
+			params.frequency_penalty = sampling.frequencyPenalty;
+		}
+		return;
+	}
+	if (typeof sampling.temperature === 'number') {
+		params.temperature = sampling.temperature;
+	}
+	if (typeof sampling.topP === 'number') {
+		params.top_p = sampling.topP;
+	}
+	if (typeof sampling.topK === 'number') {
+		params.top_k = sampling.topK;
+	}
+	if (typeof sampling.frequencyPenalty === 'number') {
+		params.frequency_penalty = sampling.frequencyPenalty;
+	}
+}
+
+/**
+ * Shape we read from the optional modelDef argument on the request
+ * builders. Declared inline to avoid a circular import (core.ts is
+ * the lowest layer in the request path).
+ */
+interface MiniMaxModelSamplingSource {
+	sampling?: {
+		temperature?: number;
+		topP?: number;
+		topK?: number;
+		frequencyPenalty?: number;
+	};
+	extra?: Record<string, unknown>;
+}
+
+/**
+ * Merge the per-model `extra` escape hatch into the request body.
+ * Any key the user (or the registry) put on `modelDef.extra` ends up
+ * as a top-level field on the Anthropic request. Used for fields like
+ * `stop_sequences`, `service_tier`, `metadata`, or whatever MiniMax
+ * ships next that we don't have a first-class config for yet.
+ */
+function applyExtraParams(
+	params: Record<string, unknown>,
+	modelDef: MiniMaxModelSamplingSource | undefined,
+): void {
+	const extra = modelDef?.extra;
+	if (!extra || typeof extra !== 'object') {
+		return;
+	}
+	for (const [key, value] of Object.entries(extra)) {
+		if (value === undefined) {
+			continue;
+		}
+		// Don't let `extra` clobber the Anthropic-required / constrained
+		// fields we always set ourselves.
+		if (
+			key === 'model' ||
+			key === 'messages' ||
+			key === 'stream' ||
+			key === 'max_tokens' ||
+			key === 'system' ||
+			key === 'thinking' ||
+			key === 'tools' ||
+			key === 'temperature' ||
+			key === 'top_p' ||
+			key === 'top_k' ||
+			key === 'frequency_penalty'
+		) {
+			continue;
+		}
+		// `tools` from extra is concatenated with our tools list rather
+		// than replacing it (matches upstream behaviour).
+		if (key === 'tools' && Array.isArray(value)) {
+			const existing = Array.isArray(params.tools) ? params.tools : [];
+			params.tools = [...existing, ...(value as unknown[])];
+			continue;
+		}
+		params[key] = value;
+	}
+}
+
+/**
+ * Attach Anthropic-style `cache_control: { type: "ephemeral" }`
+ * breakpoints to the system prompt and the last tool, then run
+ * `enforceCacheControlBudget` to make sure the total stays under the
+ * 4-breakpoint cap.
+ */
+function attachCacheControlBreakpoints(params: Record<string, unknown>): void {
+	const system = params.system;
+	if (typeof system === 'string' && system.length > 0) {
+		// Upgrade the string to a structured text block so we can carry
+		// a cache_control breakpoint. The Anthropic SDK accepts either
+		// form; the structured form is the only one that supports
+		// `cache_control`.
+		params.system = [
+			{ type: 'text', text: system, cache_control: { type: 'ephemeral' } },
+		];
+	} else if (Array.isArray(system) && system.length > 0) {
+		// Append the breakpoint to the last system block so we don't
+		// create a new chunked prefix.
+		const last = system[system.length - 1] as { cache_control?: unknown };
+		if (last && typeof last === 'object' && !last.cache_control) {
+			last.cache_control = { type: 'ephemeral' };
+		}
+	}
+
+	const tools = params.tools;
+	if (Array.isArray(tools) && tools.length > 0) {
+		const last = tools[tools.length - 1] as { cache_control?: unknown };
+		if (last && typeof last === 'object' && !last.cache_control) {
+			last.cache_control = { type: 'ephemeral' };
+		}
+	}
+
+	enforceCacheControlBudget(params);
+}
 
 /**
  * Thin wrapper around the Anthropic SDK tuned for the MiniMax Anthropic-
@@ -83,6 +334,10 @@ export class MiniMaxClient {
 		callbacks: StreamCallbacks,
 		extraQueryParams?: Record<string, string | number | boolean | undefined>,
 	): Promise<void> {
+		// `options.modelDef` carries per-model `sampling` and `extra`
+		// fields. It's the only way to plumb the modelDef down to the
+		// helper functions without a circular import.
+		// (declared once on the method below via the apply* helpers)
 		const apiKey = options?.apiKey?.trim();
 		if (!apiKey) {
 			callbacks.onError(new Error('API key is required'));
@@ -108,6 +363,11 @@ export class MiniMaxClient {
 		if (tools && tools.length > 0) {
 			params.tools = tools as unknown as Array<Record<string, unknown>>;
 		}
+		// Attach Anthropic-style cache_control breakpoints to the system
+		// prompt and last tool, then run enforceCacheControlBudget to
+		// trim in-message breakpoints if the host's own caching strategy
+		// would otherwise push us past Anthropic's 4-breakpoint cap.
+		attachCacheControlBreakpoints(params);
 		if (thinking) {
 			// Note: Anthropic's thinking constraint is that temperature must be 1
 			// (the default) and top_p must be unset. We respect that here.
@@ -120,6 +380,8 @@ export class MiniMaxClient {
 				params.top_p = topP;
 			}
 		}
+		applyPerModelSampling(params, options?.modelDef, thinking);
+		applyExtraParams(params, options?.modelDef);
 
 		const abortController = new AbortController();
 		const cancellationDisposable = cancellationToken?.onCancellationRequested(() => {
@@ -223,6 +485,7 @@ export class MiniMaxClient {
 		thinking: { type: 'adaptive' | 'disabled' } | undefined,
 		temperature: number | undefined,
 		topP: number | undefined,
+		modelDef?: MiniMaxModelSamplingSource,
 	): MiniMaxRequest {
 		const request: MiniMaxRequest = {
 			model,
@@ -236,6 +499,9 @@ export class MiniMaxClient {
 		if (tools && tools.length > 0) {
 			request.tools = tools;
 		}
+		// Same Anthropic cache_control placement as the live stream path
+		// so request dumps (verbose mode) reflect the real wire payload.
+		attachCacheControlBreakpoints(request as unknown as Record<string, unknown>);
 		if (thinking) {
 			request.thinking = thinking;
 		}
@@ -247,6 +513,8 @@ export class MiniMaxClient {
 				request.top_p = topP;
 			}
 		}
+		applyPerModelSampling(request as unknown as Record<string, unknown>, modelDef, thinking);
+		applyExtraParams(request as unknown as Record<string, unknown>, modelDef);
 		return request;
 	}
 }

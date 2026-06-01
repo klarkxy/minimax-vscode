@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { AuthManager } from '../auth';
 import { MiniMaxClient } from '../client';
 import { getApiModelId, getBaseUrl, getMaxTokens } from '../config';
+import { CONFIG_SECTION } from '../consts';
 import { t } from '../i18n';
 import { findModelById } from '../models/registry';
 import type { MiniMaxRequest, MiniMaxTool } from '../types';
@@ -24,6 +25,7 @@ export interface PreparedChatRequest {
 	client: MiniMaxClient;
 	apiKey: string;
 	request: MiniMaxRequest;
+	modelDef: ReturnType<typeof findModelById> | undefined;
 	isThinkingModel: boolean;
 	thinkingEffort: 'adaptive';
 	totalRequestChars: number;
@@ -66,6 +68,18 @@ export async function prepareChatRequest({
 	const client = new MiniMaxClient();
 	const modelDef = findModelById(modelInfo.id);
 	const isThinkingModel = modelDef?.capabilities.thinking ?? false;
+	// Merge user-configured `minimax.sampling` + `minimax.experimental.modelDefPresets`
+	// on top of any modelDef defaults so callers can tweak temperature,
+	// top_p, top_k, frequency_penalty per model without code changes.
+	const userSampling = readUserSampling(modelInfo.id);
+	const userExtra = readUserExtra(modelDef?.id ?? modelInfo.id);
+	const enrichedModelDef = modelDef
+		? {
+				...modelDef,
+				sampling: userSampling ?? modelDef.sampling,
+				extra: userExtra ?? modelDef.extra,
+			}
+		: undefined;
 	// MiniMax does not expose a thinking-effort knob on the
 	// Anthropic-compatible endpoint; see `provider/models.ts` for
 	// the full rationale and a link to the upstream OpenAPI spec.
@@ -101,6 +115,7 @@ export async function prepareChatRequest({
 		// drop top_p (the SDK never sends it from the call above).
 		modelDef?.capabilities.thinking ? 1 : undefined,
 		undefined,
+		enrichedModelDef,
 	);
 
 	const requestKind = classifyMiniMaxRequest({ request, inputMessages: messages });
@@ -139,6 +154,7 @@ export async function prepareChatRequest({
 		client,
 		apiKey,
 		request,
+		modelDef: enrichedModelDef,
 		isThinkingModel,
 		thinkingEffort,
 		totalRequestChars,
@@ -149,6 +165,68 @@ export async function prepareChatRequest({
 		replayMarkerMetadata: visionResolution.replayMarkerMetadata,
 		visionMarkerTextChars: visionResolution.stats.markerVisionTextChars || undefined,
 	};
+}
+
+/**
+ * Read `minimax.sampling[<modelId>]` from user config and validate
+ * each field. Returns `undefined` when the user hasn't set anything
+ * for this model so the caller can fall back to the registry default.
+ */
+function readUserSampling(
+	modelId: string,
+):
+	| {
+			temperature?: number;
+			topP?: number;
+			topK?: number;
+			frequencyPenalty?: number;
+	  }
+	| undefined {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const raw = config.get<Record<string, unknown>>('sampling', {});
+	const entry = raw?.[modelId];
+	if (!entry || typeof entry !== 'object') {
+		return undefined;
+	}
+	const src = entry as Record<string, unknown>;
+	const out: {
+		temperature?: number;
+		topP?: number;
+		topK?: number;
+		frequencyPenalty?: number;
+	} = {};
+	if (typeof src.temperature === 'number' && src.temperature >= 0 && src.temperature <= 2) {
+		out.temperature = src.temperature;
+	}
+	if (typeof src.topP === 'number' && src.topP >= 0 && src.topP <= 1) {
+		out.topP = src.topP;
+	}
+	if (typeof src.topK === 'number' && Number.isInteger(src.topK) && src.topK >= 0) {
+		out.topK = src.topK;
+	}
+	if (
+		typeof src.frequencyPenalty === 'number' &&
+		src.frequencyPenalty >= -2 &&
+		src.frequencyPenalty <= 2
+	) {
+		out.frequencyPenalty = src.frequencyPenalty;
+	}
+	return Object.keys(out).length === 0 ? undefined : out;
+}
+
+/**
+ * Read `minimax.experimental.modelDefPresets[<modelId>]` from user
+ * config. Returns the raw object so the core layer can pick out
+ * specific fields and merge them into the request body.
+ */
+function readUserExtra(modelId: string): Record<string, unknown> | undefined {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const raw = config.get<Record<string, unknown>>('experimental.modelDefPresets', {});
+	const entry = raw?.[modelId];
+	if (!entry || typeof entry !== 'object') {
+		return undefined;
+	}
+	return entry as Record<string, unknown>;
 }
 
 /**

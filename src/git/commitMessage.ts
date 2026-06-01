@@ -65,7 +65,7 @@ export async function generateCommitMessage(
 
 	let context: ScmContext;
 	try {
-		context = buildScmContext(repo, commandArg);
+		context = await buildScmContext(repo, commandArg);
 	} catch (error) {
 		logger.error('generateCommitMessage: buildScmContext threw', error, {
 			repoRoot: repo.rootUri.fsPath,
