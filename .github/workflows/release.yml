@@ -25,6 +25,10 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: .github/release-please-config.json
           manifest-file: .github/release-please-manifest.json
+          # Temporary: skip PR creation (GitHub Actions PR permission not enabled
+          # at the repo level). release-please will push the release commit and
+          # tag directly to main instead. Revert once the repo setting is fixed.
+          skip-github-pull-request: true
 
   publish:
     needs: release
