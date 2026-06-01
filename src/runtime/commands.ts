@@ -2,16 +2,19 @@ import * as vscode from 'vscode';
 import { AuthManager } from '../auth';
 import { t } from '../i18n';
 import { logger } from '../logger';
-import { MODELS } from '../models/registry';
+import { MODELS, getVisibleModels } from '../models/registry';
 import { getBaseUrl } from '../config';
-import { generateCommitMessage } from '../git/commitMessage';
+import { chooseCommitModel, generateCommitMessage } from '../git/commitMessage';
+import { createUsageStore, type UsageStore } from '../usage';
 
 let cachedContext: vscode.ExtensionContext | undefined;
 let cachedAuth: AuthManager | undefined;
+let cachedUsage: UsageStore | undefined;
 
 export function setCommandContext(context: vscode.ExtensionContext): void {
 	cachedContext = context;
 	cachedAuth = new AuthManager(context);
+	cachedUsage = createUsageStore(context.globalState);
 }
 
 export function registerCommands(context: vscode.ExtensionContext): void {
@@ -29,11 +32,24 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('minimax.showPricing', () => {
 			void showPricing();
 		}),
-		vscode.commands.registerCommand('minimax.generateCommitMessage', () => {
+		vscode.commands.registerCommand('minimax.generateCommitMessage', (...args: unknown[]) => {
+			logger.debug('minimax.generateCommitMessage called', { args });
 			if (!cachedAuth) {
 				cachedAuth = new AuthManager(context);
 			}
-			void generateCommitMessage(cachedAuth);
+			void generateCommitMessage(cachedAuth, args[0]);
+		}),
+		vscode.commands.registerCommand('minimax.chooseCommitModel', () => {
+			void chooseCommitModel();
+		}),
+		vscode.commands.registerCommand('minimax.showUsage', () => {
+			void showUsage();
+		}),
+		vscode.commands.registerCommand('minimax.resetUsage', () => {
+			void resetUsage();
+		}),
+		vscode.commands.registerCommand('minimax.showProviderStatus', () => {
+			void showProviderStatus(auth);
 		}),
 	);
 }
@@ -109,4 +125,123 @@ function contextGlobalStorage(): vscode.Uri {
 		throw new Error('Extension context not initialised');
 	}
 	return cachedContext.globalStorageUri;
+}
+
+function formatNumber(n: number): string {
+	return n.toLocaleString('en-US');
+}
+
+async function showUsage(): Promise<void> {
+	const store = cachedUsage;
+	if (!store) {
+		void vscode.window.showWarningMessage(t('usage.empty'));
+		return;
+	}
+	const stats = store.read();
+	const total = stats.total;
+	const lines: string[] = [];
+	lines.push(`# ${t('usage.title')}`);
+	lines.push('');
+	if (total.requests === 0) {
+		lines.push(t('usage.empty'));
+	} else {
+		lines.push(
+			t(
+				'usage.line.total',
+				formatNumber(total.inputTokens),
+				formatNumber(total.outputTokens),
+				formatNumber(total.requests),
+			),
+		);
+		if (total.cacheReadTokens > 0 || total.cacheWriteTokens > 0) {
+			lines.push(
+				t(
+					'usage.line.cache',
+					formatNumber(total.cacheReadTokens),
+					formatNumber(total.cacheWriteTokens),
+				),
+			);
+		}
+		const perModel = Object.entries(stats.byModel);
+		if (perModel.length > 0) {
+			lines.push('');
+			lines.push('## Models');
+			for (const [id, usage] of perModel) {
+				lines.push(
+					t(
+						'usage.line.model',
+						id,
+						formatNumber(usage.inputTokens),
+						formatNumber(usage.outputTokens),
+						formatNumber(usage.requests),
+					),
+				);
+			}
+		} else {
+			lines.push('', t('usage.modelEmpty'));
+		}
+	}
+	lines.push('');
+	lines.push(t('usage.line.startedAt', stats.startedAt));
+	lines.push(t('usage.line.updatedAt', stats.updatedAt));
+
+	const doc = await vscode.workspace.openTextDocument({
+		content: lines.join('\n'),
+		language: 'markdown',
+	});
+	await vscode.window.showTextDocument(doc, { preview: true });
+}
+
+async function resetUsage(): Promise<void> {
+	const store = cachedUsage;
+	if (!store) {
+		return;
+	}
+	await store.reset();
+	vscode.window.showInformationMessage(t('usage.resetDone'));
+}
+
+async function showProviderStatus(auth: AuthManager): Promise<void> {
+	const ext = vscode.extensions.getExtension('klarkxy.minimax-vscode');
+	const hasKey = await auth.hasApiKey();
+	const visible = getVisibleModels();
+	const stats = cachedUsage?.read();
+	const lastModel = stats
+		? Object.entries(stats.byModel).sort(
+				(a, b) => (b[1].requests ?? 0) - (a[1].requests ?? 0),
+			)[0]
+		: undefined;
+	const total = stats?.total;
+	const lines: string[] = [];
+	lines.push(`# ${t('status.title')}`);
+	lines.push('');
+	if (ext) {
+		const pkg = ext.packageJSON as { version?: string; displayName?: string } | undefined;
+		const version = pkg?.version ?? '?';
+		const name = pkg?.displayName ?? 'MiniMax Copilot';
+		lines.push(t('status.active', name, version));
+	} else {
+		lines.push(t('status.inactive'));
+	}
+	lines.push('');
+	lines.push(hasKey ? t('status.apiKeySet') : t('status.apiKeyMissing'));
+	lines.push(t('status.visibleModels', formatNumber(visible.length)));
+	if (total && total.requests > 0) {
+		lines.push(
+			t('status.lastUsage', formatNumber(total.inputTokens), formatNumber(total.outputTokens)),
+		);
+		if (lastModel) {
+			lines.push(t('usage.line.model', lastModel[0], formatNumber(lastModel[1].inputTokens), formatNumber(lastModel[1].outputTokens), formatNumber(lastModel[1].requests)));
+		}
+	} else {
+		lines.push(t('status.usageEmpty'));
+	}
+	lines.push('');
+	lines.push(t('usage.line.startedAt', stats?.startedAt ?? new Date().toISOString()));
+
+	const doc = await vscode.workspace.openTextDocument({
+		content: lines.join('\n'),
+		language: 'markdown',
+	});
+	await vscode.window.showTextDocument(doc, { preview: true });
 }

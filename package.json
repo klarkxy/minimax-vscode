@@ -46,59 +46,84 @@
     "onStartupFinished",
     "onLanguageModelChatProvider:minimax"
   ],
+  "extensionDependencies": [
+    "vscode.git"
+  ],
   "enabledApiProposals": [
-    "languageModelThinkingPart"
+    "languageModelThinkingPart",
+    "contribSourceControlInputBoxMenu"
   ],
   "contributes": {
     "commands": [
       {
         "command": "minimax.setApiKey",
-        "title": "MiniMax: Set API Key",
+        "title": "%minimax.command.setApiKey%",
         "category": "MiniMax"
       },
       {
         "command": "minimax.clearApiKey",
-        "title": "MiniMax: Clear API Key",
+        "title": "%minimax.command.clearApiKey%",
         "category": "MiniMax"
       },
       {
         "command": "minimax.setVisionModel",
-        "title": "MiniMax: Set Vision Proxy Model",
+        "title": "%minimax.command.setVisionModel%",
         "category": "MiniMax"
       },
       {
         "command": "minimax.showLogs",
-        "title": "MiniMax: Show Logs",
+        "title": "%minimax.command.showLogs%",
         "category": "MiniMax"
       },
       {
         "command": "minimax.openRequestDumpsFolder",
-        "title": "MiniMax: Open Request Dumps Folder",
+        "title": "%minimax.command.openRequestDumpsFolder%",
         "category": "MiniMax"
       },
       {
         "command": "minimax.switchToGlobal",
-        "title": "MiniMax: Switch to Global API (minimax.io/anthropic)",
+        "title": "%minimax.command.switchToGlobal%",
         "category": "MiniMax"
       },
       {
         "command": "minimax.switchToChina",
-        "title": "MiniMax: Switch to Chinese API (minimaxi.com/anthropic)",
+        "title": "%minimax.command.switchToChina%",
         "category": "MiniMax"
       },
       {
         "command": "minimax.showPricing",
-        "title": "MiniMax: Show Pricing",
+        "title": "%minimax.command.showPricing%",
         "category": "MiniMax"
       },
       {
         "command": "minimax.generateCommitMessage",
-        "title": "MiniMax: Generate Commit Message",
+        "title": "%minimax.command.generateCommitMessage%",
+        "icon": "$(git-commit)",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.chooseCommitModel",
+        "title": "%minimax.command.chooseCommitModel%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.showUsage",
+        "title": "%minimax.command.showUsage%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.resetUsage",
+        "title": "%minimax.command.resetUsage%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.showProviderStatus",
+        "title": "%minimax.command.showProviderStatus%",
         "category": "MiniMax"
       }
     ],
     "menus": {
-      "scm/inputBox/title": [
+      "scm/inputBox": [
         {
           "command": "minimax.generateCommitMessage",
           "group": "navigation@1",
@@ -107,7 +132,7 @@
       ]
     },
     "configuration": {
-      "title": "MiniMax",
+      "title": "%minimax.config.title%",
       "properties": {
         "minimax.apiBaseUrl": {
           "type": "string",
@@ -211,21 +236,21 @@
     "walkthroughs": [
       {
         "id": "minimaxGettingStarted",
-        "title": "Get started with MiniMax",
-        "description": "Configure the MiniMax Token Plan API key, pick a model, and tune advanced settings.",
+        "title": "%minimax.walkthrough.title%",
+        "description": "%minimax.walkthrough.description%",
         "steps": [
           {
             "id": "setApiKey",
-            "title": "Set your API key",
-            "description": "Use the **MiniMax: Set API Key** command to store your Token Plan API key in VS Code SecretStorage.",
+            "title": "%minimax.walkthrough.setApiKey.title%",
+            "description": "%minimax.walkthrough.setApiKey.description%",
             "completionEvents": [
               "onCommand:minimax.setApiKey"
             ]
           },
           {
             "id": "switchEndpoint",
-            "title": "Pick your API endpoint",
-            "description": "International users can use **MiniMax: Switch to Global API**; users in China can use **MiniMax: Switch to Chinese API**. Both use the Anthropic-compatible protocol.",
+            "title": "%minimax.walkthrough.switchEndpoint.title%",
+            "description": "%minimax.walkthrough.switchEndpoint.description%",
             "completionEvents": [
               "onCommand:minimax.switchToGlobal",
               "onCommand:minimax.switchToChina"
@@ -233,13 +258,24 @@
           },
           {
             "id": "chooseModel",
-            "title": "Choose a model",
-            "description": "Open the Copilot Chat model picker and select any **MiniMax** model. Run **MiniMax: Show Pricing** to compare cost."
+            "title": "%minimax.walkthrough.chooseModel.title%",
+            "description": "%minimax.walkthrough.chooseModel.description%",
+            "completionEvents": [
+              "onLanguageModelChat:minimax"
+            ]
+          },
+          {
+            "id": "pickInChat",
+            "title": "%minimax.walkthrough.pickInChat.title%",
+            "description": "%minimax.walkthrough.pickInChat.description%",
+            "completionEvents": [
+              "onCommand:minimax.showProviderStatus"
+            ]
           },
           {
             "id": "configureAdvanced",
-            "title": "Tune advanced settings",
-            "description": "Adjust `minimax.visibleModels`, `minimax.maxTokens`, `minimax.debugMode`, and `minimax.experimental.stabilizeToolList` from the Settings UI."
+            "title": "%minimax.walkthrough.configureAdvanced.title%",
+            "description": "%minimax.walkthrough.configureAdvanced.description%"
           }
         ]
       }
@@ -255,7 +291,7 @@
               "type": "string",
               "secret": true,
               "title": "API key",
-              "description": "MiniMax Token Plan API key from platform.minimax.io (Account / Token Plan)."
+              "description": "MiniMax Token Plan API key. Get it from platform.minimaxi.com (China) or platform.minimax.io (international), under Account / Token Plan."
             }
           },
           "required": [
@@ -267,13 +303,16 @@
   },
   "scripts": {
     "vscode:prepublish": "node .github/scripts/prepare-marketplace-readme.mjs && npm run build",
-    "compile": "tsc -p ./ --noEmit",
+    "compile": "tsc -p ./ --noEmit && npm run package",
     "build": "node esbuild.mjs --production",
     "package": "vsce package --no-dependencies --readme-path dist/README.marketplace.md -o dist/",
+    "package:dev": "npm run build && npm run package",
     "prepare:readme": "node .github/scripts/prepare-marketplace-readme.mjs",
     "watch:esbuild": "node esbuild.mjs --watch",
     "watch:tsc": "tsc -p ./ --noEmit --watch",
-    "test": "node ./out/test/runTest.js"
+    "compile:tests": "node esbuild.tests.mjs",
+    "test:unit": "node esbuild.tests.mjs && node --test out-test/*.test.js",
+    "test": "npm run test:unit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1"

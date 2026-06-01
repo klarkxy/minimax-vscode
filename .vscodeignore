@@ -5,6 +5,7 @@ src/**
 node_modules/**
 tsconfig.json
 esbuild.mjs
+esbuild.tests.mjs
 package-lock.json
 **/*.map
 
@@ -18,13 +19,18 @@ README.md
 README.zh.md
 CHANGELOG.md
 CHANGELOG.zh.md
+LICENSE_zh
 .gitignore
+TODO.md
 
 # Reference / scratch directories that must not be shipped
 deepseek-v4-for-copilot/**
 minimax-status/**
+Mini-Agent/**
 docs/**
+test/**
 
 # Local build artefacts
 dist/**
+out-test/**
 **/*.vsix

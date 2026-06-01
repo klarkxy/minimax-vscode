@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import { MiniMaxChatProvider } from '../provider';
+import { setCommitModelStore } from '../git/commitMessage';
 import { registerActionUrls } from './actions';
 import { registerCommands, setCommandContext } from './commands';
 import { autoSelectEndpointIfUnset } from './endpoint';
@@ -13,6 +14,7 @@ let activeProvider: MiniMaxChatProvider | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	setCommandContext(context);
+	setCommitModelStore(context.globalState);
 	await initializeDiagnostics(context);
 	registerCommands(context);
 	registerActionUrls(context);

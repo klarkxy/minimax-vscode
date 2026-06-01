@@ -1,0 +1,53 @@
+{
+	// Task definitions for the launch.json preLaunchTask hooks.
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "npm: compile",
+			"type": "npm",
+			"script": "compile",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"presentation": {
+				"reveal": "silent",
+				"close": true
+			}
+		},
+		{
+			"label": "npm: watch:esbuild",
+			"type": "npm",
+			"script": "watch:esbuild",
+			"isBackground": true,
+			"problemMatcher": [
+				"$tsc-watch"
+			],
+			"presentation": {
+				"reveal": "silent",
+				"close": true
+			}
+		},
+		{
+			"label": "npm: package",
+			"type": "npm",
+			"script": "package",
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"close": false
+			}
+		},
+		{
+			"label": "npm: test",
+			"type": "npm",
+			"script": "test",
+			"problemMatcher": [
+				"$tsc"
+			],
+			"presentation": {
+				"reveal": "always",
+				"close": false
+			}
+		}
+	]
+}

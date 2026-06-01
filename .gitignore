@@ -1,12 +1,15 @@
 node_modules/
 out/
+out-test/
+dist/
 *.vsix
 *.log
 .DS_Store
 Thumbs.db
-.vscode/
+
 .idea/
 
 # 参考的插件库
 deepseek-v4-for-copilot/
 minimax-status/
+Mini-Agent/

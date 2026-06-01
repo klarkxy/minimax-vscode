@@ -5,7 +5,7 @@ import { MiniMaxChatProvider } from '../provider';
 export async function registerProvider(
 	context: vscode.ExtensionContext,
 ): Promise<MiniMaxChatProvider> {
-	const provider = new MiniMaxChatProvider(context, () => undefined);
+	const provider = new MiniMaxChatProvider(context);
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand('minimax.setApiKey', () => provider.configureApiKey()),

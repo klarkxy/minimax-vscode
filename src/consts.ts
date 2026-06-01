@@ -23,6 +23,13 @@ export const API_KEY_SECRET = 'minimax-vscode.apiKey';
 /** memento key tracking whether the welcome walkthrough has been shown. */
 export const WELCOME_SHOWN_KEY = 'minimax-vscode.welcomeShown';
 
+/** memento key tracking the user's most recently used commit model. */
+export const COMMIT_MODEL_LAST_USED_KEY = 'minimax-vscode.commitModel.lastUsed';
+
+/** memento key for cumulative token usage. Stored as JSON. */
+export const USAGE_STATS_KEY = 'minimax-vscode.usageStats';
+
+
 // ---- Walkthrough ----
 
 /** Walkthrough contribution ID. */

@@ -3,6 +3,7 @@ import { AuthManager } from '../auth';
 import { getStabilizeToolListEnabled } from '../config';
 import { t } from '../i18n';
 import { getVisibleModels } from '../models/registry';
+import { createUsageStore, type UsageStore } from '../usage';
 import {
 	classifyProviderRequest,
 	createCacheDiagnosticsRecorder,
@@ -24,6 +25,7 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 	private readonly authManager: AuthManager;
 	private readonly globalStorageUri: vscode.Uri;
 	private readonly onDidChangeLanguageModelChatInformationEmitter = new vscode.EventEmitter<void>();
+	private readonly usageStore: UsageStore;
 	private isActive = true;
 
 	readonly onDidChangeLanguageModelChatInformation =
@@ -42,10 +44,10 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 
 	constructor(
 		context: vscode.ExtensionContext,
-		private readonly apiKeyProvider: () => string | undefined,
 	) {
 		this.authManager = new AuthManager(context);
 		this.globalStorageUri = context.globalStorageUri;
+		this.usageStore = createUsageStore(context.globalState);
 
 		context.subscriptions.push(
 			this.onDidChangeLanguageModelChatInformationEmitter,
@@ -185,7 +187,14 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 			setCharsPerToken: (charsPerToken) => {
 				this.charsPerToken = charsPerToken;
 			},
-			getApiKey: this.apiKeyProvider,
+			onUsage: (usage) => {
+				void this.usageStore.record(modelInfo.id, {
+					inputTokens: usage.input_tokens,
+					outputTokens: usage.output_tokens,
+					cacheReadTokens: usage.cache_read_input_tokens,
+					cacheWriteTokens: usage.cache_creation_input_tokens,
+				});
+			},
 		});
 	}
 

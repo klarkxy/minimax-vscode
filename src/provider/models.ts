@@ -36,18 +36,20 @@ export function toChatInfo(
 	hasApiKey: boolean,
 ): ModelPickerChatInformation {
 	const detailKey = resolveDetailKey(m);
-	const baseDetail = detailKey ? t(detailKey) : m.detail;
-	const detailWithPricing = hasApiKey
-		? `${baseDetail} — ${formatPricingLine(m.pricing)}`
-		: t('auth.apiKeyRequiredDetail');
+	const modelDetail = detailKey ? t(detailKey) : m.detail;
 	return {
 		id: m.id,
 		name: m.name,
 		family: m.family,
 		version: m.version,
-		detail: detailWithPricing,
+		// The model picker "cost" column is rendered by Copilot Chat from a
+		// fixed `detail` regex (e.g. `Position: 100 / Output: 500 / Cache: 10`).
+		// Our per-million-token prices don't fit that schema, so we keep
+		// `detail` to a short human description and surface pricing in the
+		// tooltip + via the **MiniMax: Show Pricing** command.
+		detail: hasApiKey ? modelDetail : t('auth.apiKeyRequiredDetail'),
 		tooltip: hasApiKey
-			? `${baseDetail}\n\n${formatPricingTooltip(m)}`
+			? `${modelDetail}\n\n${formatPricingTooltip(m)}`
 			: t('auth.apiKeyRequiredDetail'),
 		statusIcon: hasApiKey ? undefined : new vscode.ThemeIcon('warning'),
 		maxInputTokens: m.maxInputTokens,
@@ -61,23 +63,16 @@ export function toChatInfo(
 	};
 }
 
-function formatPricingLine(pricing: ModelDefinition['pricing']): string {
-	const { input, output, currency } = pricing;
-	if (input === null || output === null) {
-		return t('pricing.unlisted');
-	}
-	return `${currency} ${input.toFixed(2)} in / ${output.toFixed(2)} out /M tokens`;
-}
-
 function formatPricingTooltip(m: ModelDefinition): string {
 	const { pricing, contextLength, maxInputTokens, maxOutputTokens } = m;
+	const fmt = (n: number | null) => (n === null ? t('pricing.unlisted') : `¥${n} /M`);
 	const lines = [
 		`Context: ${formatNumber(contextLength)} (effective: ${formatNumber(maxInputTokens)})`,
 		`Output cap: ${formatNumber(maxOutputTokens)}`,
-		`Input: ${pricing.input !== null ? `¥${pricing.input} /M` : t('pricing.unlisted')}`,
-		`Output: ${pricing.output !== null ? `¥${pricing.output} /M` : t('pricing.unlisted')}`,
-		`Cache read: ${pricing.cacheRead !== null ? `¥${pricing.cacheRead} /M` : '—'}`,
-		`Cache write: ${pricing.cacheWrite !== null ? `¥${pricing.cacheWrite} /M` : '—'}`,
+		`Input: ${fmt(pricing.input)}`,
+		`Output: ${fmt(pricing.output)}`,
+		`Cache read: ${fmt(pricing.cacheRead)}`,
+		`Cache write: ${fmt(pricing.cacheWrite)}`,
 	];
 	if (pricing.note) {
 		lines.push('', pricing.note);

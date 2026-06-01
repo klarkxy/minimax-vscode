@@ -1,0 +1,127 @@
+{
+	// Launch and debug the MiniMax VS Code extension.
+	// - Use the first configuration for day-to-day F5 debugging.
+	// - "Attach to Running Extension" lets you attach a second debugger
+	//   to a host window that was already started with `--inspect-brk`.
+	// - "Build & Package VSIX" and "Build & Run Tests" wrap the npm
+	//   scripts so the most common maintenance tasks live in the Run &
+	//   Debug dropdown.
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "Run Extension",
+			"type": "extensionHost",
+			"request": "launch",
+			"runtimeExecutable": "${execPath}",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"--extensionTestsPath=${workspaceFolder}/out/test"
+			],
+			"outFiles": [
+				"${workspaceFolder}/out/**/*.js"
+			],
+			"sourceMaps": true,
+			"preLaunchTask": "npm: compile",
+			"internalConsoleOptions": "openOnSessionStart",
+			"presentation": {
+				"group": "extension",
+				"order": 1
+			}
+		},
+		{
+			"name": "Run Extension (watch esbuild)",
+			"type": "extensionHost",
+			"request": "launch",
+			"runtimeExecutable": "${execPath}",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}"
+			],
+			"outFiles": [
+				"${workspaceFolder}/out/**/*.js"
+			],
+			"sourceMaps": true,
+			"preLaunchTask": "npm: watch:esbuild",
+			"internalConsoleOptions": "openOnSessionStart",
+			"presentation": {
+				"group": "extension",
+				"order": 2
+			}
+		},
+		{
+			"name": "Attach to Running Extension",
+			"type": "extensionHost",
+			"request": "attach",
+			"port": 5870,
+			"outFiles": [
+				"${workspaceFolder}/out/**/*.js"
+			],
+			"sourceMaps": true,
+			"presentation": {
+				"group": "extension",
+				"order": 3,
+				"hidden": false
+			}
+		},
+		{
+			"name": "Build & Package VSIX",
+			"type": "node",
+			"request": "launch",
+			"runtimeExecutable": "npm",
+			"runtimeArgs": [
+				"run",
+				"package"
+			],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal",
+			"presentation": {
+				"group": "build",
+				"order": 1
+			}
+		},
+		{
+			"name": "Build & Run Tests",
+			"type": "node",
+			"request": "launch",
+			"runtimeExecutable": "npm",
+			"runtimeArgs": [
+				"run",
+				"test"
+			],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal",
+			"presentation": {
+				"group": "test",
+				"order": 1
+			}
+		},
+		{
+			"name": "Typecheck (tsc --noEmit)",
+			"type": "node",
+			"request": "launch",
+			"runtimeExecutable": "npm",
+			"runtimeArgs": [
+				"run",
+				"compile"
+			],
+			"cwd": "${workspaceFolder}",
+			"console": "integratedTerminal",
+			"presentation": {
+				"group": "build",
+				"order": 2
+			}
+		}
+	],
+	"compounds": [
+		{
+			"name": "Full Debug (compile + host)",
+			"configurations": [
+				"Typecheck (tsc --noEmit)",
+				"Run Extension"
+			],
+			"preLaunchTask": "npm: compile",
+			"presentation": {
+				"hidden": false
+			}
+		}
+	]
+}

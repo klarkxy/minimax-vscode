@@ -22,6 +22,7 @@ import { resolveImageMessages } from './vision/index';
 
 export interface PreparedChatRequest {
 	client: MiniMaxClient;
+	apiKey: string;
 	request: MiniMaxRequest;
 	isThinkingModel: boolean;
 	thinkingEffort: 'none' | 'low' | 'high' | 'max';
@@ -128,6 +129,7 @@ export async function prepareChatRequest({
 
 	return {
 		client,
+		apiKey,
 		request,
 		isThinkingModel,
 		thinkingEffort,

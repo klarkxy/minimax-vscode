@@ -15,7 +15,7 @@
 
 ## 特性
 
-- **Token Plan API Key** 来自 [platform.minimax.io](https://platform.minimax.io)，使用 VS Code SecretStorage 存储。
+- **Token Plan API Key** 来自 [platform.minimaxi.com](https://platform.minimaxi.com)，使用 VS Code SecretStorage 存储。
 - **Anthropic 兼容协议** 直连 `https://api.minimaxi.com/anthropic`（国内）或 `https://api.minimax.io/anthropic`（国际），基于官方 [`@anthropic-ai/sdk`](https://www.npmjs.com/package/@anthropic-ai/sdk)。激活时**自动**根据 VS Code 显示语言（`zh*` 走国内端点，否则走国际端点）选择默认端点，已配置过的端点不会被覆盖。
 - **覆盖官方推荐的 MiniMax 编程模型**：
   - **MiniMax M3** — 1M 上下文（>512K 输入层级当前限量供应，**实际可用 512K**），原生多模态，输出上限 512K，通过 `budget_tokens` 控制思考深度。
@@ -37,7 +37,7 @@
 
 ## 快速开始
 
-1. 在 [Account / Token Plan](https://platform.minimax.io/user-center/payment/token-plan) 获取 Token Plan API Key。
+1. 在 [Account / Token Plan](https://platform.minimaxi.com/user-center/payment/token-plan) 获取 Token Plan API Key。
 2. 在命令面板运行 **MiniMax: Set API Key**。
 3. 在 Copilot 模型选择器里选一个模型。运行 **MiniMax: Show Pricing** 查看价格对比。
 

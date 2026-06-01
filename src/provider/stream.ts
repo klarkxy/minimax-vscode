@@ -37,7 +37,7 @@ export interface StreamChatCompletionOptions {
 	initialResponseNotice?: string;
 	getCharsPerToken: () => number;
 	setCharsPerToken: (charsPerToken: number) => void;
-	getApiKey: () => string | undefined;
+	onUsage?: (usage: MiniMaxUsage) => void;
 }
 
 /**
@@ -54,7 +54,7 @@ export async function streamChatCompletion({
 	initialResponseNotice,
 	getCharsPerToken,
 	setCharsPerToken,
-	getApiKey,
+	onUsage: onUsageExternal,
 }: StreamChatCompletionOptions): Promise<void> {
 	const state: ResponseStreamState = {
 		accumulatedThinkingText: '',
@@ -65,7 +65,11 @@ export async function streamChatCompletion({
 		pendingThinkingIndex: undefined,
 	};
 
-	const apiKey = getApiKey();
+	// `prepared.apiKey` is the API key resolved by `prepareChatRequest`
+	// (SecretStorage first, then `minimax.apiKey` setting fallback). It
+	// must already be non-empty here — `prepareChatRequest` throws
+	// `auth.notConfigured` otherwise.
+	const apiKey = prepared.apiKey;
 	if (!apiKey) {
 		throw new Error(t('auth.notConfigured'));
 	}
@@ -120,6 +124,7 @@ export async function streamChatCompletion({
 				setCharsPerToken(charsPerToken);
 				prepared.cacheDiagnostics.onUsage(usage, charsPerToken);
 				reportCopilotContextUsage(progress, usage);
+				onUsageExternal?.(usage);
 			},
 		},
 	);

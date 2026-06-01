@@ -25,7 +25,7 @@ const zh: Translations = {
 
 	// API Key
 	'auth.apiKeyRequiredDetail': '请先配置 API Key',
-	'auth.prompt': '请输入 MiniMax Token Plan API Key（从 platform.minimax.io 获取）。',
+	'auth.prompt': '请输入 MiniMax Token Plan API Key（从 platform.minimaxi.com 获取）。',
 	'auth.placeholder': 'eyJ... 或 sk-...',
 	'auth.emptyValidation': 'API Key 不能为空',
 	'auth.saved': 'API Key 已安全保存。',
@@ -108,13 +108,36 @@ const zh: Translations = {
 
 	// Commit message generator
 	'commit.noApiKey': '生成提交信息前请先配置 API Key。',
-	'commit.gitUnavailable': '未找到内置 Git 扩展，无法生成提交信息。请先安装并启用 Git 扩展。',
+	'commit.gitUnavailable': 'VS Code 内置 Git 扩展不可用或被禁用。请在扩展侧边栏启用内置 Git，或检查 `git.enabled` 是否为 true。',
 	'commit.noRepository': '当前工作区没有可用的 Git 仓库。',
 	'commit.noChanges': '暂存区与工作区都没有改动，无需生成提交信息。',
 	'commit.modelUnknown': 'commitModel 配置项指向了未注册的模型 "{0}"，请在设置里改成 M2.7 或 M3。',
 	'commit.generating': '正在用 {0} 生成提交信息…',
 	'commit.progressReading': '读取暂存区改动…',
 	'commit.emptyResult': '模型没有返回任何内容，请重试。',
+	'commit.pickModelTitle': '选择用于生成提交信息的模型…',
+	'commit.pickModelPlaceholder': '请选择模型（默认：{0}）',
+	'commit.modelDefault': '默认',
+	'commit.modelLastUsed': '最近使用',
+
+	// Usage / status
+	'usage.title': 'MiniMax 用量统计',
+	'usage.empty': '暂未产生任何请求。打开 Copilot Chat，选用一个 MiniMax 模型并发送消息即可。',
+	'usage.line.total': '总输入 {0} · 总输出 {1} · 请求数 {2}',
+	'usage.line.cache': '缓存读取 {0} · 缓存写入 {1}',
+	'usage.line.startedAt': '开始时间：{0}',
+	'usage.line.updatedAt': '更新时间：{0}',
+	'usage.line.model': '· {0}：输入 {1} / 输出 {2} / 请求 {3}',
+	'usage.resetDone': '已清空用量统计。',
+	'usage.modelEmpty': '暂无模型分项用量。',
+	'status.title': 'MiniMax 状态',
+	'status.active': '扩展已激活：{0}（{1}）',
+	'status.inactive': '扩展已停用。',
+	'status.apiKeySet': 'API Key 已配置。',
+	'status.apiKeyMissing': '未配置 API Key。运行 "MiniMax: Set API Key"。',
+	'status.visibleModels': '可见模型 {0} 个。',
+	'status.lastUsage': '最近一次请求输入 {0} token、输出 {1} token。',
+	'status.usageEmpty': '尚未发起任何请求。',
 };
 
 const en: Translations = {
@@ -210,13 +233,36 @@ const en: Translations = {
 
 	// Commit message generator
 	'commit.noApiKey': 'Configure an API key before generating commit messages.',
-	'commit.gitUnavailable': 'VS Code built-in Git extension is unavailable. Install and enable it first.',
+	'commit.gitUnavailable': 'VS Code built-in Git extension is unavailable or disabled. Enable the built-in Git extension in the Extensions view or set `git.enabled` to true.',
 	'commit.noRepository': 'No Git repository is open in the current workspace.',
 	'commit.noChanges': 'No staged or working-tree changes — nothing to commit.',
 	'commit.modelUnknown': 'commitModel points to an unregistered model "{0}". Use M2.7 or M3 in settings.',
 	'commit.generating': 'Generating commit message with {0}…',
 	'commit.progressReading': 'Reading staged changes…',
 	'commit.emptyResult': 'The model returned an empty result. Please try again.',
+	'commit.pickModelTitle': 'Generate commit message with…',
+	'commit.pickModelPlaceholder': 'Pick a model (default: {0})',
+	'commit.modelDefault': 'Default',
+	'commit.modelLastUsed': 'Last used',
+
+	// Usage / status
+	'usage.title': 'MiniMax usage',
+	'usage.empty': 'No requests have been made yet. Open Copilot Chat, pick a MiniMax model, and send a message.',
+	'usage.line.total': 'Total input {0} · output {1} · requests {2}',
+	'usage.line.cache': 'Cache read {0} · cache write {1}',
+	'usage.line.startedAt': 'Since: {0}',
+	'usage.line.updatedAt': 'Updated: {0}',
+	'usage.line.model': '· {0}: input {1} / output {2} / requests {3}',
+	'usage.resetDone': 'Usage statistics have been reset.',
+	'usage.modelEmpty': 'No per-model usage recorded yet.',
+	'status.title': 'MiniMax status',
+	'status.active': 'Extension active: {0} ({1})',
+	'status.inactive': 'Extension is deactivated.',
+	'status.apiKeySet': 'API key configured.',
+	'status.apiKeyMissing': 'No API key. Run "MiniMax: Set API Key".',
+	'status.visibleModels': '{0} models exposed in the picker.',
+	'status.lastUsage': 'Last request used input {0} tokens, output {1} tokens.',
+	'status.usageEmpty': 'No requests have been made yet.',
 };
 
 const dictionaries: Record<'en' | 'zh', Translations> = { en, zh };

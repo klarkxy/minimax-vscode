@@ -47,9 +47,13 @@ interface GitRepository {
 }
 
 interface GitApi {
-	readonly state: 'uninitialized' | 'initialized';
 	readonly repositories: GitRepository[];
 	readonly onDidOpenRepository: vscode.Event<GitRepository>;
+}
+
+interface GitExtension {
+	readonly enabled: boolean;
+	getAPI(version: number): GitApi;
 }
 
 /**
@@ -58,40 +62,141 @@ interface GitApi {
  * settings), disabled, or has not finished activating.
  */
 export async function getGitApi(): Promise<GitApi | undefined> {
-	const extension = vscode.extensions.getExtension('vscode.git');
+	const gitEnabled = vscode.workspace.getConfiguration('git').get<boolean>('enabled', true);
+	const extension = vscode.extensions.getExtension<GitExtension>('vscode.git');
 	if (!extension) {
-		logger.warn('VS Code git extension is not installed');
+		logger.warn(
+			`VS Code git extension is not installed or disabled (git.enabled=${gitEnabled})`,
+		);
 		return undefined;
 	}
-	const api = (await extension.activate()) as GitApi | undefined;
-	if (!api || api.state !== 'initialized') {
-		logger.warn('VS Code git extension API is not initialised yet');
+	const gitExt = (await extension.activate()) as GitExtension | undefined;
+	if (!gitExt || !gitExt.getAPI) {
+		logger.warn('VS Code git extension activation failed or returned an unexpected API shape');
 		return undefined;
 	}
-	return api;
+	try {
+		return gitExt.getAPI(1);
+	} catch (error) {
+		logger.warn('Failed to obtain Git extension API', error);
+		return undefined;
+	}
+}
+
+function isGitRepository(value: unknown): value is GitRepository {
+	return (
+		!!value &&
+		typeof value === 'object' &&
+		'rootUri' in value &&
+		'inputBox' in value &&
+		typeof (value as { inputBox?: { value?: unknown } })?.inputBox?.value === 'string'
+	);
+}
+
+function isUriLike(value: unknown): value is vscode.Uri {
+	return (
+		!!value &&
+		typeof value === 'object' &&
+		'scheme' in value &&
+		typeof (value as { scheme?: unknown })?.scheme === 'string' &&
+		typeof (value as { path?: unknown })?.path === 'string'
+	);
+}
+
+function asUri(value: unknown): vscode.Uri | undefined {
+	if (value instanceof vscode.Uri) {
+		return value;
+	}
+	if (!isUriLike(value)) {
+		return undefined;
+	}
+	const external = (value as { external?: unknown }).external;
+	if (typeof external === 'string') {
+		try {
+			return vscode.Uri.parse(external);
+		} catch {
+			// fall through to manual construction
+		}
+	}
+	try {
+		return vscode.Uri.parse((value as { path: string }).path);
+	} catch {
+		return undefined;
+	}
 }
 
 /**
- * Pick the most relevant repository for the current editor. We prefer
- * the one whose working tree contains the active file; we fall back to
- * the first available repository.
+ * Pick the most relevant repository for the current editor or SCM command.
+ * When the command was triggered from the SCM input box, VS Code passes
+ * the repository root `Uri` as `commandArg`; we use it to pick the
+ * matching GitRepository without asking the user.
  */
-export function pickActiveRepository(
+export async function pickRelevantRepository(
 	api: GitApi,
 	activeFile: vscode.Uri | undefined,
-): GitRepository | undefined {
+	commandArg?: unknown,
+): Promise<GitRepository | undefined> {
+	logger.debug('pickRelevantRepository', {
+		repositoryCount: api.repositories.length,
+		activeFile: activeFile?.fsPath,
+		commandArgType: typeof commandArg,
+		commandArgIsUri: isUriLike(commandArg),
+		commandArgIsRepo: isGitRepository(commandArg),
+	});
+
+	if (isGitRepository(commandArg)) {
+		logger.debug('pickRelevantRepository: using commandArg repository');
+		return commandArg;
+	}
+
 	if (api.repositories.length === 0) {
+		logger.debug('pickRelevantRepository: no repositories available');
 		return undefined;
 	}
-	if (activeFile) {
-		const match = api.repositories.find((repo) =>
-			isInside(activeFile, repo.rootUri),
-		);
+
+	const argUri = asUri(commandArg);
+	if (argUri) {
+		const match = api.repositories.find((repo) => isInside(argUri, repo.rootUri));
 		if (match) {
+			logger.debug('pickRelevantRepository: matched commandArg Uri to repository', {
+				repoRoot: match.rootUri.fsPath,
+			});
+			return match;
+		}
+		logger.debug('pickRelevantRepository: commandArg Uri did not match any repository', {
+			argUri: argUri.fsPath,
+		});
+	}
+
+	if (activeFile) {
+		const match = api.repositories.find((repo) => isInside(activeFile, repo.rootUri));
+		if (match) {
+			logger.debug('pickRelevantRepository: matched active file to repository', {
+				repoRoot: match.rootUri.fsPath,
+			});
 			return match;
 		}
 	}
-	return api.repositories[0];
+
+	if (api.repositories.length === 1) {
+		logger.debug('pickRelevantRepository: single repository fallback', {
+			repoRoot: api.repositories[0].rootUri.fsPath,
+		});
+		return api.repositories[0];
+	}
+
+	const pickItems = api.repositories.map((repo) => ({
+		label: repo.rootUri.fsPath,
+		description: repo.state.HEAD?.name ? `Branch: ${repo.state.HEAD.name}` : undefined,
+		repo,
+	}));
+
+	const selection = await vscode.window.showQuickPick(pickItems, {
+		placeHolder: 'Select the Git repository to generate the commit message for',
+		ignoreFocusOut: true,
+	});
+
+	return selection?.repo;
 }
 
 /** First open file in the active editor, used to choose the right repo. */
@@ -120,22 +225,43 @@ const MAX_DIFF_BYTES = 32 * 1024;
 const MAX_FILE_LIST = 80;
 const MAX_FILE_PATH_LENGTH = 160;
 
-export function buildScmContext(repository: GitRepository): ScmContext {
+export function buildScmContext(
+	repository: GitRepository,
+	commandArg?: unknown,
+): ScmContext {
 	const existingMessage = repository.inputBox?.value ?? '';
 
-	// Prefer the VS Code git extension's "index changes" (i.e. the
-	// files currently in the staging area). These are the files that
-	// will end up in the commit. We also include working-tree changes
-	// as a fallback when nothing is staged, so the user can still
-	// generate a draft from their un-staged work.
-	const stagedResources = (repository.state.indexChanges ?? []).slice();
-	const workingResources = (repository.state.workingTreeChanges ?? []).slice();
+	// 1. Try the SourceControl passed in via `commandArg` first — it's
+	//    the most reliable source of staged/working change lists.
+	const fromCommandArg = extractScmResourcesFromCommandArg(commandArg);
+	// 2. Try the Git extension v1 API `state` fields.
+	const state = repository.state ?? {};
+	const stagedFromState = (state.indexChanges ?? []).slice();
+	const workingFromState = (state.workingTreeChanges ?? []).slice();
+	// 3. Try the repository's nested `repository.state` / `raw.state`.
+	const fallback = readScmResourceGroups(repository);
+
+	const stagedResources = fromCommandArg.staged.length > 0
+		? fromCommandArg.staged
+		: stagedFromState.length > 0
+			? stagedFromState
+			: fallback.staged;
+	const workingResources = fromCommandArg.working.length > 0
+		? fromCommandArg.working
+		: workingFromState.length > 0
+			? workingFromState
+			: fallback.working;
 	const allChanges = stagedResources.length > 0 ? stagedResources : workingResources;
 
 	const seen = new Set<string>();
 	const fileNames: string[] = [];
 	for (const resource of allChanges) {
-		const name = resource.resourceUri.fsPath.replace(/\\/g, '/');
+		const resourceUri = (resource as { resourceUri?: { fsPath?: string } })?.resourceUri;
+		const fsPath = resourceUri?.fsPath;
+		if (typeof fsPath !== 'string' || fsPath.length === 0) {
+			continue;
+		}
+		const name = fsPath.replace(/\\/g, '/');
 		if (seen.has(name)) {
 			continue;
 		}
@@ -176,6 +302,92 @@ export function buildScmContext(repository: GitRepository): ScmContext {
 	};
 }
 
+interface ScmResourceGroups {
+	staged: ScmResource[];
+	working: ScmResource[];
+}
+
+/**
+ * A subset of VS Code's `SourceControl` shape. When the user invokes
+ * the commit-message command from the SCM input box, VS Code passes
+ * the active `SourceControl` instance as `commandArg[1]`. Walking its
+ * `resourceGroups` is the only reliable way to enumerate staged and
+ * working-tree changes in modern VS Code.
+ */
+export interface SourceControlSnapshot {
+	resourceGroups?: Array<{
+		id?: string;
+		resources?: Array<{ resourceUri?: { fsPath?: string } }>;
+	}>;
+}
+
+/** Extract the staged/working change lists from a `commandArg` payload. */
+export function extractScmResourcesFromCommandArg(
+	commandArg: unknown,
+): ScmResourceGroups {
+	const result: ScmResourceGroups = { staged: [], working: [] };
+	if (!Array.isArray(commandArg) || commandArg.length < 2) {
+		return result;
+	}
+	const sc = commandArg[1] as SourceControlSnapshot | undefined;
+	if (!sc || !Array.isArray(sc.resourceGroups)) {
+		return result;
+	}
+	for (const group of sc.resourceGroups) {
+		if (!group || !Array.isArray(group.resources)) {
+			continue;
+		}
+		const mapped = group.resources
+			.map((entry) => {
+				const fsPath = entry?.resourceUri?.fsPath;
+				if (typeof fsPath !== 'string' || fsPath.length === 0) {
+					return undefined;
+				}
+				return { resourceUri: { fsPath } } as ScmResource;
+			})
+			.filter((entry): entry is ScmResource => entry !== undefined);
+		if (group.id === 'index') {
+			result.staged = result.staged.concat(mapped);
+		} else if (group.id === 'workingTree') {
+			result.working = result.working.concat(mapped);
+		}
+	}
+	return result;
+}
+
+/**
+ * Try the Git extension's `Repository` instance directly when the v1
+ * API's `state` object doesn't carry change lists. The real
+ * `Repository` class exposes `diffWith`, `diffIndexWith`, and a
+ * `state` that *does* expose `workingTreeChanges` / `indexChanges`
+ * after a `recompute` cycle — the `getAPI(1)` call hands us the same
+ * instance, so we can reach in via duck typing.
+ */
+function readScmResourceGroups(repository: GitRepository): ScmResourceGroups {
+	const result: ScmResourceGroups = { staged: [], working: [] };
+	const candidates = [
+		repository as unknown as { state?: { indexChanges?: ScmResource[]; workingTreeChanges?: ScmResource[] } },
+		(repository as unknown as { repository?: { state?: { indexChanges?: ScmResource[]; workingTreeChanges?: ScmResource[] } } }).repository,
+		(repository as unknown as { raw?: { state?: { indexChanges?: ScmResource[]; workingTreeChanges?: ScmResource[] } } }).raw,
+	];
+	for (const candidate of candidates) {
+		if (!candidate || typeof candidate !== 'object') {
+			continue;
+		}
+		const state = (candidate as { state?: { indexChanges?: ScmResource[]; workingTreeChanges?: ScmResource[] } }).state;
+		if (!state) {
+			continue;
+		}
+		if (Array.isArray(state.indexChanges)) {
+			result.staged = result.staged.concat(state.indexChanges);
+		}
+		if (Array.isArray(state.workingTreeChanges)) {
+			result.working = result.working.concat(state.workingTreeChanges);
+		}
+	}
+	return result;
+}
+
 function truncatePath(name: string): string {
 	if (name.length <= MAX_FILE_PATH_LENGTH) {
 		return name;
@@ -184,12 +396,12 @@ function truncatePath(name: string): string {
 }
 
 function extractDiff(repository: GitRepository): string {
-	const diff = repository.state.diff;
+	const diff = (repository.state ?? {}).diff;
 	if (!diff) {
 		return '';
 	}
-	if ('contents' in diff && typeof diff.contents === 'string') {
-		return sliceDiff(diff.contents);
+	if ('contents' in diff && typeof (diff as { contents?: unknown }).contents === 'string') {
+		return sliceDiff((diff as { contents: string }).contents);
 	}
 	const callable = (diff as { with?: (other: string) => { contents: string } }).with;
 	if (typeof callable === 'function') {
@@ -213,7 +425,7 @@ function sliceDiff(text: string): string {
 }
 
 function extractBranch(repository: GitRepository): string | undefined {
-	const refs = repository.state.refs;
+	const refs = (repository.state ?? {}).refs;
 	if (!Array.isArray(refs)) {
 		return undefined;
 	}
@@ -228,6 +440,10 @@ function extractBranch(repository: GitRepository): string | undefined {
  * box (other extensions that observe the input box continue to work).
  */
 export function setScmMessage(repository: GitRepository, message: string): void {
+	logger.debug('setScmMessage', {
+		repoRoot: repository.rootUri.fsPath,
+		messagePreview: message.slice(0, 120),
+	});
 	repository.inputBox.value = message;
 }
 
@@ -236,5 +452,6 @@ export function setScmMessage(repository: GitRepository, message: string): void 
  * the view is already the active one.
  */
 export function focusScmView(): void {
+	logger.debug('focusScmView');
 	void vscode.commands.executeCommand('workbench.view.scm');
 }
