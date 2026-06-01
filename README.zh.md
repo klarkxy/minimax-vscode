@@ -1,13 +1,13 @@
 # MiniMax Copilot
 
-<!-- marketplace-readme:remove-start -->
-<a href="https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode"><img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install-007ACC?logo=visualstudiocode&logoColor=white&style=for-the-badge" alt="从 VS Code Marketplace 安装"></a>
-<a href="https://open-vsx.org/extension/klarkxy/minimax-vscode"><img src="https://img.shields.io/badge/Open%20VSX-Install-2F81F7?logo=openvsx&logoColor=white&style=for-the-badge" alt="从 Open VSX 安装"></a>
-<!-- marketplace-readme:remove-end -->
+<a href="https://open-vsx.org/extension/klarkxy/minimax-vscode"><img src="https://img.shields.io/badge/Open%20VSX-安装-2F81F7?logo=openvsx&logoColor=white&style=for-the-badge" alt="从 Open VSX 安装"></a>
+<a href="https://github.com/zelosleone/minimax-vscode/releases/latest"><img src="https://img.shields.io/badge/GitHub%20Release-下载%20.vsix-181717?logo=github&logoColor=white&style=for-the-badge" alt="从 GitHub Releases 下载 .vsix"></a>
 
-<img src="https://vsmarketplacebadges.dev/installs-short/klarkxy.minimax-vscode.vsix.svg?style=for-the-badge" alt="安装量" />
+<img src="https://img.shields.io/badge/VS%20Code%20Marketplace-即将上线-999?style=for-the-badge" alt="VS Code Marketplace 即将上线" />
 
 > 🇨🇳 简体中文 | [🇬🇧 English documentation](./README.md)
+
+> **发布状态**：目前只通过 **Open VSX** 和 **GitHub Releases** 分发。由于原 Microsoft / Azure DevOps 租户正在恢复中,**暂未上架** VS Code 官方市场。最新进展请看 [`MARKETPLACE.md`](./MARKETPLACE.md)。
 
 为 [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat)
 增加 **MiniMax M3 / M2.7** 模型供应方的 VS Code 扩展。用 [Token Plan](https://platform.minimax.io/user-center/payment/token-plan)

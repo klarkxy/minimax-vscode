@@ -1,13 +1,18 @@
 # MiniMax Copilot
 
-<!-- marketplace-readme:remove-start -->
-<a href="https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode"><img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install-007ACC?logo=visualstudiocode&logoColor=white&style=for-the-badge" alt="Install from VS Code Marketplace"></a>
 <a href="https://open-vsx.org/extension/klarkxy/minimax-vscode"><img src="https://img.shields.io/badge/Open%20VSX-Install-2F81F7?logo=openvsx&logoColor=white&style=for-the-badge" alt="Install from Open VSX"></a>
-<!-- marketplace-readme:remove-end -->
+<a href="https://github.com/zelosleone/minimax-vscode/releases/latest"><img src="https://img.shields.io/badge/GitHub%20Release-Download%20.vsix-181717?logo=github&logoColor=white&style=for-the-badge" alt="Download .vsix from GitHub Releases"></a>
 
-<img src="https://vsmarketplacebadges.dev/installs-short/klarkxy.minimax-vscode.vsix.svg?style=for-the-badge" alt="Installs" />
+<img src="https://img.shields.io/badge/VS%20Code%20Marketplace-coming%20soon-999?style=for-the-badge" alt="VS Code Marketplace — coming soon" />
 
 > 🇬🇧 English | [🇨🇳 简体中文](./README.zh.md)
+
+> **Distribution status:** The extension currently ships through
+> **Open VSX** and **GitHub Releases** only. The publisher is **not yet
+> listed on the Microsoft VS Code Marketplace** while the original
+> Microsoft / Azure DevOps tenant is being restored. See
+> [`MARKETPLACE.md`](./MARKETPLACE.md) for the live status and what
+> users can do in the meantime.
 
 A [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat)
 language model provider that adds **MiniMax M3** and **M2.7** to the
