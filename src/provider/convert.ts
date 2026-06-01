@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { safeStringify } from '../json';
+import { logger } from '../logger';
 import type {
 	MiniMaxContentBlock,
 	MiniMaxMessage,
@@ -202,6 +203,18 @@ function convertUserMessage(
 				blocks.push(buildImageBlock(part));
 				hasNonText = true;
 			} else if (mime.startsWith('image/')) {
+				// Image with an unsupported MIME on a multimodal model, or
+				// a non-multimodal model that should already have had the
+				// image replaced by the vision pipeline. We log a warning
+				// in the native-image case (the previous version was
+				// silent, which made "I attached an image and the model
+				// pretended it didn't exist" impossible to debug).
+				if (supportsImages) {
+					logger.warn(
+						`[MiniMax] Dropping image attachment with unsupported MIME type "${mime}". ` +
+							`Supported types: ${[...SUPPORTED_IMAGE_MIME_TYPES].join(', ')}.`,
+					);
+				}
 				// Non-multimodal model with an image attachment. We rely on
 				// the vision pipeline (provider/vision) to have already
 				// replaced it with a text description. Skip silently.

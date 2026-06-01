@@ -19,7 +19,8 @@ import { getConfiguredThinkingEffort, type ModelConfigurationOptions } from './m
 import type { ReplayMarkerMetadata } from './replay';
 import type { ConversationSegment } from './segment';
 import { collectTrailingToolResultIds, prepareRequestTools } from './tools/request';
-import { resolveImageMessages } from './vision/index';
+import { logger } from '../logger';
+import { bypassVisionResolution, resolveImageMessages } from './vision/index';
 
 export interface PreparedChatRequest {
 	client: MiniMaxClient;
@@ -86,7 +87,23 @@ export async function prepareChatRequest({
 	const thinkingEffort = getConfiguredThinkingEffort(options as ModelConfigurationOptions);
 	const configuredMaxTokens = getMaxTokens();
 
-	const visionResolution = await resolveImageMessages(messages, token, getVisionModel);
+	// If the target model accepts image input natively (e.g. MiniMax-M3,
+	// `imageInput: true`), skip the vision proxy entirely. The proxy
+	// only exists to convert images into text descriptions for the
+	// text-only M2.x family; running it before a multimodal model
+	// would (a) waste a round-trip and (b) silently destroy the image
+	// whenever the proxy is unavailable, replacing it with
+	// `[Image Description unavailable]`.
+	const supportsImages = modelDef?.capabilities.imageInput ?? false;
+	const visionResolution = supportsImages
+		? bypassVisionResolution(messages)
+		: await resolveImageMessages(messages, token, getVisionModel);
+	if (supportsImages) {
+		logger.info(
+			`[MiniMax] Vision proxy bypassed — ${modelInfo.id} supports image input natively; ` +
+				`${countInputImages(messages)} image part(s) will be sent as base64 directly.`,
+		);
+	}
 	const resolvedMessages = visionResolution.messages;
 	const converted = convertMessages(resolvedMessages, modelInfo.id);
 	const tools = prepareRequestTools(modelDef?.capabilities.toolCalling, options);
@@ -264,3 +281,25 @@ function buildThinkingPayload(
 // `collectTrailingToolResultIds` is no longer used by the Anthropic transport
 // but kept for callers that still want to know the count for diagnostics.
 void collectTrailingToolResultIds;
+
+/**
+ * Count the number of image data parts in the request so the bypass log
+ * line can tell the user "I skipped the vision proxy and forwarded N
+ * images directly". Lightweight — runs only on the bypass path.
+ */
+function countInputImages(
+	messages: readonly vscode.LanguageModelChatRequestMessage[],
+): number {
+	let count = 0;
+	for (const message of messages) {
+		for (const part of message.content) {
+			if (
+				part instanceof vscode.LanguageModelDataPart &&
+				part.mimeType.startsWith('image/')
+			) {
+				count += 1;
+			}
+		}
+	}
+	return count;
+}

@@ -11,6 +11,36 @@ import { getVisionPrompt } from './model';
 import type { VisionResolutionResult, VisionResolutionStats } from './types';
 
 /**
+ * Build an empty `VisionResolutionResult` that hands the original messages
+ * back unchanged. Used when the target model supports image input natively
+ * (e.g. MiniMax-M3) — there is no point in spinning up a vision proxy to
+ * describe an image only to re-attach it as a base64 block a few lines
+ * later, and worse, if the proxy is unavailable the image gets silently
+ * replaced with `[Image Description unavailable]`.
+ */
+export function bypassVisionResolution(
+	messages: readonly vscode.LanguageModelChatRequestMessage[],
+): VisionResolutionResult {
+	return {
+		messages,
+		stats: {
+			inputImageParts: 0,
+			inputImageMessages: 0,
+			currentImageMessages: 0,
+			generatedImageMessages: 0,
+			replayedImageMessages: 0,
+			omittedImageMessages: 0,
+			unavailableImageMessages: 0,
+			failedImageMessages: 0,
+			droppedImageParts: 0,
+			markerVisionTextChars: 0,
+			invalidMarkerVisionMetadata: 0,
+		},
+		replayMarkerMetadata: { thinkingBlocks: undefined },
+	};
+}
+
+/**
  * Resolve image parts into text descriptions via a vision proxy.
  *
  * Only the "tail" user image message (most recent user message with images)
