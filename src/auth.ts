@@ -7,6 +7,10 @@ import { t } from './i18n';
  * fallback to extension settings (less secure, for CI/automation).
  */
 export class AuthManager {
+	private readonly _onDidChangeApiKey = new vscode.EventEmitter<void>();
+	/** Fires whenever the API key is written, cleared, or replaced. */
+	readonly onDidChangeApiKey: vscode.Event<void> = this._onDidChangeApiKey.event;
+
 	constructor(private readonly context: vscode.ExtensionContext) {}
 
 	/**
@@ -32,6 +36,7 @@ export class AuthManager {
 	 */
 	async setApiKey(apiKey: string): Promise<void> {
 		await this.context.secrets.store(API_KEY_SECRET, apiKey.trim());
+		this._onDidChangeApiKey.fire();
 	}
 
 	/**
@@ -39,6 +44,7 @@ export class AuthManager {
 	 */
 	async deleteApiKey(): Promise<void> {
 		await this.context.secrets.delete(API_KEY_SECRET);
+		this._onDidChangeApiKey.fire();
 	}
 
 	/**

@@ -6,15 +6,26 @@ import { MODELS, getVisibleModels } from '../models/registry';
 import { getBaseUrl } from '../config';
 import { chooseCommitModel, generateCommitMessage } from '../git/commitMessage';
 import { createUsageStore, type UsageStore } from '../usage';
+import { DashboardPanel } from '../dashboard/panel';
+import { createUsageStatusBar, type UsageStatusBar } from '../dashboard/statusBar';
 
 let cachedContext: vscode.ExtensionContext | undefined;
 let cachedAuth: AuthManager | undefined;
 let cachedUsage: UsageStore | undefined;
+let cachedStatusBar: UsageStatusBar | undefined;
 
 export function setCommandContext(context: vscode.ExtensionContext): void {
 	cachedContext = context;
 	cachedAuth = new AuthManager(context);
 	cachedUsage = createUsageStore(context.globalState);
+	if (!cachedStatusBar) {
+		cachedStatusBar = createUsageStatusBar({
+			store: cachedUsage,
+			auth: cachedAuth,
+			command: 'minimax.openDashboard',
+		});
+		context.subscriptions.push(cachedStatusBar);
+	}
 }
 
 export function registerCommands(context: vscode.ExtensionContext): void {
@@ -51,7 +62,28 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('minimax.showProviderStatus', () => {
 			void showProviderStatus(auth);
 		}),
+		vscode.commands.registerCommand('minimax.openDashboard', () => {
+			if (!cachedAuth || !cachedUsage || !cachedContext) {
+				void vscode.window.showWarningMessage(t('usage.empty'));
+				return;
+			}
+			DashboardPanel.show({
+				extensionUri: cachedContext.extensionUri,
+				auth: cachedAuth,
+				usageStore: cachedUsage,
+				host: detectHost(),
+			});
+		}),
 	);
+}
+
+function detectHost(): 'china' | 'global' {
+	try {
+		const baseUrl = getBaseUrl();
+		return baseUrl.includes('minimaxi.com') ? 'china' : 'global';
+	} catch {
+		return 'china';
+	}
 }
 
 async function switchBaseUrl(target: 'global' | 'china'): Promise<void> {

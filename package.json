@@ -120,6 +120,11 @@
         "command": "minimax.showProviderStatus",
         "title": "%minimax.command.showProviderStatus%",
         "category": "MiniMax"
+      },
+      {
+        "command": "minimax.openDashboard",
+        "title": "%minimax.command.openDashboard%",
+        "category": "MiniMax"
       }
     ],
     "menus": {

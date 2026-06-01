@@ -1,0 +1,140 @@
+// Localised strings for the dashboard webview. Mirrors the pattern
+// used by src/i18n.ts (one dictionary per language, lookup by key)
+// but is intentionally self-contained: the webview is rendered as a
+// string of HTML and receives every label up-front in the initial
+// payload, so we never have to round-trip text through VS Code's
+// `vscode.env.language` from inside the iframe.
+
+export type DashboardLocale = 'en' | 'zh';
+
+export interface DashboardMessages {
+	pageTitle: string;
+	subtitle: string;
+	refresh: string;
+	close: string;
+	reset: string;
+	resetConfirm: string;
+	resetDone: string;
+	planSectionTitle: string;
+	localSectionTitle: string;
+	perModelTitle: string;
+	dailyChartTitle: string;
+	noLocalData: string;
+	platformUnavailable: string;
+	platformUnconfigured: string;
+	fieldInput: string;
+	fieldOutput: string;
+	fieldCacheRead: string;
+	fieldCacheWrite: string;
+	fieldRequests: string;
+	fieldTotal: string;
+	fieldUsed: string;
+	fieldRemaining: string;
+	fieldResetsIn: string;
+	fieldWeeklyReset: string;
+	fieldExpiry: string;
+	fieldExpiryDays: (days: number) => string;
+	fieldStarted: string;
+	fieldUpdated: string;
+	windowToday: string;
+	window7d: string;
+	window30d: string;
+	platformModelHeader: string;
+}
+
+const en: DashboardMessages = {
+	pageTitle: 'MiniMax Usage Dashboard',
+	subtitle: 'Today, last 7 days, and last 30 days — sourced from your local token accounting and the MiniMax platform.',
+	refresh: 'Refresh',
+	close: 'Close',
+	reset: 'Reset counters',
+	resetConfirm: 'Reset all locally recorded token counters? This cannot be undone.',
+	resetDone: 'Local token counters have been reset.',
+	planSectionTitle: 'Token Plan (platform)',
+	localSectionTitle: 'Local token usage',
+	perModelTitle: 'Per-model breakdown',
+	dailyChartTitle: 'Last 30 days',
+	noLocalData: 'No requests have been recorded yet. Send a message from Copilot Chat using a MiniMax model and the counters will fill in.',
+	platformUnavailable: 'Token Plan data is unavailable right now. The local counters above are still accurate.',
+	platformUnconfigured: 'Token Plan data is hidden because the API key is missing or invalid. Set a key from the command palette to enable it.',
+	fieldInput: 'Input',
+	fieldOutput: 'Output',
+	fieldCacheRead: 'Cache read',
+	fieldCacheWrite: 'Cache write',
+	fieldRequests: 'Requests',
+	fieldTotal: 'Total',
+	fieldUsed: 'Used',
+	fieldRemaining: 'Remaining',
+	fieldResetsIn: 'Resets in',
+	fieldWeeklyReset: 'Weekly resets in',
+	fieldExpiry: 'Subscription expires',
+	fieldExpiryDays: (days) => {
+		if (days < 0) return `expired ${Math.abs(days)}d ago`;
+		if (days === 0) return 'expires today';
+		return `${days} day${days === 1 ? '' : 's'} remaining`;
+	},
+	fieldStarted: 'Tracking since',
+	fieldUpdated: 'Updated',
+	windowToday: 'Today',
+	window7d: 'Last 7 days',
+	window30d: 'Last 30 days',
+	platformModelHeader: 'Model',
+};
+
+const zh: DashboardMessages = {
+	pageTitle: 'MiniMax 用量面板',
+	subtitle: '今日、近 7 日、近 30 日 —— 数据来自本地统计与 MiniMax 开放平台。',
+	refresh: '刷新',
+	close: '关闭',
+	reset: '清空计数器',
+	resetConfirm: '确定要清空本地累计的 token 计数器吗？此操作不可撤销。',
+	resetDone: '本地 token 计数器已清空。',
+	planSectionTitle: 'Token Plan（平台）',
+	localSectionTitle: '本地 token 统计',
+	perModelTitle: '按模型拆分',
+	dailyChartTitle: '近 30 日',
+	noLocalData: '暂无请求记录。在 Copilot Chat 中选用 MiniMax 模型并发送消息，计数器会自动累计。',
+	platformUnavailable: 'Token Plan 数据暂时无法获取。上面的本地统计仍然准确。',
+	platformUnconfigured: 'Token Plan 数据未显示：API Key 未配置或无效。请在命令面板中设置 Key。',
+	fieldInput: '输入',
+	fieldOutput: '输出',
+	fieldCacheRead: '缓存读取',
+	fieldCacheWrite: '缓存写入',
+	fieldRequests: '请求数',
+	fieldTotal: '合计',
+	fieldUsed: '已用',
+	fieldRemaining: '剩余',
+	fieldResetsIn: '重置倒计时',
+	fieldWeeklyReset: '周限额重置',
+	fieldExpiry: '套餐到期',
+	fieldExpiryDays: (days) => {
+		if (days < 0) return `已过期 ${Math.abs(days)} 天`;
+		if (days === 0) return '今天到期';
+		return `还剩 ${days} 天`;
+	},
+	fieldStarted: '开始追踪',
+	fieldUpdated: '更新时间',
+	windowToday: '今日',
+	window7d: '近 7 日',
+	window30d: '近 30 日',
+	platformModelHeader: '模型',
+};
+
+const dictionaries: Record<DashboardLocale, DashboardMessages> = { en, zh };
+
+export function pickDashboardLocale(value: string | undefined): DashboardLocale {
+	if (!value) {
+		return 'en';
+	}
+	const lower = value.toLowerCase();
+	if (lower === 'zh-cn' || lower === 'zh' || lower.startsWith('zh-')) {
+		return 'zh';
+	}
+	return 'en';
+}
+
+export function dashboardMessages(locale: DashboardLocale): DashboardMessages {
+	return dictionaries[locale];
+}
+
+export const DASHBOARD_LOCALE_CHANGE = 'minimax.dashboard.locale';

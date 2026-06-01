@@ -127,6 +127,10 @@ const zh: Translations = {
 	'status.visibleModels': '可见模型 {0} 个。',
 	'status.lastUsage': '最近一次请求输入 {0} token、输出 {1} token。',
 	'status.usageEmpty': '尚未发起任何请求。',
+	'status.tooltip': 'MiniMax 用量',
+	'status.tooltipEmpty': '打开 MiniMax 用量面板',
+	'status.tooltipActive': '今日已用 {0} tokens · {1} 次请求。点击打开 Dashboard。',
+	'status.tooltipActive_zh': '今日已用 {0} tokens · {1} 次请求。点击打开 Dashboard。',
 };
 
 const en: Translations = {
@@ -242,6 +246,10 @@ const en: Translations = {
 	'status.visibleModels': '{0} models exposed in the picker.',
 	'status.lastUsage': 'Last request used input {0} tokens, output {1} tokens.',
 	'status.usageEmpty': 'No requests have been made yet.',
+	'status.tooltip': 'MiniMax usage',
+	'status.tooltipEmpty': 'Open MiniMax usage dashboard',
+	'status.tooltipActive': '{0} tokens used today · {1} requests. Click to open the dashboard.',
+	'status.tooltipActive_zh': '今日已用 {0} tokens · {1} 次请求。点击打开 Dashboard。',
 };
 
 const dictionaries: Record<'en' | 'zh', Translations> = { en, zh };

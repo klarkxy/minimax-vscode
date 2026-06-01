@@ -92,6 +92,31 @@ export class EventEmitter {
 	dispose() {
 		this.listeners = [];
 	}
+	event = (listener: (e: unknown) => void) => {
+		this.listeners.push(listener);
+		return new Disposable(() => {
+			const idx = this.listeners.indexOf(listener);
+			if (idx >= 0) this.listeners.splice(idx, 1);
+		});
+	};
+}
+
+export class Disposable {
+	constructor(private readonly cleanup: () => void) {}
+	dispose(): void {
+		this.cleanup();
+	}
+	static from(...disposables: { dispose(): unknown }[]): Disposable {
+		return new Disposable(() => {
+			for (const d of disposables) {
+				try {
+					d.dispose();
+				} catch {
+					// ignore
+				}
+			}
+		});
+	}
 }
 
 // `vscode.Uri` in production is both a class and a namespace with

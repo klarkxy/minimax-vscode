@@ -12,6 +12,7 @@
 	"minimax.command.showUsage": "Show Usage",
 	"minimax.command.resetUsage": "Reset Usage",
 	"minimax.command.showProviderStatus": "Show Provider Status",
+	"minimax.command.openDashboard": "Open Usage Dashboard",
 	"minimax.config.title": "MiniMax",
 	"minimax.walkthrough.title": "Get started with MiniMax",
 	"minimax.walkthrough.description": "Configure the MiniMax Token Plan API key, pick a model, and tune advanced settings.",
