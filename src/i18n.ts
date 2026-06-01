@@ -105,6 +105,16 @@ const zh: Translations = {
 	'extension.deactivateFailed': 'MiniMax 停用异常',
 	'extension.welcomeFailed': '欢迎引导加载异常',
 	'extension.openRequestDumpsFolderFailed': '打开请求 dump 目录失败，请运行 "MiniMax: 显示日志" 查看详情。',
+
+	// Commit message generator
+	'commit.noApiKey': '生成提交信息前请先配置 API Key。',
+	'commit.gitUnavailable': '未找到内置 Git 扩展，无法生成提交信息。请先安装并启用 Git 扩展。',
+	'commit.noRepository': '当前工作区没有可用的 Git 仓库。',
+	'commit.noChanges': '暂存区与工作区都没有改动，无需生成提交信息。',
+	'commit.modelUnknown': 'commitModel 配置项指向了未注册的模型 "{0}"，请在设置里改成 M2.7 或 M3。',
+	'commit.generating': '正在用 {0} 生成提交信息…',
+	'commit.progressReading': '读取暂存区改动…',
+	'commit.emptyResult': '模型没有返回任何内容，请重试。',
 };
 
 const en: Translations = {
@@ -197,6 +207,16 @@ const en: Translations = {
 	'extension.deactivateFailed': 'MiniMax deactivation failed',
 	'extension.welcomeFailed': 'Welcome flow failed to load',
 	'extension.openRequestDumpsFolderFailed': 'Failed to open request dumps folder. Run "MiniMax: Show Logs" for details.',
+
+	// Commit message generator
+	'commit.noApiKey': 'Configure an API key before generating commit messages.',
+	'commit.gitUnavailable': 'VS Code built-in Git extension is unavailable. Install and enable it first.',
+	'commit.noRepository': 'No Git repository is open in the current workspace.',
+	'commit.noChanges': 'No staged or working-tree changes — nothing to commit.',
+	'commit.modelUnknown': 'commitModel points to an unregistered model "{0}". Use M2.7 or M3 in settings.',
+	'commit.generating': 'Generating commit message with {0}…',
+	'commit.progressReading': 'Reading staged changes…',
+	'commit.emptyResult': 'The model returned an empty result. Please try again.',
 };
 
 const dictionaries: Record<'en' | 'zh', Translations> = { en, zh };

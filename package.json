@@ -90,8 +90,22 @@
         "command": "minimax.showPricing",
         "title": "MiniMax: Show Pricing",
         "category": "MiniMax"
+      },
+      {
+        "command": "minimax.generateCommitMessage",
+        "title": "MiniMax: Generate Commit Message",
+        "category": "MiniMax"
       }
     ],
+    "menus": {
+      "scm/inputBox/title": [
+        {
+          "command": "minimax.generateCommitMessage",
+          "group": "navigation@1",
+          "when": "scmProvider == git"
+        }
+      ]
+    },
     "configuration": {
       "title": "MiniMax",
       "properties": {
@@ -123,6 +137,17 @@
           "uniqueItems": true,
           "scope": "application",
           "markdownDescription": "Programming text models (M2.7 / M2.7-highspeed / M3) for Token Plan. M3 is the latest native-multimodal frontier coding model (officially 1M context; effective 512K until the >512K tier is fully rolled out). MiniMax no longer recommends M2.5 and earlier."
+        },
+        "minimax.commitModel": {
+          "type": "string",
+          "enum": [
+            "MiniMax-M3",
+            "MiniMax-M2.7",
+            "MiniMax-M2.7-highspeed"
+          ],
+          "default": "MiniMax-M2.7",
+          "scope": "application",
+          "markdownDescription": "Model used by **MiniMax: Generate Commit Message**. Defaults to `MiniMax-M2.7` for a fast, deterministic draft. Switch to `MiniMax-M3` when you need deeper reasoning on a complex refactor or migration."
         },
         "minimax.maxTokens": {
           "type": "number",

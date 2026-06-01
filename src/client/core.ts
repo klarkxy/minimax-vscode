@@ -125,6 +125,63 @@ export class MiniMaxClient {
 		}
 	}
 
+	/**
+	 * Send a non-streaming chat completion and return the assembled
+	 * text plus final usage block. Used by utilities that only need
+	 * the final answer (e.g. commit-message generation) and do not
+	 * want the ceremony of stream callbacks.
+	 *
+	 * Returns `{ text: '' }` on cancellation / hard error so callers
+	 * can handle the empty-result case with a localised message.
+	 */
+	async completeChat(
+		apiKey: string,
+		baseUrl: string | undefined,
+		request: MiniMaxRequest,
+		cancellationToken: vscode.CancellationToken | undefined,
+	): Promise<{ text: string; usage?: MiniMaxUsage }> {
+		const trimmedKey = apiKey?.trim();
+		if (!trimmedKey) {
+			throw new Error('API key is required');
+		}
+		const url = baseUrl?.trim() || this.defaultBaseUrl;
+		const client = new Anthropic({ apiKey: trimmedKey, baseURL: url });
+
+		// completeChat always sends a non-streaming request; the type
+		// assertion strips the "stream: true" marker that buildRequest
+		// includes for stream-based consumers.
+		const body = { ...request, stream: false } as unknown as Parameters<typeof client.messages.create>[0];
+
+		const abortController = new AbortController();
+		const cancellationDisposable = cancellationToken?.onCancellationRequested(() => {
+			abortController.abort();
+		});
+
+		try {
+			const response = await client.messages.create(body, {
+				signal: abortController.signal,
+			});
+			const text = extractAssistantText(response);
+			const usage = (response as { usage?: MiniMaxUsage }).usage;
+			return { text, usage };
+		} catch (error) {
+			if (isAbortError(error) && cancellationToken?.isCancellationRequested) {
+				return { text: '' };
+			}
+			const normalized = await normalizeTransportError(error, url);
+			logger.error(
+				'MiniMax non-streaming request failed:',
+				'diagnosticMessage' in normalized
+					? (normalized as Error & { diagnosticMessage?: string }).diagnosticMessage
+					: normalized.message,
+				error,
+			);
+			throw normalized;
+		} finally {
+			cancellationDisposable?.dispose();
+		}
+	}
+
 	/** Build a request payload without sending it. Used by request dumpers. */
 	buildRequest(
 		model: string,
@@ -207,6 +264,25 @@ function extractAnthropicErrorBody(error: InstanceType<typeof Anthropic.APIError
 
 function isAbortError(error: unknown): boolean {
 	return error instanceof Error && error.name === 'AbortError';
+}
+
+function extractAssistantText(response: unknown): string {
+	const content = (response as { content?: unknown }).content;
+	if (!Array.isArray(content)) {
+		return '';
+	}
+	const parts: string[] = [];
+	for (const block of content) {
+		if (!block || typeof block !== 'object') {
+			continue;
+		}
+		const type = (block as { type?: unknown }).type;
+		const text = (block as { text?: unknown }).text;
+		if (type === 'text' && typeof text === 'string') {
+			parts.push(text);
+		}
+	}
+	return parts.join('');
 }
 
 /**

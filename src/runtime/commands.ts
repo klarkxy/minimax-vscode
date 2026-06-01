@@ -1,17 +1,22 @@
 import * as vscode from 'vscode';
+import { AuthManager } from '../auth';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import { MODELS } from '../models/registry';
 import { getBaseUrl } from '../config';
+import { generateCommitMessage } from '../git/commitMessage';
 
 let cachedContext: vscode.ExtensionContext | undefined;
+let cachedAuth: AuthManager | undefined;
 
 export function setCommandContext(context: vscode.ExtensionContext): void {
 	cachedContext = context;
+	cachedAuth = new AuthManager(context);
 }
 
 export function registerCommands(context: vscode.ExtensionContext): void {
 	setCommandContext(context);
+	const auth = cachedAuth ?? new AuthManager(context);
 	context.subscriptions.push(
 		vscode.commands.registerCommand('minimax.switchToGlobal', () => switchBaseUrl('global')),
 		vscode.commands.registerCommand('minimax.switchToChina', () => switchBaseUrl('china')),
@@ -23,6 +28,12 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 		}),
 		vscode.commands.registerCommand('minimax.showPricing', () => {
 			void showPricing();
+		}),
+		vscode.commands.registerCommand('minimax.generateCommitMessage', () => {
+			if (!cachedAuth) {
+				cachedAuth = new AuthManager(context);
+			}
+			void generateCommitMessage(cachedAuth);
 		}),
 	);
 }

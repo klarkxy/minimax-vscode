@@ -2,7 +2,7 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
-## 1.6.0 — 仅 Anthropic 协议、M3 锁 512K、模型选择器内显示价格、端点自动选择
+## 1.6.0 — 仅 Anthropic 协议、M3 锁 512K、模型选择器内显示价格、端点自动选择、Git 提交信息生成
 
 这是一个**破坏性更新**。扩展现在**只**走 MiniMax 的 Anthropic 兼容端点，原有的 OpenAI 兼容传输已被彻底移除。
 
@@ -35,13 +35,23 @@ M2.5 / M2.1 / M2 这些历史模型 MiniMax 已不再推荐，本版本也不再
 | --- | --- | --- |
 | `minimax.apiBaseUrl` | 改为 Anthropic 端点 | `https://api.minimaxi.com/anthropic` |
 | `minimax.maxTokens` | 硬上限生效 | `0` |
+| `minimax.commitModel` | 新增 | `MiniMax-M2.7` |
 | 新增命令 `MiniMax: Show Pricing` | — | — |
+| 新增命令 `MiniMax: Generate Commit Message` | — | — |
 
 `switchToGlobal` / `switchToChina` 命令现在也直接指向 Anthropic 兼容端点。
+
+### Git 提交信息生成
+
+- 新增命令 **MiniMax: Generate Commit Message**，同时挂到 `scm/inputBox/title` 菜单上，与 Copilot 自带的 sparkle 按钮并排显示。
+- 通过 VS Code 自带的 Git 扩展读取**已暂存**的改动（暂存区为空时退回到工作区改动），diff 上限 32 KB，文件列表最多 80 条；若输入框里已有草稿会把它当作"待润色"输入。
+- 输出按 Conventional Commits 风格（`<type>(<scope>)<!>: <subject>` + 可选 bullet body），`temperature: 0.2`、`max_tokens: 256`，保证稳定可复现。
+- 模型由 `minimax.commitModel` 决定，默认 `MiniMax-M2.7`；复杂重构可手动切到 `MiniMax-M3`。
 
 ### 架构变更
 
 - 依赖：`openai` → `@anthropic-ai/sdk`（Apache 2.0）。
+- 新增 `MiniMaxClient.completeChat()` 非流式 helper，给提交信息生成器（以及将来任何一次性工具调用）使用，省去流式回调的繁琐。
 - `src/types.ts` 改为镜像 Anthropic Messages API 的结构：`messages[].content` 现在是内容块数组；`system` 升级为顶层字段；`thinking.type ∈ {enabled, disabled}`；`tool_use.id` / `tool_result.tool_use_id` 等都按 Anthropic 习惯命名。
 - `src/provider/replay` 中的 marker 现在携带 `thinkingBlocks`（含 `signature` 字段），替代旧的 `reasoningDetails`，让模型在跨会话拼接思考时能完成签名校验。
 - `src/provider/convert.ts` 把 system 消息提取到顶层 `system` 字段，输出 `tool_use` / `tool_result` 内容块，并把图片部分直接转成 Anthropic `image` 块（支持 base64 与 data-URI）。

@@ -40,6 +40,8 @@ MiniMax for new integrations.
 - **Pricing in the model picker**: each model's per-million-token cost
   (input / output / cache read / cache write) is shown in the picker
   tooltip. Run **MiniMax: Show Pricing** for the full table.
+- **Git commit message generation** in the SCM input box. Defaults to
+  `MiniMax-M2.7`; switch to `MiniMax-M3` for harder refactors.
 - **Replay markers** for cross-conversation reasoning context.
 - **Bilingual UI** (English + Simplified Chinese, follows VS Code
   display language).
@@ -50,6 +52,8 @@ MiniMax for new integrations.
 - MiniMax Token Plan subscription and API key
 - VS Code Insiders is required to render MiniMax thinking blocks via
   the proposed `languageModelThinkingPart` API
+- VS Code's built-in Git extension must be enabled for the commit
+  message generator to read the staged diff
 
 ## Setup
 
@@ -62,11 +66,12 @@ MiniMax for new integrations.
 
 ## Configuration
 
-| Setting | Default | Purpose |Auto-picked on first activation when unset. |
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `minimax.apiBaseUrl` | `https://api.minimaxi.com/anthropic` | Anthropic-compatible base URL. Use `https://api.minimax.io/anthropic` for international users. The SDK appends `/v1/messages`. Auto-picked on first activation when unset. |
 | `minimax.visibleModels` | _all M-series_ | Restrict which models appear in the picker. |
-| `minimax.maxTokens` | `0` | Output cap. `0` lets the model decide. Hard cap: 131072 for M2.7 Use `https://api.minimax.io/anthropic` for international users. The SDK appends `/v1/messages`. |
-| `minimax.visibleModels` | _all M-series_ | Restrict which models appear in the picker. |
-| `minimax.maxTokens` | `0` | Output cap. `0` lets the model decide. Hard cap: 524288 for M2.x, 512000 for M3. |
+| `minimax.maxTokens` | `0` | Output cap. `0` lets the model decide. Hard cap: 131072 for M2.7, 512000 for M3. |
+| `minimax.commitModel` | `MiniMax-M2.7` | Model used by **MiniMax: Generate Commit Message**. Switch to `MiniMax-M3` for complex refactors. |
 | `minimax.debugMode` | `minimal` | `minimal` / `metadata` / `verbose` (verbose dumps every request to disk). |
 | `minimax.modelIdOverrides` | _identity_ | Map picker IDs to API IDs (useful for proxies). |
 | `minimax.visionModel` | _auto_ | Vision proxy for non-M3 models. Has no effect on M3. |
@@ -83,8 +88,33 @@ MiniMax for new integrations.
 | `MiniMax: Switch to Chinese API (minimaxi.com/anthropic)` | Switch to the China Anthropic endpoint |
 | `MiniMax: Set Vision Proxy Model` | Pick a non-MiniMax model for image captions |
 | `MiniMax: Show Pricing` | Open the pricing table in a Markdown preview |
+| `MiniMax: Generate Commit Message` | Fill the SCM input box with a Conventional-Commits-style draft of the staged diff |
 | `MiniMax: Show Logs` | Focus the MiniMax output channel |
 | `MiniMax: Open Request Dumps Folder` | Reveal verbose request dumps |
+
+## Git commit message generation
+
+Run **MiniMax: Generate Commit Message** (also available from the **⋯**
+menu on the right of the SCM commit-message input box) to fill the
+input box with a draft. The generator:
+
+- Reads the **staged** changes via VS Code's built-in Git extension;
+  falls back to working-tree changes when nothing is staged.
+- Caps the diff at 32 KB and the file list at 80 entries, so a large
+  refactor still fits inside a 200K-context M2.7 budget.
+- If the input box is non-empty, treats the existing text as a draft
+  and asks the model to polish it instead of starting from scratch.
+- Emits a Conventional-Commits-style message: `<type>(<scope>)<!>: <subject>`
+  with a blank-line-separated bullet body. Allowed types: `feat`,
+  `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`, `chore`,
+  `style`, `revert`.
+- Runs the request with `temperature: 0.2` for a reproducible first
+  draft, and `max_tokens: 256` so a 512K-cap model doesn't burn its
+  output budget by mistake.
+
+The model is selected by `minimax.commitModel` (default
+`MiniMax-M2.7`). Pick `MiniMax-M3` when the diff is hairy enough to
+benefit from deeper reasoning.
 
 ## Models
 
@@ -120,10 +150,7 @@ MiniMax for new integrations.
 
 ## Thinking mode
 
-All M-series models except M2-her support reasoning. The model picker
-exposes a **Thinking mode** dropdown with four levels. On the
-Anthropic-compatible endpoint this maps to:
-shipped M-series models support reasoning. The model picker exposes
+All shipped M-series models support reasoning. The model picker exposes
 a **Thinking mode** dropdown with four levels. On the Anthropic-
 compatible endpoint this maps to:
 
@@ -150,4 +177,4 @@ Once you set `minimax.apiBaseUrl` manually or invoke `switchToGlobal` /
 ## License
 
 SATA 2.0 (Star And Thank Author License). Chinese translation in
-[`LICENSE_zh`](./LICENSE_zh)
+[`LICENSE_zh`](./LICENSE_zh).

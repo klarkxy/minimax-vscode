@@ -17,6 +17,7 @@
 - **自适应 token 计数**，每次 API usage 上报都会校准。
 - **丰富的诊断能力**：请求分类器、缓存命中统计、verbose 模式下的完整请求 dump、本地化错误消息 + 可点击的动作链接。
 - **模型选择器里直接展示价格**：每个模型的每百万 token 成本（输入 / 输出 / 缓存读取 / 缓存写入）都会显示在 tooltip 里。运行 **MiniMax: Show Pricing** 打开完整价格表。
+- **Git commit message 生成**：SCM 输入框右上角直接可触发。默认用 `MiniMax-M2.7`，复杂改动可手动切到 `MiniMax-M3`。
 - **Replay markers** 用于跨会话的推理上下文。
 - **双语 UI**（英文 + 简体中文），自动跟随 VS Code 显示语言。
 
@@ -25,6 +26,7 @@
 - VS Code 1.111.0+
 - MiniMax Token Plan 订阅与 API Key
 - 需要 VS Code Insiders 才能通过 proposed `languageModelThinkingPart` API 渲染思考折叠块
+- 提交信息生成依赖 VS Code 自带的 Git 扩展，请保持启用
 
 ## 快速开始
 
@@ -38,6 +40,7 @@
 | --- | --- | --- |
 | `minimax.apiBaseUrl` | `https://api.minimaxi.com/anthropic` | Anthropic 兼容 base URL。国际用户改用 `https://api.minimax.io/anthropic`。SDK 会自动追加 `/v1/messages`。激活时若用户尚未配置，会按 VS Code 显示语言自动选择。 |
 | `minimax.visibleModels` | _全部 M 系列_ | 限制模型选择器中出现的模型。 |
+| `minimax.commitModel` | `MiniMax-M2.7` | **MiniMax: Generate Commit Message** 使用的模型。复杂重构可手动切到 `MiniMax-M3`。 |
 | `minimax.maxTokens` | `0` | 输出 token 上限，`0` 表示由模型自行决定。硬上限：M2.7 系列是 131072，M3 是 512000。 |
 | `minimax.debugMode` | `minimal` | `minimal` / `metadata` / `verbose`（verbose 把每次请求 dump 到磁盘）。 |
 | `minimax.modelIdOverrides` | _恒等映射_ | 把 picker ID 映射到 API ID（用于第三方代理）。 |
@@ -54,6 +57,7 @@
 | `MiniMax: Switch to Global API (minimax.io/anthropic)` | 切换到国际版 Anthropic 端点 |
 | `MiniMax: Switch to Chinese API (minimaxi.com/anthropic)` | 切换到国内版 Anthropic 端点 |
 | `MiniMax: Set Vision Proxy Model` | 选择用于图片描述的非 MiniMax 模型 |
+| `MiniMax: Generate Commit Message` | 按暂存区 diff 自动生成 Conventional Commits 风格的提交信息 |
 | `MiniMax: Show Pricing` | 在 Markdown 预览里打开价格表 |
 | `MiniMax: Show Logs` | 聚焦 MiniMax 输出通道 |
 | `MiniMax: Open Request Dumps Folder` | 在文件管理器中打开请求 dump 目录 |
@@ -91,7 +95,19 @@
 | --- | --- | --- |
 | 关闭 | `thinking.type=disabled` | （不传 `thinking` 字段，走默认行为） |
 | 轻量 | `thinking.type=enabled, budget_tokens=1024` | （默认） |
-| 标准（默认） | `thinking.type=enabled, budget_tokens=8192` | （默认） |
+| 标准（默认） | `thinking.type=enabled, budget_tokens=8192` | （默认
+
+## Git 提交信息生成
+
+运行 **MiniMax: Generate Commit Message**（也在 SCM 输入框右上角的 **⋯** 菜单里）即可让 MiniMax 按暂存区内容自动起草提交信息。行为如下：
+
+- 通过 VS Code 自带的 Git 扩展读取**已暂存**的改动；如果暂存区为空，就退回到工作区的未暂存改动。
+- diff 上限 32 KB，文件列表最多 80 条，确保在 M2.7 的 200K 上下文里仍有余量。
+- 如果输入框里已有草稿，会把它当作"待润色"输入，让模型在原意基础上优化，**不会**另起炉灶。
+- 输出按 Conventional Commits 风格：`<type>(<scope>)<!>: <subject>`，可附带换行 + `- ` 项目符号的 body。`type` 只能从 `feat` / `fix` / `refactor` / `perf` / `docs` / `test` / `build` / `ci` / `chore` / `style` / `revert` 里选。
+- 请求使用 `temperature: 0.2` 保证稳定可复现；`max_tokens` 锁定 256，避免一个 512K 模型误把输出预算烧光。
+
+模型由 `minimax.commitModel` 决定（默认 `MiniMax-M2.7`）。当 diff 涉及复杂迁移或重构时，可手动切到 `MiniMax-M3` 获取更强的推理。） |
 | 深度 | `thinking.type=enabled, budget_tokens=32768` | （默认） |
 
 ## 端点自动选择

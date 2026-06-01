@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.6.0 — Anthropic-only, 512K M3, in-picker pricing, endpoint auto-select
+## 1.6.0 — Anthropic-only, 512K M3, in-picker pricing, endpoint auto-select, commit-message generator
 
 Breaking-change release. The extension now talks exclusively to the
 **Anthropic-compatible** endpoint of MiniMax. The OpenAI-compatible
@@ -53,12 +53,33 @@ users via `minimax.modelIdOverrides` and `minimax.visibleModels`.
 | --- | --- | --- |
 | `minimax.apiBaseUrl` | Anthropic URL | `https://api.minimaxi.com/anthropic` |
 | `minimax.maxTokens` | hard cap respected | `0` |
+| `minimax.commitModel` | new setting | `MiniMax-M2.7` |
 | New command `MiniMax: Show Pricing` | — | — |
+| New command `MiniMax: Generate Commit Message` | — | — |
 
 The `switchToGlobal` and `switchToChina` commands now point to the
-Anthropic-compatible endpoints.
+AnthGit commit message generator
+
+- New command **MiniMax: Generate Commit Message** is also wired into
+  the `scm/inputBox/title` menu so it sits next to the Copilot sparkle
+  button.
+- Reads staged changes through VS Code's built-in Git extension
+  (falling back to working-tree changes when nothing is staged), caps
+  the diff at 32 KB and the file list at 80 entries, and trims a
+  pre-existing draft in the input box as a polish request.
+- Emits a Conventional-Commits-style message
+  (`<type>(<scope>)<!>: <subject>` with a bullet body) at
+  `temperature: 0.2` and `max_tokens: 256` for a reproducible first
+  draft.
+- Model is `minimax.commitModel`, defaulting to `MiniMax-M2.7`. Switch
+  to `MiniMax-M3` when the diff needs deeper reasoning.
 
 ### Architecture changes
+
+- Dependency: `openai` → `@anthropic-ai/sdk` (Apache 2.0).
+- New non-streaming helper `MiniMaxClient.completeChat()` powers the
+  commit-message generator (and any future one-shot utilities that
+  don't need the stream-callback ceremony
 
 - Dependency: `openai` → `@anthropic-ai/sdk` (Apache 2.0).
 - `src/types.ts` mirrors the Anthropic Messages API shape
