@@ -1,10 +1,5 @@
 # MiniMax Copilot
 
-<a href="https://open-vsx.org/extension/klarkxy/minimax-vscode"><img src="https://img.shields.io/badge/Open%20VSX-Install-2F81F7?logo=openvsx&logoColor=white&style=for-the-badge" alt="Install from Open VSX"></a>
-<a href="https://github.com/zelosleone/minimax-vscode/releases/latest"><img src="https://img.shields.io/badge/GitHub%20Release-Download%20.vsix-181717?logo=github&logoColor=white&style=for-the-badge" alt="Download .vsix from GitHub Releases"></a>
-
-<img src="https://img.shields.io/badge/VS%20Code%20Marketplace-coming%20soon-999?style=for-the-badge" alt="VS Code Marketplace — coming soon" />
-
 > 🇬🇧 English | [🇨🇳 简体中文](./README.zh.md)
 
 > **Distribution status:** The extension currently ships through
