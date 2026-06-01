@@ -21,6 +21,34 @@ export interface ChatOptions {
 }
 
 /**
+ * Append non-empty query parameters to a base URL while preserving any
+ * existing query string. Used as a hook for future MiniMax-specific
+ * toggles; the current thinking-effort signal is sent in the request
+ * body via the typed `thinking` field, not the URL.
+ */
+export function appendQueryParams(
+	baseUrl: string,
+	params: Record<string, string | number | boolean | undefined> | undefined,
+): string {
+	if (!params) {
+		return baseUrl;
+	}
+	const search = new URLSearchParams();
+	for (const [key, value] of Object.entries(params)) {
+		if (value === undefined || value === null) {
+			continue;
+		}
+		search.append(key, String(value));
+	}
+	const suffix = search.toString();
+	if (!suffix) {
+		return baseUrl;
+	}
+	return baseUrl.includes('?') ? `${baseUrl}&${suffix}` : `${baseUrl}?${suffix}`;
+}
+
+
+/**
  * Thin wrapper around the Anthropic SDK tuned for the MiniMax Anthropic-
  * compatible endpoint. The SDK does most of the work (SSE framing, auth,
  * retries); we add:
@@ -49,10 +77,11 @@ export class MiniMaxClient {
 		systemPrompt: string | undefined,
 		maxTokens: number,
 		tools: MiniMaxTool[] | undefined,
-		thinking: { type: 'enabled' | 'disabled'; budget_tokens?: number } | undefined,
+		thinking: { type: 'adaptive' | 'disabled' } | undefined,
 		temperature: number | undefined,
 		topP: number | undefined,
 		callbacks: StreamCallbacks,
+		extraQueryParams?: Record<string, string | number | boolean | undefined>,
 	): Promise<void> {
 		const apiKey = options?.apiKey?.trim();
 		if (!apiKey) {
@@ -61,7 +90,8 @@ export class MiniMaxClient {
 		}
 
 		const baseUrl = options?.baseUrl?.trim() || this.defaultBaseUrl;
-		const client = new Anthropic({ apiKey, baseURL: baseUrl });
+		const effectiveBaseUrl = appendQueryParams(baseUrl, extraQueryParams);
+		const client = new Anthropic({ apiKey, baseURL: effectiveBaseUrl });
 
 		// Build the Anthropic request body. System prompt is a top-level field.
 		// Thinking requires the dedicated beta header on the Anthropic API; on
@@ -139,12 +169,13 @@ export class MiniMaxClient {
 		baseUrl: string | undefined,
 		request: MiniMaxRequest,
 		cancellationToken: vscode.CancellationToken | undefined,
+		extraQueryParams?: Record<string, string | number | boolean | undefined>,
 	): Promise<{ text: string; usage?: MiniMaxUsage }> {
 		const trimmedKey = apiKey?.trim();
 		if (!trimmedKey) {
 			throw new Error('API key is required');
 		}
-		const url = baseUrl?.trim() || this.defaultBaseUrl;
+		const url = appendQueryParams(baseUrl?.trim() || this.defaultBaseUrl, extraQueryParams);
 		const client = new Anthropic({ apiKey: trimmedKey, baseURL: url });
 
 		// completeChat always sends a non-streaming request; the type
@@ -189,7 +220,7 @@ export class MiniMaxClient {
 		systemPrompt: string | undefined,
 		maxTokens: number,
 		tools: MiniMaxTool[] | undefined,
-		thinking: { type: 'enabled' | 'disabled'; budget_tokens?: number } | undefined,
+		thinking: { type: 'adaptive' | 'disabled' } | undefined,
 		temperature: number | undefined,
 		topP: number | undefined,
 	): MiniMaxRequest {

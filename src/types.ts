@@ -73,8 +73,6 @@ export interface MiniMaxTool {
 
 // ---- Request params ----
 
-export type MiniMaxThinkingEffort = 'none' | 'low' | 'high' | 'max';
-
 export type MiniMaxRequest = {
 	model: string;
 	messages: MiniMaxMessage[];
@@ -86,8 +84,7 @@ export type MiniMaxRequest = {
 	tools?: MiniMaxTool[];
 	tool_choice?: { type: 'auto' | 'any' | 'tool'; name?: string };
 	thinking?: {
-		type: 'enabled' | 'disabled';
-		budget_tokens?: number;
+		type: 'adaptive' | 'disabled';
 	};
 };
 

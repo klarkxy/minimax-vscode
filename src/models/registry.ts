@@ -72,8 +72,8 @@ export const MODELS: ModelDefinition[] = [
 			thinking: true,
 		},
 		thinking: {
-			supportsBudget: true,
-			supportsAdaptive: false,
+			supportsBudget: false,
+			supportsAdaptive: true,
 		},
 		pricing: PRICING.m3,
 	},

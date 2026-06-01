@@ -32,17 +32,6 @@ const zh: Translations = {
 	'auth.removed': 'API Key 已移除。',
 	'auth.notConfigured': 'API Key 未配置，请在命令面板运行 "MiniMax: 设置 API Key"。',
 
-	// Thinking Effort — short labels for model picker dropdown
-	'status.thinking': '思考模式',
-	'thinking.none': '关闭',
-	'thinking.none.desc': '不进行深度思考，响应最快',
-	'thinking.low': '轻量',
-	'thinking.low.desc': '轻量思考，适合简单任务',
-	'thinking.high': '标准',
-	'thinking.high.desc': '推荐日常编码与 Agent 使用',
-	'thinking.max': '深度',
-	'thinking.max.desc': '深度推理，适合复杂任务和长链路规划',
-
 	// Vision
 	'vision.vendorLabel': '提供商：{0}',
 	'vision.noModel': '当前环境中没有可用的非 MiniMax 视觉代理模型。',
@@ -156,16 +145,6 @@ const en: Translations = {
 	'auth.notConfigured':
 		'API key not configured. Run "MiniMax: Set API Key" from the command palette.',
 
-	// Thinking Effort — short labels for model picker dropdown
-	'status.thinking': 'Thinking mode',
-	'thinking.none': 'Off',
-	'thinking.none.desc': 'No deep thinking, fastest response',
-	'thinking.low': 'Light',
-	'thinking.low.desc': 'Light thinking for simple tasks',
-	'thinking.high': 'Standard',
-	'thinking.high.desc': 'Recommended for daily coding and agents',
-	'thinking.max': 'Deep',
-	'thinking.max.desc': 'Deep reasoning for complex tasks and long-horizon planning',
 
 	// Vision
 	'vision.vendorLabel': 'Vendor: {0}',

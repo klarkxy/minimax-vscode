@@ -3,32 +3,32 @@ import { t } from '../i18n';
 import type { ModelDefinition } from '../types';
 
 /**
- * Thinking effort levels exposed in the model picker dropdown.
+ * Thinking-capable models are advertised with a fixed
+ * `thinking: { type: 'adaptive' }` hint on the Anthropic-compatible
+ * endpoint; MiniMax does **not** expose a thinking-effort knob
+ * (no `budget_tokens`, no `reasoning_effort` query parameter, no
+ * `reasoning_split` field on the Anthropic surface — see the
+ * OpenAPI spec at
+ * https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json).
+ * The official `Mini-Agent` reference client likewise ships with
+ * `extra_body={"reasoning_split": true}` hardcoded and no UI.
  *
- * Mapping to MiniMax API:
- *   - `none`  → M3: thinking disabled, no reasoning_split on M2.x
- *   - `low`   → M3: thinking enabled with small budget; M2.x: reasoning_split=true
- *   - `high`  → M3: thinking enabled with standard budget; M2.x: reasoning_split=true (default)
- *   - `max`   → M3: thinking enabled with deep budget; M2.x: reasoning_split=true
- *
- * Non-public API surface: `configurationSchema` on chat info and
- * `modelConfiguration` on response options are not part of the stable
- * `vscode.LanguageModelChat*` typings yet.
+ * So this extension deliberately has **no** `configurationSchema`
+ * dropdown for thinking depth; M3 will always run in
+ * `adaptive` mode, and M2.x will always run without a typed
+ * `thinking` block (its reasoning still surfaces as
+ * `<think>…</think>` inside the text content).
  */
-
-export type ThinkingEffort = 'none' | 'low' | 'high' | 'max';
+export type ThinkingEffort = 'adaptive';
 
 export type ModelConfigurationOptions = vscode.ProvideLanguageModelChatResponseOptions & {
 	readonly modelConfiguration?: Record<string, unknown>;
 	readonly configuration?: Record<string, unknown>;
 };
 
-type ThinkingEffortConfigurationSchema = ReturnType<typeof buildThinkingEffortSchema>;
-
 export type ModelPickerChatInformation = vscode.LanguageModelChatInformation & {
 	readonly isUserSelectable: boolean;
 	readonly statusIcon?: vscode.ThemeIcon;
-	readonly configurationSchema?: ThinkingEffortConfigurationSchema;
 };
 
 export function toChatInfo(
@@ -59,7 +59,6 @@ export function toChatInfo(
 			toolCalling: m.capabilities.toolCalling,
 			imageInput: m.capabilities.imageInput,
 		},
-		...(m.capabilities.thinking ? { configurationSchema: buildThinkingEffortSchema() } : {}),
 	};
 }
 
@@ -85,47 +84,13 @@ function formatNumber(n: number): string {
 }
 
 export function getConfiguredThinkingEffort(
-	options: ModelConfigurationOptions,
+	_options: ModelConfigurationOptions,
 ): ThinkingEffort {
-	const configuredEffort =
-		options.modelConfiguration?.reasoningEffort ?? options.configuration?.reasoningEffort;
-
-	if (
-		configuredEffort === 'none' ||
-		configuredEffort === 'low' ||
-		configuredEffort === 'high' ||
-		configuredEffort === 'max'
-	) {
-		return configuredEffort;
-	}
-
-	return 'high';
-}
-
-function buildThinkingEffortSchema() {
-	return {
-		properties: {
-			reasoningEffort: {
-				type: 'string',
-				title: t('status.thinking'),
-				enum: ['none', 'low', 'high', 'max'],
-				enumItemLabels: [
-					t('thinking.none'),
-					t('thinking.low'),
-					t('thinking.high'),
-					t('thinking.max'),
-				],
-				enumDescriptions: [
-					t('thinking.none.desc'),
-					t('thinking.low.desc'),
-					t('thinking.high.desc'),
-					t('thinking.max.desc'),
-				],
-				default: 'high',
-				group: 'navigation',
-			},
-		},
-	} as const;
+	// MiniMax does not expose a thinking-effort toggle on the
+	// Anthropic-compatible surface (see the file header), so this
+	// always resolves to the single legal value. The function is
+	// kept for call-site symmetry with the request layer.
+	return 'adaptive';
 }
 
 function resolveDetailKey(m: ModelDefinition): string | undefined {

@@ -18,7 +18,7 @@
 - **Token Plan API Key** 来自 [platform.minimaxi.com](https://platform.minimaxi.com)，使用 VS Code SecretStorage 存储。
 - **Anthropic 兼容协议** 直连 `https://api.minimaxi.com/anthropic`（国内）或 `https://api.minimax.io/anthropic`（国际），基于官方 [`@anthropic-ai/sdk`](https://www.npmjs.com/package/@anthropic-ai/sdk)。激活时**自动**根据 VS Code 显示语言（`zh*` 走国内端点，否则走国际端点）选择默认端点，已配置过的端点不会被覆盖。
 - **覆盖官方推荐的 MiniMax 编程模型**：
-  - **MiniMax M3** — 1M 上下文（>512K 输入层级当前限量供应，**实际可用 512K**），原生多模态，输出上限 512K，通过 `budget_tokens` 控制思考深度。
+  - **MiniMax M3** — 1M 上下文（>512K 输入层级当前限量供应，**实际可用 512K**），原生多模态，输出上限 512K，思考深度由模型在 `adaptive` 模式下自行决定。
   - **MiniMax M2.7 / M2.7-highspeed** — 200K 上下文，纯文本，原生 Anthropic thinking。
 - **工具调用** 支持实验性的 `stabilizeToolList` 开关 —— 合成 preflight 调用以保持上游 prompt cache 命中。
 - **自适应 token 计数**，每次 API usage 上报都会校准。
@@ -96,13 +96,19 @@
 
 ## 思考模式
 
-所有 M 系列模型都支持推理。模型选择器提供**思考模式**下拉菜单，共 4 档。在 Anthropic 兼容通道上对应：
+**MiniMax 官方并没有提供「思考强度」的可调旋钮。** 它的 Anthropic 兼容端点只接受一个二值开关
+`thinking: { type: "disabled" | "adaptive" }`——没有 `budget_tokens` 字段、没有 `reasoning_effort` URL 参数、Anthropic 兼容通道上也没有 `reasoning_split` 字段（详见
+[OpenAPI 规范](https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json)）。官方的 `Mini-Agent` 参考实现也印证了这一点：OpenAI provider 写死
+`extra_body={"reasoning_split": true}`，Anthropic provider 则根本不发送 `thinking` 块；UI、配置文件、环境变量里都没有可调档位。
 
-| 档位 | M3 | M2.7 / M2.7-highspeed |
-| --- | --- | --- |
-| 关闭 | `thinking.type=disabled` | （不传 `thinking` 字段，走默认行为） |
-| 轻量 | `thinking.type=enabled, budget_tokens=1024` | （默认） |
-| 标准（默认） | `thinking.type=enabled, budget_tokens=8192` | （默认
+所以本扩展**故意没有**在模型选择器里塞「思考模式」下拉菜单。每次请求的行为是：
+
+| 模型 | 实际发送 |
+| --- | --- |
+| MiniMax M3 | `thinking: { type: "adaptive" }`（由 M3 自己决定深度） |
+| MiniMax M2.7 / M2.7-highspeed | 不发送 `thinking` 字段；推理过程仍以 `<think>…</think>` 形式出现在 `text` 内容块内 |
+
+当 `thinking` 开启时，我们还会强制把 `temperature` 设为 1 并去掉 `top_p`，遵守 Anthropic 的约束。如果将来 MiniMax 真的发布「档位」参数，把选择器加回来只需要改 `src/provider/models.ts` 一个文件——整条管线已经按 `effort` 字段预留了接口。
 
 ## Git 提交信息生成
 
@@ -110,12 +116,11 @@
 
 - 通过 VS Code 自带的 Git 扩展读取**已暂存**的改动；如果暂存区为空，就退回到工作区的未暂存改动。
 - diff 上限 32 KB，文件列表最多 80 条，确保在 M2.7 的 200K 上下文里仍有余量。
-- 如果输入框里已有草稿，会把它当作"待润色"输入，让模型在原意基础上优化，**不会**另起炉灶。
+- 如果输入框里已有草稿，会把它当作「待润色」输入，让模型在原意基础上优化，**不会**另起炉灶。
 - 输出按 Conventional Commits 风格：`<type>(<scope>)<!>: <subject>`，可附带换行 + `- ` 项目符号的 body。`type` 只能从 `feat` / `fix` / `refactor` / `perf` / `docs` / `test` / `build` / `ci` / `chore` / `style` / `revert` 里选。
 - 请求使用 `temperature: 0.2` 保证稳定可复现；`max_tokens` 锁定 256，避免一个 512K 模型误把输出预算烧光。
 
-模型由 `minimax.commitModel` 决定（默认 `MiniMax-M2.7`）。当 diff 涉及复杂迁移或重构时，可手动切到 `MiniMax-M3` 获取更强的推理。） |
-| 深度 | `thinking.type=enabled, budget_tokens=32768` | （默认） |
+模型由 `minimax.commitModel` 决定（默认 `MiniMax-M2.7`）。当 diff 涉及复杂迁移或重构时，可手动切到 `MiniMax-M3` 获取更强的推理。
 
 ## 端点自动选择
 

@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — Drop the thinking-effort picker
+
+MiniMax's Anthropic-compatible endpoint only accepts a binary
+`thinking: { type: "disabled" | "adaptive" }` toggle. There is **no**
+`budget_tokens` field, no `reasoning_effort` URL parameter, and no
+`reasoning_split` field on the Anthropic surface (see the
+[OpenAPI spec](https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json)).
+The official `Mini-Agent` reference client confirms this: it ships
+`extra_body={"reasoning_split": true}` hardcoded and has no UI for
+depth. We therefore:
+
+- **Removed** the four-level Thinking mode dropdown from the model
+  picker. There is no `configurationSchema` on any model anymore.
+- **Stopped** sending the typed `thinking: { type: "enabled",
+  budget_tokens: … }` payload (it triggered 404 on the gateway) and
+  the `reasoning_effort` / `reasoning_split` query parameters.
+- **Always** send `thinking: { type: "adaptive" }` for thinking-
+  capable models, force `temperature: 1`, and drop `top_p` per the
+  Anthropic constraint.
+- Updated README/CHANGELOG prose to be honest about what MiniMax
+  actually exposes (the binary `disabled | adaptive` toggle).
+
+Restoring the picker, once MiniMax ships a typed effort parameter, is
+a single-file change in `src/provider/models.ts`.
+
 ## 2.0.0 — Renamed to MiniMax Copilot
 
 **Breaking change** (display name only). The extension's marketplace

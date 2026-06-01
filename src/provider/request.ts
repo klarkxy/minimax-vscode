@@ -25,7 +25,7 @@ export interface PreparedChatRequest {
 	apiKey: string;
 	request: MiniMaxRequest;
 	isThinkingModel: boolean;
-	thinkingEffort: 'none' | 'low' | 'high' | 'max';
+	thinkingEffort: 'adaptive';
 	totalRequestChars: number;
 	trailingToolResultIds: string[];
 	cacheDiagnostics: CacheDiagnosticsRun;
@@ -66,6 +66,9 @@ export async function prepareChatRequest({
 	const client = new MiniMaxClient();
 	const modelDef = findModelById(modelInfo.id);
 	const isThinkingModel = modelDef?.capabilities.thinking ?? false;
+	// MiniMax does not expose a thinking-effort knob on the
+	// Anthropic-compatible endpoint; see `provider/models.ts` for
+	// the full rationale and a link to the upstream OpenAPI spec.
 	const thinkingEffort = getConfiguredThinkingEffort(options as ModelConfigurationOptions);
 	const configuredMaxTokens = getMaxTokens();
 
@@ -91,8 +94,13 @@ export async function prepareChatRequest({
 		effectiveMaxTokens,
 		tools as MiniMaxTool[] | undefined,
 		buildThinkingPayload(modelDef, thinkingEffort),
-		undefined, // temperature — let Anthropic default to 1 when thinking is on
-		undefined, // top_p — let Anthropic default when thinking is on
+		// Anthropic requires `temperature=1` whenever thinking is enabled
+		// and forbids `top_p` in the same request. MiniMax inherits this
+		// constraint for its `thinking: { type: "adaptive" }` mode, so
+		// we force temperature=1 for any thinking-capable model and
+		// drop top_p (the SDK never sends it from the call above).
+		modelDef?.capabilities.thinking ? 1 : undefined,
+		undefined,
 	);
 
 	const requestKind = classifyMiniMaxRequest({ request, inputMessages: messages });
@@ -143,37 +151,36 @@ export async function prepareChatRequest({
 	};
 }
 
+/**
+ * Build the `thinking` block for a MiniMax Anthropic-compatible request.
+ *
+ * Per the official MiniMax OpenAPI spec
+ * (https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json),
+ * the only legal values are `"disabled"` and `"adaptive"`. There is **no**
+ * `enabled` value, no `budget_tokens` field, and no query-string knob —
+ * sending any of those is what triggered the gateway's 404 page.
+ *
+ * Practical implications:
+ *   - M3 (the only model with a native `thinking` content block) gets
+ *     `adaptive` so the model itself picks the right reasoning depth.
+ *   - M2.x does not declare a `thinking` content block at all, so we
+ *     never emit the field; its reasoning arrives embedded as
+ *     `<think>…</think>` inside the text content.
+ */
 function buildThinkingPayload(
-	modelDef: ReturnType<typeof findModelById>,
-	effort: 'none' | 'low' | 'high' | 'max',
-): { type: 'enabled' | 'disabled'; budget_tokens?: number } | undefined {
+	modelDef: ReturnType<typeof findModelById> | undefined,
+	_effort: 'adaptive',
+): { type: 'adaptive' } | undefined {
 	if (!modelDef?.capabilities.thinking) {
 		return undefined;
 	}
-	if (effort === 'none') {
-		return { type: 'disabled' };
+	if (modelDef.thinking.supportsAdaptive) {
+		return { type: 'adaptive' };
 	}
-	// Anthropic thinking requires budget_tokens ≥ 1024.
-	if (modelDef.thinking.supportsBudget) {
-		const budget = effortToBudgetTokens(effort);
-		return { type: 'enabled', budget_tokens: budget };
-	}
-	// M2.x: Anthropic-compatible endpoint does not have a native thinking
-	// parameter; thinking still comes through as <think> tags in content.
-	// We disable the explicit thinking field so the model uses its default
-	// behaviour. (No `extra_body` analogue exists in the Anthropic API.)
+	// M2.x series: the gateway has no typed `thinking` field, so we
+	// omit the block entirely. The reasoning text still arrives
+	// embedded in the content (the prompt cache pipeline handles it).
 	return undefined;
-}
-
-function effortToBudgetTokens(effort: 'low' | 'high' | 'max'): number {
-	switch (effort) {
-		case 'low':
-			return 1024;
-		case 'high':
-			return 8192;
-		case 'max':
-			return 32_768;
-	}
 }
 
 // `collectTrailingToolResultIds` is no longer used by the Anthropic transport

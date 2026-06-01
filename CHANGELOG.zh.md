@@ -2,9 +2,34 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 未发布 — 移除「思考强度」选择器
+
+MiniMax 的 Anthropic 兼容端点只接受一个二值开关
+`thinking: { type: "disabled" | "adaptive" }`——没有 `budget_tokens`
+字段、没有 `reasoning_effort` URL 参数、Anthropic 兼容通道上也没有
+`reasoning_split` 字段（详见
+[OpenAPI 规范](https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json)）。
+官方的 `Mini-Agent` 参考实现也印证了这一点：写死
+`extra_body={"reasoning_split": true}`，根本没有 UI / 配置项 /
+环境变量可调。所以：
+
+- **移除**模型选择器里的四档「思考模式」下拉菜单，所有模型不再带
+  `configurationSchema`。
+- **不再**发送 typed `thinking: { type: "enabled", budget_tokens: … }`
+  请求体（这正是导致 404 的根因），也不再发 `reasoning_effort` /
+  `reasoning_split` 这两个 query 参数。
+- 对于支持 thinking 的模型，**永远**只发
+  `thinking: { type: "adaptive" }`，并强制 `temperature: 1`、
+  去掉 `top_p`，遵守 Anthropic 约束。
+- 同步更新了 README / CHANGELOG 措辞，与 MiniMax 实际暴露的二值
+  开关对齐。
+
+将来若 MiniMax 真的发布档位参数，把下拉菜单加回来只需要改
+`src/provider/models.ts` 一个文件。
+
 ## 2.0.0 — 改名为 MiniMax Copilot
 
-**破坏性变更**（仅展示名）。扩展在 Marketplace 上的展示名已改为 **MiniMax Copilot**，让"为 GitHub Copilot 提供 MiniMax 模型"这层意图一眼可读。扩展 ID、publisher、命令名、配置项、walkthrough、SecretStorage key **均不变**——已安装用户原地升级，扩展列表里看到新名字，所有配置原封不动。
+**破坏性变更**（仅展示名）。扩展在 Marketplace 上的展示名已改为 **MiniMax Copilot**，让「为 GitHub Copilot 提供 MiniMax 模型」这层意图一眼可读。扩展 ID、publisher、命令名、配置项、walkthrough、SecretStorage key **均不变**——已安装用户原地升级，扩展列表里看到新名字，所有配置原封不动。
 
 ### 为什么要改名？
 
@@ -58,7 +83,7 @@ M2.5 / M2.1 / M2 这些历史模型 MiniMax 已不再推荐，本版本也不再
 ### Git 提交信息生成
 
 - 新增命令 **MiniMax: Generate Commit Message**，同时挂到 `scm/inputBox/title` 菜单上，与 Copilot 自带的 sparkle 按钮并排显示。
-- 通过 VS Code 自带的 Git 扩展读取**已暂存**的改动（暂存区为空时退回到工作区改动），diff 上限 32 KB，文件列表最多 80 条；若输入框里已有草稿会把它当作"待润色"输入。
+- 通过 VS Code 自带的 Git 扩展读取**已暂存**的改动（暂存区为空时退回到工作区改动），diff 上限 32 KB，文件列表最多 80 条；若输入框里已有草稿会把它当作「待润色」输入。
 - 输出按 Conventional Commits 风格（`<type>(<scope>)<!>: <subject>` + 可选 bullet body），`temperature: 0.2`、`max_tokens: 256`，保证稳定可复现。
 - 模型由 `minimax.commitModel` 决定，默认 `MiniMax-M2.7`；复杂重构可手动切到 `MiniMax-M3`。
 

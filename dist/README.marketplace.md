@@ -29,9 +29,10 @@ MiniMax for new integrations.
 - **Officially recommended MiniMax coding models**:
   - **MiniMax M3** — 1M context (effective 512K while the >512K tier is
     in limited rollout), native multimodal, 512K output cap, thinking
-    with `budget_tokens`.
-  - **MiniMax M2.7 / M2.7-highspeed** — 200K context, text-only, native
-    Anthropic thinking.
+    via `thinking: { type: "adaptive" }` (M3 picks its own depth).
+  - **MiniMax M2.7 / M2.7-highspeed** — 200K context, text-only,
+    reasoning embedded in the response content as `<think>…</think>`
+    blocks.
 - **Tool calling** with the experimental `stabilizeToolList` setting
   that synthesises preflight calls to keep the upstream prompt cache
   warm.
@@ -153,16 +154,30 @@ benefit from deeper reasoning.
 
 ## Thinking mode
 
-All shipped M-series models support reasoning. The model picker exposes
-a **Thinking mode** dropdown with four levels. On the Anthropic-
-compatible endpoint this maps to:
+**MiniMax does not expose a user-facing thinking-effort knob.** Their
+Anthropic-compatible endpoint only accepts a binary
+`thinking: { type: "disabled" | "adaptive" }` toggle (no `budget_tokens`
+field, no `reasoning_effort` URL parameter, no `reasoning_split` field
+on the Anthropic surface — see the
+[OpenAPI spec](https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json)).
+The official `Mini-Agent` reference client confirms this: its OpenAI
+provider hard-codes `extra_body={"reasoning_split": true}` and its
+Anthropic provider sends no `thinking` block at all — there is no UI,
+config field, or env var to tune depth.
 
-| Level | M3 | M2.7 / M2.7-highspeed |
-| --- | --- | --- |
-| Off | `thinking.type=disabled` | (no `thinking` field, default behaviour) |
-| Light | `thinking.type=enabled, budget_tokens=1024` | (default) |
-| Standard (default) | `thinking.type=enabled, budget_tokens=8192` | (default) |
-| Deep | `thinking.type=enabled, budget_tokens=32768` | (default) |
+Accordingly, this extension deliberately does **not** ship a thinking
+dropdown. For every request:
+
+| Model | What we send |
+| --- | --- |
+| MiniMax M3 | `thinking: { type: "adaptive" }` (M3 picks its own depth) |
+| MiniMax M2.7 / M2.7-highspeed | no `thinking` field; reasoning still surfaces as `<think>…</think>` inside the text content |
+
+When `thinking` is on we also force `temperature: 1` and drop `top_p`,
+per the Anthropic constraint. If MiniMax ever ships a typed effort
+parameter, restoring the picker is a one-line change in
+`src/provider/models.ts` — the rest of the pipeline is already shaped
+to take an `effort` value.
 
 ## Endpoint auto-selection
 

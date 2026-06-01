@@ -97,7 +97,7 @@ export async function streamChatCompletion({
 				handleThinking(text, signature, state, progress);
 			},
 
-			onToolCall: (toolCall) => {
+			onToolCall: (toolCall: { id: string; name: string; inputJson: string }) => {
 				reportInitialResponseNoticeOnce(progress, state, initialResponseNotice);
 				handleToolCall(toolCall, state, progress);
 			},
