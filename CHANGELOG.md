@@ -2,9 +2,9 @@
 
 ## 2.1.2 — Status-bar trim, dashboard layout, CI fixes
 
-Three threads in this release: trim the status bar down to the
-two platform quota items, give the dashboard's Token Plan
-section a proper layout, and unblock CI.
+Three threads in this release: trim the status bar to the two
+platform quota items, give the dashboard's Token Plan section a
+proper layout, and unblock CI.
 
 ### Changes
 
@@ -14,10 +14,9 @@ section a proper layout, and unblock CI.
   **MiniMax: Show Usage** command.
 - **Status bar now shows the *used* percent.** The 5h and Week
   items read `5h 54%` / `Week 88%` to mean "I've used 54% / 88% of
-  the quota", with colour thresholds (≥85% red, 60-85% yellow,
-  <60% green) matching the dashboard's progress bar. The
-  tooltip still carries the full "used X / Y, remaining Z%"
-  breakdown.
+  the quota". The colour thresholds (≥85% red, 60-85% yellow,
+  <60% green) match the dashboard's progress bar, and the tooltip
+  still carries the full "used X / Y, remaining Z%" breakdown.
 - **Status bar uses foreground-only colors.** The `$(bolt) 5h …`
   and `$(calendar) Week …` items use the `*Foreground` theme
   tokens. They blend with the rest of the status bar instead of
@@ -41,10 +40,10 @@ section a proper layout, and unblock CI.
 - **Marketplace publish steps removed from `release.yml`.** The
   "Publish to VS Code Marketplace" and "Publish to Open VSX"
   steps were guarded behind `vars.PUBLISH_*` toggles that were
-  never set, so they were dead code. When you eventually want to
-  publish to a marketplace, `rescue.yml` still exists for one-off
-  manual runs, and its three publish toggles now default to
-  `false` so it can never silently fail with an empty token.
+  never set, so they were dead code. When you do want to publish
+  to a marketplace, `rescue.yml` still exists for one-off manual
+  runs. Its three publish toggles now default to `false`, so it
+  can never silently fail with an empty token.
 - **All three workflows opted into Node.js 24.** GitHub is
   deprecating the Node 20 runtime for third-party Actions on
   2026-06-16; `release-please-action@v4` was already warning
@@ -54,10 +53,10 @@ section a proper layout, and unblock CI.
   and `actions/*` releases we depend on publish Node-24 builds.
 
 The donut centre in the dashboard still shows the all-in token
-total (input + cacheWrite + cacheRead + output) — the same
-number you multiply against the per-model price table. The
-legend breaks out the four buckets individually, so the share
-that hit cache is immediately visible.
+total (input + cacheWrite + cacheRead + output), the same number
+you multiply against the per-model price table. The legend breaks
+out the four buckets individually, so the share that hit cache is
+immediately visible.
 
 ## 2.1.1 — Dual-currency pricing + donut token chart
 
@@ -112,7 +111,7 @@ redraws the token breakdown as a donut chart with percentages.
   last successful `coding_plan/remains` response in a single
   in-process store and broadcasts updates to any subscribers
   (dashboard panel, status-bar items, future surfaces). Concurrent
-  `refresh()` calls deduplicate to one HTTP request, and the
+  `refresh()` calls deduplicate to one HTTP request, while the
   underlying `fetchPlanUsage` 8s TTL still throttles the actual
   transport. The extension invalidates the cache whenever
   `AuthManager.onDidChangeApiKey` fires, so switching API keys
@@ -137,10 +136,9 @@ redraws the token breakdown as a donut chart with percentages.
      path, now also routed through the shared cache so the status
      bar sees the same response).
   No `setInterval` is installed. The extension does no background
-  network work when idle. The dashboard's own
-  `DashboardPanel.refresh()` now calls `planCache.refresh()`
-  instead of `fetchPlanUsage` directly, so the two consumers
-  always render the exact same snapshot.
+  network work when idle. The dashboard's `DashboardPanel.refresh()`
+  now calls `planCache.refresh()` instead of `fetchPlanUsage`
+  directly, so the two consumers always render the same snapshot.
 
 ### Fixes
 
@@ -171,25 +169,25 @@ redraws the token breakdown as a donut chart with percentages.
   - Renders an em-dash (`—`) in the per-model table's
     used/total cells when the model has no reported total, so
     the table stays tabular-aligned.
-  The platform gives no way to derive a real used count when
-  the total is missing (`current_interval_usage_count` is
-  unreliable on quota models — see the long comment in
+  The platform gives no way to derive a real used count when the
+  total is missing (`current_interval_usage_count` is unreliable
+  on quota models, see the long comment in
   [minimax-status/.../api.js](https://github.com/JochenYang/minimax-status)).
   Hiding the missing numbers is the right call.
 - **Token counters no longer double-count Anthropic cache fields.**
   The Anthropic Messages API reports `input_tokens` as the
   *incremental, non-cached* input and reports
-  `cache_creation_input_tokens` / `cache_read_input_tokens` **on top
-  of** that. The old `totalTokens()` summed all four, which meant
-  every cache-creation turn added the entire prompt prefix a
-  second time — a typical day with a 1M-token system prompt
-  cached across many turns could read as 10-50M "tokens" even
-  though the underlying bill was much smaller. `totalTokens()` now
-  returns `input + output` only. A new `totalBilledTokens()`
-  helper returns the all-in number (`input + cacheWrite + cacheRead
-  + output`) for callers that need to multiply by the per-model
+  `cache_creation_input_tokens` / `cache_read_input_tokens` on top
+  of that. The old `totalTokens()` summed all four, so every
+  cache-creation turn added the entire prompt prefix a second
+  time: a typical day with a 1M-token system prompt cached across
+  many turns could read as 10-50M "tokens" even though the
+  underlying bill was much smaller. `totalTokens()` now returns
+  `input + output` only. A new `totalBilledTokens()` helper
+  returns the all-in number (`input + cacheWrite + cacheRead +
+  output`) for callers that need to multiply by the per-model
   price table. The dashboard donut centre shows the net total;
-  the legend still breaks out the cache slices so you can see
+  the legend still breaks out the cache slices, so you can see
   *how much* of the day's traffic hit cache.
 - **Daily-token status bar item removed.** The previous
   `$(graph) MiniMax 43.66M` slot was deleted for two reasons:
@@ -197,21 +195,20 @@ redraws the token breakdown as a donut chart with percentages.
   above and was actively misleading, and (b) it crowded the
   status bar next to the 5h / Week quota items. Today's token
   totals now live in the dashboard (**MiniMax: Open Usage
-  Dashboard**) and the **MiniMax: Show Usage** command — the
-  status bar only
-  carries the two platform quota items.
+  Dashboard**) and the **MiniMax: Show Usage** command; the
+  status bar only carries the two platform quota items.
 - **Quota status bar uses foreground-only colors.** The
   `$(bolt) 5h …` and `$(calendar) Week …` items now use the
-  *Foreground theme tokens (green / yellow / red) and no longer
-  paint their background — they blend with the rest of the
+  foreground theme tokens (green / yellow / red) and no longer
+  paint their background, so they blend with the rest of the
   status bar instead of looking like five independent buttons.
 
 ## 2.0.0 — Renamed to MiniMax Copilot + thinking-effort picker removed
 
 This release bundles the marketplace rename with a round of
-behavioural fixes. Some of these are user-visible (a UI element is
-gone, the Copilot status-bar context widget now reports the right
-numbers); most are behind-the-scenes hardening.
+behavioural fixes. Some are user-visible (a UI element is gone, the
+Copilot status-bar context widget now reports the right numbers);
+most are behind-the-scenes hardening.
 
 ### New features
 
@@ -232,15 +229,15 @@ numbers); most are behind-the-scenes hardening.
   GitHub Copilot integration intent is obvious at a glance. The
   extension ID (`klarkxy.minimax-vscode`), publisher, command
   names, configuration keys, walkthrough, and `SecretStorage` key
-  are all unchanged — existing installations upgrade in place and
-  keep all their settings.
+  are all unchanged, so existing installations upgrade in place
+  and keep all their settings.
 - **Four-level Thinking mode dropdown removed from the model
   picker.** MiniMax's Anthropic-compatible endpoint only accepts a
   binary `thinking: { type: "disabled" | "adaptive" }` toggle (see
   the [OpenAPI spec](https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json));
   the `budget_tokens` field, the `reasoning_effort` URL parameter,
   and the `reasoning_split` field on the Anthropic surface simply
-  do not exist, and the official `Mini-Agent` reference client
+  do not exist. The official `Mini-Agent` reference client
   confirms this by shipping `extra_body={"reasoning_split": true}`
   hardcoded with no UI for depth. Sending any of those triggered
   HTTP 404 on the gateway.
@@ -261,7 +258,7 @@ numbers); most are behind-the-scenes hardening.
   Example: `{ "MiniMax-M2.7": { "temperature": 0.2, "topK": 40 } }`.
 - **Per-model `extra` escape hatch.** New experimental
   `minimax.experimental.modelDefPresets` object lets you merge
-  arbitrary keys into the Anthropic request body — useful for
+  arbitrary keys into the Anthropic request body, useful for
   `stop_sequences`, `service_tier`, `metadata`, or whatever
   MiniMax adds next. 11 reserved keys (the Anthropic-required
   fields and the constrained `temperature` / `top_p` / `top_k` /
@@ -274,7 +271,7 @@ numbers); most are behind-the-scenes hardening.
   `enforceCacheControlBudget()` helper caps the total at the
   Anthropic-imposed 4-breakpoint ceiling and trims in-message
   breakpoints first when the host already emits its own
-  breakpoints (preventing HTTP 400 from too many breakpoints).
+  breakpoints, which prevents HTTP 400 from too many breakpoints.
 
 ### Fixes
 
@@ -290,36 +287,36 @@ numbers); most are behind-the-scenes hardening.
 - **Git commit-message generator now actually fetches the diff.**
   `buildScmContext` used to read the diff from the VS Code Git
   extension's typed `state.diff` shape, which is empty in modern
-  VS Code — so the prompt contained only the file list and the
+  VS Code, so the prompt contained only the file list and the
   model had to "invent" the diff. A new `extractDiffViaGitCli`
   helper spawns `git --no-pager diff --staged --diff-filter=d`
-  (falling back to `git --no-pager diff HEAD --diff-filter=d`) as
-  a 16 MiB / 10 s bounded fallback. Spawn errors degrade
-  gracefully to the file-list-only prompt.
+  (falling back to `git --no-pager diff HEAD --diff-filter=d`),
+  capped at 16 MiB / 10 s. Spawn errors degrade gracefully to the
+  file-list-only prompt.
 
 ### Notes
 
-- The 1.6.0 → 2.0.0 version bump is **partly cosmetic** (the
-  rename) and **partly substantive** (everything above). If you've
-  pinned to `klarkxy.minimax-vscode` in a settings sync or DevOps
-  manifest, the ID is unchanged.
+- The 1.6.0 → 2.0.0 version bump is partly cosmetic (the rename)
+  and partly substantive (everything above). If you've pinned to
+  `klarkxy.minimax-vscode` in a settings sync or DevOps manifest,
+  the ID is unchanged.
 - The `configurationSchema` field on `MiniMax*` chat info entries
-  is now always undefined. Custom automation that introspected the
+  is now always `undefined`. Custom automation that introspected the
   picker schema for a `reasoningEffort` field must adapt.
 
 ## 1.6.0 — Anthropic-only, 512K M3, in-picker pricing, endpoint auto-select, commit-message generator
 
 Breaking-change release. The extension now talks exclusively to the
 **Anthropic-compatible** endpoint of MiniMax. The OpenAI-compatible
-transport has been removed.
+transport is gone.
 
 ### Why Anthropic-only?
 
 MiniMax officially recommends the Anthropic-compatible endpoint for new
-integrations (it supports thinking blocks, image content blocks, tool
-calling, and Anthropic's `signature_delta` verification natively). The
-OpenAI-compatible transport is retained only for historical models that
-do not yet have Anthropic coverage — none of the M-series programming
+integrations. It supports thinking blocks, image content blocks, tool
+calling, and Anthropic's `signature_delta` verification natively. The
+OpenAI-compatible transport is kept only for historical models that
+don't yet have Anthropic coverage; none of the M-series programming
 models fall in that bucket.
 
 ### New model capabilities
@@ -330,10 +327,11 @@ models fall in that bucket.
   - Native `image` content blocks; the previous `imageInput: false` cap
     is removed for M3.
   - **Effective context capped at 512K.** The official spec is 1M, but
-    the >512K input tier is 限时限量供应 and the API rejects requests
-    with `max_tokens > 512_000`. We advertise 1M as the headline figure
-    (so VS Code shows the model's true ambition) but clamp effective
-    input + output to 512K until the rollout completes.
+    the >512K input tier is in limited release and the API rejects
+    requests with `max_tokens > 512_000`. We advertise 1M as the
+    headline figure (so VS Code shows the model's true ambition) but
+    clamp effective input + output to 512K until the rollout
+    completes.
 
 ### Pricing in the UI
 
@@ -341,7 +339,7 @@ models fall in that bucket.
   (`{ input, output, cacheRead, cacheWrite, currency, note }`).
 - The model picker shows `¥X.XX in / ¥Y.YY out /M tokens` in the
   `detail` line; the full breakdown (including cache read/write and any
-  note) appears in the tooltip.
+  note) goes into the tooltip.
 - New command **MiniMax: Show Pricing** opens the full pricing table
   in a Markdown preview, including the 7-day half-price note for M3
   and the limited-availability warning for the >512K tier.
@@ -365,7 +363,7 @@ users via `minimax.modelIdOverrides` and `minimax.visibleModels`.
 | New command `MiniMax: Generate Commit Message` | — | — |
 
 The `switchToGlobal` and `switchToChina` commands now point to the
-AnthGit commit message generator
+  Anthropic endpoint.
 
 - New command **MiniMax: Generate Commit Message** is also wired into
   the `scm/inputBox/title` menu so it sits next to the Copilot sparkle
@@ -382,11 +380,6 @@ AnthGit commit message generator
   to `MiniMax-M3` when the diff needs deeper reasoning.
 
 ### Architecture changes
-
-- Dependency: `openai` → `@anthropic-ai/sdk` (Apache 2.0).
-- New non-streaming helper `MiniMaxClient.completeChat()` powers the
-  commit-message generator (and any future one-shot utilities that
-  don't need the stream-callback ceremony
 
 - Dependency: `openai` → `@anthropic-ai/sdk` (Apache 2.0).
 - `src/types.ts` mirrors the Anthropic Messages API shape
@@ -422,7 +415,7 @@ AnthGit commit message generator
   SecretStorage key, and most configuration keys are unchanged.
 - `minimax.apiBaseUrl` default changed: the previous
   `https://api.minimax.io/v1` / `https://api.minimaxi.com/v1` values
-  will keep working (we still read the setting verbatim), but the new
+  keep working (we still read the setting verbatim), but the new
   defaults are Anthropic URLs.
 - Models removed from the default picker: M2.5, M2.5-highspeed, M2.1,
   M2.1-highspeed, M2. MiniMax no longer recommends them; power users can
@@ -430,7 +423,7 @@ AnthGit commit message generator
 - **Endpoint auto-selection:** on first activation, if
   `minimax.apiBaseUrl` is still at its factory default, the extension
   picks an endpoint from `vscode.env.language` (`zh*` → China, anything
-  else → international). The choice is persisted, and any later manual
+  else → international). The choice is persisted; any later manual
   change wins permanently.
 
 ## 1.5.0 — Refactor with deepseek-v4-for-copilot architecture

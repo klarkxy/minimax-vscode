@@ -16,25 +16,27 @@ API key.
 
 ## Features
 
-- **M3, M2.7 and M2.7-highspeed** show up in the Copilot model picker
-  with per-model context, output cap and pricing in the tooltip.
-- **Image input on M3** (native multimodal); M2.x uses a vision proxy
-  fallback so image attachments work on every model.
+- **M3, M2.7 and M2.7-highspeed** show up in the Copilot model picker.
+  Each entry has the context window, output cap and pricing in its
+  tooltip.
+- **Image input on M3** is native. M2.x falls back to a vision proxy,
+  so image attachments work on every model.
 - **Tool calling** with an experimental cache-stabilisation switch
-  that keeps the upstream prompt cache warm.
+  for keeping the upstream prompt cache warm.
 - **Git commit message generation** wired into the SCM input box.
-  Conventional Commits + gitmoji by default; it can also polish
-  whatever you already typed.
-- **Per-model sampling controls** — set `temperature`, `topK` and
+  Conventional Commits + gitmoji by default, and it polishes whatever
+  you already typed.
+- **Per-model sampling controls**: set `temperature`, `topK` and
   friends per model without editing code.
-- **Cumulative usage tracker** — input, output and cache-read tokens
-  across the whole extension lifetime, with a status command.
-- **Usage dashboard** — a one-click webview (status-bar entry plus a
-  command) showing today / 7-day / 30-day token usage, a 30-day bar
-  chart, per-model breakdown, and the platform `coding_plan/remains`
-  data (5h reset, weekly limit, subscription expiry) when an API
-  key is configured. The counter updates live as new requests land.
-- **Diagnostics** — per-request classifier, cache-hit stats, and a
+- **Cumulative usage tracker** for input, output and cache-read
+  tokens across the whole extension lifetime, with a status command.
+- **Usage dashboard**: a one-click webview (status-bar entry plus
+  a command) showing today / 7-day / 30-day token usage, a 30-day
+  bar chart, a per-model breakdown, and the platform
+  `coding_plan/remains` data (5h reset, weekly limit, subscription
+  expiry) when an API key is configured. The counter updates live
+  as new requests land.
+- **Diagnostics**: per-request classifier, cache-hit stats, and a
   verbose mode that dumps every request to disk.
 - **Bilingual UI** that follows the VS Code display language.
 
@@ -62,7 +64,7 @@ API key.
 
 | Model | Context | Effective input | Output | Image input | Notes |
 | --- | ---: | ---: | ---: | --- | --- |
-| MiniMax M3 | 1,000,000 | 512,000 | 512,000 | ✅ (native) | Frontier coding model |
+| MiniMax M3 | 1,000,000 | 512,000 | 512,000 | ✅ (native) | Current top-tier coding model |
 | MiniMax M2.7 | 204,800 | 196,608 | 131,072 | ✅ (via vision proxy) | Self-iterating, ~60 TPS |
 | MiniMax M2.7-highspeed | 204,800 | 196,608 | 131,072 | ✅ (via vision proxy) | Same quality, ~100 TPS |
 
@@ -149,43 +151,42 @@ request body per model ID without editing code:
 ```
 
 - `temperature` and `topP` are ignored when the model is in
-  `thinking: adaptive` mode (Anthropic's constraint).
-- `topK` and `frequencyPenalty` are always honoured.
-- `modelDefPresets` is an escape hatch — any key you put there is
-  merged into the request body verbatim (after the standard fields).
-  Eleven reserved keys are rejected; `tools` is concatenated rather
-  than replaced.
+  `thinking: adaptive` mode. That's Anthropic's rule, not ours.
+- `topK` and `frequencyPenalty` always take effect.
+- `modelDefPresets` is an escape hatch. Any key you put there is
+  merged into the request body after the standard fields. Eleven
+  reserved keys are rejected; `tools` is concatenated rather than
+  replaced.
 
 ## Git commit message generation
 
-Run **MiniMax: Generate Commit Message** (also available from the **⋯**
-menu on the right of the SCM commit-message input box) to fill the
-input box with a draft. The generator:
+Run **MiniMax: Generate Commit Message** (also in the **⋯** menu on
+the right of the SCM commit-message input box) to fill the input
+box with a draft. The generator:
 
-- Reads the **staged** changes via VS Code's built-in Git extension;
-  falls back to working-tree changes when nothing is staged.
+- Reads the **staged** changes via VS Code's built-in Git extension,
+  falling back to working-tree changes when nothing is staged.
 - Caps the diff at 32 KB and the file list at 80 entries.
-- Treats existing text in the input box as a draft to polish instead
-  of starting from scratch.
+- Treats existing text in the input box as a draft to polish rather
+  than overwriting it.
 - Emits Conventional-Commits-style messages
-  (`<type>(<scope>)<!>: <subject>` + optional bullet body) with
+  (`<type>(<scope>)<!>: <subject>` + optional bullet body) at
   `temperature: 0.2` and `max_tokens: 256` for a reproducible first
   draft.
 
 The model is selected by `minimax.commitModel` (default
-`MiniMax-M2.7`). Switch to `MiniMax-M3` when the diff is hairy enough
-to benefit from deeper reasoning.
+`MiniMax-M2.7`). Switch to `MiniMax-M3` when the diff needs deeper
+reasoning.
 
 ## Thinking mode
 
 MiniMax's Anthropic-compatible endpoint exposes a binary
-`thinking: { type: "disabled" | "adaptive" }` toggle — there is **no**
-user-facing effort knob. The extension always sends
-`adaptive` for thinking-capable models (M3) and skips the field
-entirely for M2.x (whose reasoning surfaces as `<think>…</think>`
-inside the text content). Forcing `temperature: 1` and dropping
-`top_p` whenever thinking is on is the Anthropic constraint, not a
-choice.
+`thinking: { type: "disabled" | "adaptive" }` toggle. There is no
+user-facing effort knob, so the extension always sends `adaptive`
+for thinking-capable models (M3) and skips the field for M2.x
+(their reasoning surfaces as `<think>…</think>` inside the text
+content). Forcing `temperature: 1` and dropping `top_p` whenever
+thinking is on is the Anthropic constraint, not our choice.
 
 ## Usage dashboard
 
@@ -193,64 +194,60 @@ Click the `$(graph) MiniMax …` item in the VS Code status bar, or run
 **MiniMax: Open Usage Dashboard**, to open a side-panel webview that
 combines two data sources:
 
-- **Local token accounting** — every request the extension makes is
-  recorded into a persistent counter. The dashboard aggregates it
-  into three windows: **Today**, **Last 7 days**, and **Last 30
-  days**, with separate columns for `Input`, `Cache read`,
-  `Cache write`, `Output`, and `Requests`. A 30-day bar chart and a
-  per-model breakdown table are rendered below the windows. The
-  counter updates live: every new request the chat provider makes
-  bumps the day bucket and the dashboard re-renders without a
-  manual refresh.
-- **Platform Token Plan** — when an API key is configured, the
+- **Local token accounting**: every request the extension makes is
+  written to a persistent counter. The dashboard aggregates it into
+  three windows (**Today**, **Last 7 days**, **Last 30 days**), each
+  with columns for `Input`, `Cache read`, `Cache write`, `Output` and
+  `Requests`. A 30-day bar chart and a per-model breakdown table sit
+  below the windows. The counter updates live: every new chat request
+  bumps the day bucket and the dashboard re-renders on its own.
+- **Platform Token Plan**: when an API key is configured, the
   dashboard also calls `GET /v1/api/openplatform/coding_plan/remains`
   and renders the 5-hour reset window, the weekly limit, the
-  per-model quota table, and the subscription expiry date.
-  Failures (401, network, malformed payload) are surfaced as a
-  yellow banner; the local counters above remain accurate. The
-  host (`minimaxi.com` vs `minimax.io`) is auto-picked from
-  `minimax.apiBaseUrl`.
+  per-model quota table and the subscription expiry. Failures (401,
+  network, malformed payload) show a yellow banner; the local
+  counters above stay accurate. The host (`minimaxi.com` vs
+  `minimax.io`) is auto-picked from `minimax.apiBaseUrl`.
 
 The dashboard has a **Reset counters** button that clears the local
-Memento after a confirmation prompt; the platform data cannot be
+Memento after a confirmation prompt. The platform data can't be
 reset from the extension.
 
 ### Status-bar quota items
 
-Two extra status-bar items live to the right of the daily-token
-counter so you can see your plan usage at a glance without opening
+Two extra status-bar items sit to the right of the daily-token
+counter, so you can see your plan usage at a glance without opening
 the dashboard:
 
-- `$(bolt) 5h 73%` — 5-hour reset window, **remaining** percent
-- `$(calendar) Week 11%` — weekly limit, **remaining** percent
+- `$(bolt) 5h 73%`: 5-hour reset window, **remaining** percent
+- `$(calendar) Week 11%`: weekly limit, **remaining** percent
 
 The colour follows the `statusBarItem.remoteBackground` /
 `warningBackground` / `errorBackground` theme tokens (green when
 plenty left, red when low), so the bar stays legible in both light
 and dark themes. Hovering shows a `X / Y · resets in Hh Mm` summary
-that mirrors the dashboard's quota card; clicking the item opens the
-dashboard. Without an API key both items render a muted em-dash
+that mirrors the dashboard's quota card. Clicking the item opens
+the dashboard. Without an API key both items render a muted em-dash
 placeholder and the tooltip nudges you to run
 **MiniMax: Set API Key**.
 
-Both items are driven by the **same** in-process plan cache as the
-dashboard (`fetchPlanUsage`'s 8s TTL still applies), so opening the
-dashboard or letting the status bar refresh does not add a second
-HTTP call.
+Both items read the same in-process plan cache as the dashboard
+(the `fetchPlanUsage` 8s TTL still applies), so opening the dashboard
+or letting the status bar refresh does not add a second HTTP call.
 
 ## Endpoint auto-selection
 
-On first activation, if `minimax.apiBaseUrl` is still at its factory
-default, the extension picks an endpoint from the VS Code display
+On first activation, if `minimax.apiBaseUrl` is still at its default
+value, the extension picks an endpoint from the VS Code display
 language:
 
-- `zh*` (`zh-cn`, `zh-tw`, `zh-hk`, `zh-sg`, …) → China
+- `zh*` (`zh-cn`, `zh-tw`, `zh-hk`, `zh-sg`, …) → China,
   `https://api.minimaxi.com/anthropic`.
-- Anything else → international `https://api.minimax.io/anthropic`.
+- Anything else → international, `https://api.minimax.io/anthropic`.
 
-Once you set `minimax.apiBaseUrl` manually or invoke
-**MiniMax: Switch to Global/Chinese API**, the auto-selection is
-**never** re-applied.
+Once you set `minimax.apiBaseUrl` manually or run
+**MiniMax: Switch to Global/Chinese API**, auto-selection stays
+off for good.
 
 ## Troubleshooting
 

@@ -9,21 +9,19 @@
 
 ### 变更
 
-- **状态栏去掉了“今日 token”项。** 原来 `$(graph) MiniMax 1.2k`
-  这个槽位没了。今日 token 总量去 Dashboard（**MiniMax: Open Usage Dashboard**）
+- **状态栏去掉了“今日 token”项。** `$(graph) MiniMax 1.2k` 这个
+  槽位没了。今日 token 总量去 Dashboard（**MiniMax: Open Usage Dashboard**）
   和 **MiniMax: Show Usage** 命令里看。
 - **状态栏改为显示“已用%”。** `5h 54%` / `Week 88%` 表示“已用 54%
-  / 88%”，色阶阈值（≥85% 红、60-85% 黄、<60% 绿）跟 Dashboard
-  进度条一致，数字颜色和直觉对得上。Tooltip 里仍保留
-  `已用 X / Y`、`剩余 Z%` 完整对账信息。
+  / 88%”。色阶阈值（≥85% 红、60-85% 黄、<60% 绿）跟 Dashboard
+  进度条一致。Tooltip 里仍保留 `已用 X / Y`、`剩余 Z%` 完整对账信息。
 - **额度状态栏颜色改为纯文字色。** `$(bolt) 5h …` 和
   `$(calendar) Week …` 现在只换文字色，不再染底色，跟状态栏
   整体融为一体。
 - **Dashboard Token Plan 区重排。** 5h / 周两窗口各一张卡：
   进度条上显示百分比，重置时间挪到标题右端成小药丸。原来的
   孤儿周限额进度条、重复的 “Used: X / Y” 数据卡、按模型明细表
-  全部移除。卡片标题统一为 `GENERAL · 5h` / `周额度`，
-  配对阅读自然。
+  全部移除。卡片标题统一为 `GENERAL · 5h` / `周额度`。
 - **清理了不再使用的 i18n key**（原本只服务于被删的状态栏项）：
   `status.tooltip`、`status.tooltipEmpty`、`status.tooltipActive`、
   以及重复的 `status.tooltipActive_zh`。
@@ -33,7 +31,7 @@
   判定，secret 是否存在移到 step 内部的 bash 守卫里。
 - **从 `release.yml` 里移除了市场推送步骤。** 之前 `Publish to
   VS Code Marketplace` 和 `Publish to Open VSX` 两个 step 是用
-  `vars.PUBLISH_*` 开关守着的，但开关从来没被设过，纯死代码。
+  `vars.PUBLISH_*` 开关守着的，但开关从来没被设过，是死代码。
   整体删除。等以后要推市场时，改用 `rescue.yml` 手动跑；它的
   三个推送开关现在默认全部 `false`，避免“token 为空还去推”的
   silent failure。
@@ -47,7 +45,7 @@
 
 Dashboard 环形图中心仍显示 all-in token 总量（input + cacheWrite +
 cacheRead + output），这个数字乘上价格表就是估算的账单。legend
-里 4 个分项独立显示，缓存占了多少一眼就能看到。
+里 4 个分项独立显示，缓存占了多少一眼能看到。
 
 ## 2.1.1 — 双币种价格表 + token 环形图
 
@@ -56,7 +54,7 @@ CNY 之间切换，用量面板的「local」卡片也重画成了带百分比�
 
 ### 新增功能
 
-- **USD / CNY 双币种价格支持。** 原来单一的 CNY 价表拆成
+- **USD / CNY 双币种价格支持。** 之前单一的 CNY 价表拆成
   `PRICING_CNY` 和 `PRICING_USD`，新增的 `pickPricingTable()` helper 在
   运行时按下面的规则选表：
   - `apiBaseUrl` 里包含 `minimaxi.com` → 强制 CNY (¥)，无视语言环境。
@@ -65,8 +63,8 @@ CNY 之间切换，用量面板的「local」卡片也重画成了带百分比�
   - `MODELS` 改名 `MODEL_TEMPLATES`，新增 `getModels(baseUrl)` 在运行时
     把 `pricing` 字段从选中的表里展开。所有展示价格的 UI 入口
     （模型选择器 tooltip、**MiniMax: Show Pricing** 命令、commit model
-    选择器、replay marker）都改成走 `getModels()`，保证币种符号与用户的
-    实际结算币种一致。
+    选择器、replay marker）都改成走 `getModels()`，币种符号与用户
+    实际结算币种保持一致。
   - `README.md` 现在以 USD 为主表，`README.zh.md` 以 CNY 为主表，两份
     README 都新增了一段提示，说明国内/国际价格站点之间的差异，并指出
     模型选择器与 **Show Pricing** 命令会按当前 `minimax.apiBaseUrl`
@@ -78,15 +76,13 @@ CNY 之间切换，用量面板的「local」卡片也重画成了带百分比�
 - **状态栏额度项（`5h 73%` / `Week 11%`）。** 在现有
   `$(graph) MiniMax 1.2k` 计数器的右边新增两个 `StatusBarItem`，
   一眼看到平台的 5h / 周额度：
-  - `$(bolt) 5h 73%` — 5h 窗口的**剩余**百分比。
-  - `$(calendar) Week 11%` — 周限额的**剩余**百分比（平台报“无限”
     时显示 `∞`）。
   - 颜色走内置的 `statusBarItem.remoteBackground` /
     `warningBackground` / `errorBackground` 三个主题 token
     （剩得多则绿、少则红），亮色 / 暗色主题都跟得上。
   - hover 显示 `X / Y · 重置 Hh Mm` 简报，跟 Dashboard 的卡片一致
-    （平台未报 total 时不显示 `X / Y`，跟下面那条修复同源）。
-    点击直接打开 Dashboard。
+  （平台未报 total 时不显示 `X / Y`，跟下面那条修复同源）。点击
+  直接打开 Dashboard。
   - 未配 API Key 时两项都是灰色破折号，hover 提示运行
     **MiniMax: Set API Key**。
 - **Dashboard 与状态栏共享 `PlanCache`。** `src/dashboard/aggregator.ts`
@@ -109,21 +105,21 @@ CNY 之间切换，用量面板的「local」卡片也重画成了带百分比�
      `MiniMaxChatProvider.provideLanguageModelChatResponse` 在
      `streamChatCompletion` resolve / throw 之后（**finally** 里）发
      射，**每轮 Copilot 对话一次**（不是每条内部 API 请求）。notifier
-     自身带 30 秒最小间隔，所以用户连续发 10 轮对话也最多只触发
+     自身带 30 秒最小间隔，用户连续发 10 轮对话也最多只触发
      一次平台拉取。
   5. Dashboard 打开 / Refresh / 切到可见（原有路径，**也**改成走共享
-     cache，所以 Dashboard 与状态栏一定渲染同一份快照）。
+     cache，Dashboard 与状态栏一定渲染同一份快照）。
   完全不装 `setInterval`，空闲时零后台网络流量。
   `DashboardPanel.refresh()` 也从直接调 `fetchPlanUsage` 改成走
   `planCache.refresh()`，两个消费者看到的快照永远一致。
 
 ### 修复
 
-- **用量面板的 local 卡片重画为环形图。** 原来一排 key-value 列表
+- **用量面板的 local 卡片重画为环形图。** 之前一排 key-value 列表
   （input / cache read / cache write / output）现在改为 `conic-gradient`
   渲染的环形图 + 带配色的 legend，同时显示每种 token 的数量与占比。
   配色复用了面板里已经在用的 `var(--accent)` / `var(--good)` /
-  `var(--warn)` / `var(--bad)` 四个 token，所以颜色会跟随主题自动适配。
+  `var(--warn)` / `var(--bad)` 四个 token，颜色跟随主题自动适配。
   `requests` 计数保留在环形图下方的独立一行；视口 ≤480 px 时环形图与
   legend 自动改为纵向堆叠，保证小屏可读。
 - **Token Plan 面板不再显示无意义的 "0 / 0"。** 部分平台配额模型
@@ -148,16 +144,16 @@ CNY 之间切换，用量面板的「local」卡片也重画成了带百分比�
   `cache_creation_input_tokens` / `cache_read_input_tokens` 是
   **在它之上**额外报告的（同样包含已缓存前缀）。老版 `totalTokens()`
   把四个字段全加起来，结果每个 cache 写入轮次都把整段 prompt prefix
-  多算一次。1M 系统 prompt + 一天 50 轮对话经常被记成 50M 幻影 token。
+  多算一次——1M 系统 prompt + 一天 50 轮对话经常被记成 50M 幻影 token。
   `totalTokens()` 现在只算 `input + output`；另增 `totalBilledTokens()`
   helper 返回 `input + cacheWrite + cacheRead + output` 这个"全口径"
   数字，给需要乘价格表的场景用。Dashboard 圆环中心显示净额，legend
   里仍把 cache 拆开显示（这样用户能看出这一天有多少流量走了缓存）。
-- **状态栏的今日 token 项被删了。** 原来 `$(graph) MiniMax 43.66M`
+- **状态栏的今日 token 项被删了。** `$(graph) MiniMax 43.66M`
   那一项去掉，原因是：（1）这个数字其实是 cache 重复统计 bug 的副
   作用，会误导人；（2）跟 5h / 周限额挤一起太占空间。今日 token
-  总数现在住在 Dashboard（**MiniMax: Open Usage Dashboard**）和
-  **MiniMax: Show Usage** 命令里，状态栏只保留 2 个平台额度项。
+  总数现在去 Dashboard（**MiniMax: Open Usage Dashboard**）和
+  **MiniMax: Show Usage** 命令里看，状态栏只保留 2 个平台额度项。
 - **额度状态栏颜色改为纯文字色。** `$(bolt) 5h …` 和
   `$(calendar) Week …` 这两个项现在只换文字色（绿/黄/红），不再染
   底色，跟状态栏整体融为一体。
@@ -171,11 +167,11 @@ CNY 之间切换，用量面板的「local」卡片也重画成了带百分比�
 
 ### 破坏性变更
 
-- **Marketplace 展示名改为 MiniMax Copilot**，让「为 GitHub Copilot 提供 MiniMax 模型」这层意图一眼可读。扩展 ID（`klarkxy.minimax-vscode`）、publisher、命令名、配置项、walkthrough、SecretStorage key **均不变**——已安装用户原地升级，所有配置原封不动。
+- **Marketplace 展示名改为 MiniMax Copilot**，让「为 GitHub Copilot 提供 MiniMax 模型」这层意图一眼可读。扩展 ID（`klarkxy.minimax-vscode`）、publisher、命令名、配置项、walkthrough、SecretStorage key **均不变**——已安装用户原地升级，所有配置保留。
 - **移除模型选择器里的四档「思考模式」下拉菜单。** MiniMax 的 Anthropic 兼容端点只接受一个二值开关
   `thinking: { type: "disabled" | "adaptive" }`（详见
   [OpenAPI 规范](https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json)），根本没有
-  `budget_tokens` 字段、没有 `reasoning_effort` URL 参数、Anthropic 兼容通道上也没有 `reasoning_split` 字段。官方的 `Mini-Agent` 参考实现也印证了这一点：写死
+  `budget_tokens` 字段、没有 `reasoning_effort` URL 参数、Anthropic 兼容通道上也没有 `reasoning_split` 字段。官方的 `Mini-Agent` 参考实现印证了这一点：写死
   `extra_body={"reasoning_split": true}`，根本没有 UI / 配置项 / 环境变量可调。发这些字段直接触发 HTTP 404。
   - 对所有支持 thinking 的模型，**永远**只发
     `thinking: { type: "adaptive" }`，并强制 `temperature: 1`、去掉 `top_p`，遵守 Anthropic 约束。
@@ -190,7 +186,7 @@ CNY 之间切换，用量面板的「local」卡片也重画成了带百分比�
   `topK` / `frequencyPenalty` 永远生效。示例：
   `{ "MiniMax-M2.7": { "temperature": 0.2, "topK": 40 } }`。
 - **per-model `extra` 转义舱。** 新增实验性
-  `minimax.experimental.modelDefPresets` 对象，把任意键合并进 Anthropic 请求体——
+  `minimax.experimental.modelDefPresets` 对象，把任意键合并进 Anthropic 请求体。
   `stop_sequences` / `service_tier` / `metadata` 或将来 MiniMax 加的任何字段都能用。
   11 个 reserved keys（Anthropic 必需的字段以及被约束的
   `temperature` / `top_p` / `top_k` / `frequency_penalty`）会被拒绝覆盖；
@@ -213,12 +209,12 @@ CNY 之间切换，用量面板的「local」卡片也重画成了带百分比�
   但现代 VS Code 里这个字段总是空的，导致 prompt 里只有文件列表、模型只能凭文件名瞎编。
   新增的 `extractDiffViaGitCli` 兜底层用 `child_process.spawn` 跑
   `git --no-pager diff --staged --diff-filter=d`（拿不到 staged 时退到
-  `git --no-pager diff HEAD --diff-filter=d`），并有 16 MiB / 10 秒的硬上限。
+  `git --no-pager diff HEAD --diff-filter=d`），并设了 16 MiB / 10 秒的硬上限。
   spawn 错误优雅退化，prompt 至少还能给出文件列表。
 
 ### 备注
 
-- 1.6.0 → 2.0.0 的版本号提升**部分是表面改动**（改名）**部分是实质改动**（以上所有项）。如果你在 settings sync、DevOps 脚本里硬编码了 `klarkxy.minimax-vscode`，ID 不变，放心用。
+- 1.6.0 → 2.0.0 的版本号提升**部分是表面改动**（改名）**部分是实质改动**（以上所有项）。在 settings sync、DevOps 脚本里硬编码 `klarkxy.minimax-vscode` 的不用动，ID 不变。
 - `MiniMax*` chat info 上的 `configurationSchema` 字段现在永远是 undefined。自定义自动化如果之前 introspection 这个选择器 schema 找 `reasoningEffort` 字段，需要适配。
 
 ## 1.6.0 — 仅 Anthropic 协议、M3 锁 512K、模型选择器内显示价格、端点自动选择、Git 提交信息生成
@@ -288,7 +284,7 @@ M2.5 / M2.1 / M2 这些历史模型 MiniMax 已不再推荐，本版本也不再
 - 包名、vendor ID、命令 ID、walkthrough ID、SecretStorage key 以及大部分配置 key 保持不变。
 - `minimax.apiBaseUrl` 默认值变更：旧的 `https://api.minimax.io/v1` / `https://api.minimaxi.com/v1` 仍然可用（我们原样读取），新默认是 Anthropic 端点。
 - 模型从默认选择器中**移除**：M2.5、M2.5-highspeed、M2.1、M2.1-highspeed、M2。MiniMax 已不再推荐这批模型；如有需要，可自行通过 `minimax.modelIdOverrides` 与 `minimax.visibleModels` 重新加回。
-- **端点自动选择**：首次激活时，若 `minimax.apiBaseUrl` 仍是出厂默认，扩展会按 `vscode.env.language` 自动选择端点（`zh*` → 国内，其它 → 国际）。该选择会持久化，任何后续的手动修改都将永久覆盖。
+- **端点自动选择**：首次激活时，若 `minimax.apiBaseUrl` 仍是出厂默认，扩展会按 `vscode.env.language` 自动选择端点（`zh*` → 国内，其它 → 国际）。该选择会持久化，后续手动修改会永久覆盖。
 
 ## 1.5.0 — 用 deepseek-v4-for-copilot 架构重构
 
