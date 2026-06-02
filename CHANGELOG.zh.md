@@ -2,22 +2,39 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
-## 2.1.2 — 状态栏瘦身 + i18n 清理
+## 2.1.2 — 状态栏瘦身、Dashboard 重排、release-please 修复
 
-2.1.1 的小型后续版本。状态栏只保留两项真正有信息量的平台额度项，
-顺手清理了被刚删的“今日 token”状态栏项独占的 i18n key。
+2.1.1 的抛光版本。状态栏只保留两项平台额度项（原“今日 token”项删除），
+Dashboard 的 Token Plan 区重排让进度条和重置时间对齐，release-please
+workflow 修复后 CI 才能继续过。
 
 ### 变更
 
 - **今日 token 状态栏项被删了。** 原来 `$(graph) MiniMax 1.2k`
   那一项去掉。今日 token 总数现在住在 Dashboard（**MiniMax: Open Usage Dashboard**）
   和 **MiniMax: Show Usage** 命令里，状态栏只保留 2 个平台额度项。
+- **状态栏改为显示“已用%”，不是“剩余%”。** `5h 54%` /
+  `Week 88%` 现在意思明确是“已用 54% / 88%”，色阶阈值
+  （≥85% 红、60-85% 黄、<60% 绿）跟 Dashboard 进度条完全一致，
+  数字和颜色终于和直觉对上了。Tooltip 仍保留完整对账信息
+  （`已用 X / Y`、`剩余 Z%`），需要细看时随时可看。
 - **额度状态栏颜色改为纯文字色。** `$(bolt) 5h …` 和
   `$(calendar) Week …` 这两个项现在只换文字色（绿/黄/红），
   不再染底色，跟状态栏整体融为一体，不再像“5 个孤零零的按钮”。
+- **Dashboard Token Plan 区重排。** 5h / 周两窗口各自变成
+  一张卡：进度条上显示百分比，重置时间挪到标题右端成小药丸。
+  原来那条孤儿周限额进度条、重复的 “Used: X / Y” 数据卡、按模型
+  明细表全部移除——进度条已经一眼能看出比例，表格里 `general`
+  那行是 `—` / `—`，没有任何信息量。卡片标题统一为
+  `GENERAL · 5h` / `周额度`，配对阅读自然。
 - **清理了不再使用的 i18n key**（原本只服务于那个被删的状态栏项）：
   `status.tooltip`、`status.tooltipEmpty`、`status.tooltipActive`、
   以及重复的 `status.tooltipActive_zh`。
+- **修复 release-please workflow**。`.github/workflows/release.yml`
+  之前在 step `if:` 里引用了 `secrets.*`，被 GitHub Actions 表达式
+  语法拒绝，整条 workflow 一直 validate 失败。改成只用 `vars.*`
+  判定，secret 是否存在移到 step 内部的 bash 守卫里。CI 重跑
+  就能通过了。
 
 Dashboard 环形图中心仍显示 all-in token 总量（input + cacheWrite +
 cacheRead + output）——这个数字乘上价格表就是估算的账单。legend

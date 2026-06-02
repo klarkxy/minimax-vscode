@@ -1,12 +1,13 @@
 # Changelog
 
-## 2.1.2 — Status-bar trim + i18n cleanup
+## 2.1.2 — Status-bar trim, dashboard layout, release-please fix
 
-A small follow-up release on top of 2.1.1. Trims the status bar
-down to the two platform quota items that actually carry
-information worth showing at a glance, and cleans up a handful of
-i18n keys that were only referenced by the now-removed daily-token
-status bar item.
+A polish release on top of 2.1.1. The status bar now shows only
+the two platform quota items (no more daily-token slot), the
+dashboard's Token Plan section is reorganised so the progress
+bars and reset times line up cleanly, and the release-please
+workflow is fixed so it can parse the publish-gate conditions
+again.
 
 ### Changes
 
@@ -15,20 +16,44 @@ status bar item.
   live in the dashboard (**MiniMax: Open Usage Dashboard**) and
   the **MiniMax: Show Usage** command — the status bar now only
   carries the two platform quota items.
-- **Quota status bar uses foreground-only colors.** The
-  `$(bolt) 5h …` and `$(calendar) Week …` items use the
-  *Foreground theme tokens (green / yellow / red) and no longer
-  paint their background — they blend with the rest of the
-  status bar instead of looking like five independent buttons.
+- **Status bar shows *used* percent, not remaining.** The 5h and
+  Week items now display `5h 54%` / `Week 88%` to mean "I've used
+  54% / 88% of the quota", with colour thresholds (≥85% red,
+  60-85% yellow, <60% green) matching the dashboard's progress
+  bar so the number and the colour agree with the user's
+  intuition. The tooltip still carries the full "used X / Y,
+  remaining Z%" breakdown for the user who wants it.
+- **Status bar uses foreground-only colors.** The `$(bolt) 5h …`
+  and `$(calendar) Week …` items use the *Foreground theme tokens
+  and no longer paint a background — they blend with the rest of
+  the status bar instead of looking like five independent
+  buttons.
+- **Dashboard Token Plan section reorganised.** The two quota
+  windows (5h and Week) each render as a single card with the
+  percentage on the progress bar and the reset time on the right
+  end of the title row as a small pill. The previous orphan
+  weekly-progress bar, the duplicate "Used: X / Y" data cards, and
+  the per-model breakdown table are all gone — the bar already
+  communicates the same information at a glance, and the table
+  had a row with `—`/`—` for the `general` model that wasn't
+  carrying any weight. Plan card titles are now consistent
+  (`GENERAL · 5h` and `周额度`) so the pair reads naturally.
 - **Removed unused i18n keys** that only existed for the deleted
   daily-token status bar (`status.tooltip`, `status.tooltipEmpty`,
   `status.tooltipActive`, and a duplicate `status.tooltipActive_zh`).
+- **Release-please workflow fixed.** `.github/workflows/release.yml`
+  was failing validation because it referenced `secrets.*` inside
+  step `if:` conditions, which the GitHub Actions expression
+  grammar disallows. The publish-gate conditions now use only
+  `vars.*` and the secret-presence check has moved into a
+  bash guard inside the step. CI runs against the main branch
+  will pass again.
 
 The donut centre in the dashboard still shows the all-in token
 total (input + cacheWrite + cacheRead + output) — the same number
-you multiply against the per-model price table. The legend breaks
-out the four buckets individually, so the share that hit cache
-is immediately visible.
+you multiply against the per-model price table. The legend
+breaks out the four buckets individually, so the share that hit
+cache is immediately visible.
 
 ## 2.1.1 — Dual-currency pricing + donut token chart
 
