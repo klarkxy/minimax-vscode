@@ -48,6 +48,22 @@ again.
   `vars.*` and the secret-presence check has moved into a
   bash guard inside the step. CI runs against the main branch
   will pass again.
+- **Marketplace publish steps removed from `release.yml`.** The
+  "Publish to VS Code Marketplace" and "Publish to Open VSX"
+  steps were guarded behind `vars.PUBLISH_*` toggles that were
+  never set, so they were dead code adding noise. They have
+  been removed entirely. When you eventually want to publish
+  to a marketplace, `rescue.yml` still exists for one-off
+  manual runs, and its three publish toggles now default to
+  `false` so it can never silently fail with an empty token.
+- **All three workflows opted into Node.js 24.** GitHub is
+  deprecating the Node 20 runtime for third-party Actions on
+  2026-06-16; `release-please-action@v4` was already emitting
+  a warning about this on every run. All three workflows
+  (CI / Release / Rescue) now set
+  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'` at the job level
+  to opt in early. Remove the env var once the `googleapis/*`
+  and `actions/*` releases we depend on publish Node-24 builds.
 
 The donut centre in the dashboard still shows the all-in token
 total (input + cacheWrite + cacheRead + output) — the same number

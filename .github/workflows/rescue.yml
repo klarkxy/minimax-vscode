@@ -11,21 +11,25 @@ on:
         description: Publish this tag to the VS Code Marketplace.
         required: false
         type: boolean
-        default: true
+        default: false
       publish_open_vsx:
         description: Publish this tag to Open VSX.
         required: false
         type: boolean
-        default: true
+        default: false
       attach_github_release:
         description: Attach the VSIX to the existing GitHub Release.
         required: false
         type: boolean
-        default: true
+        default: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      # Opt all third-party GitHub Actions in this workflow into Node.js 24
+      # before GitHub forces the changeover on 2026-06-16.
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
     environment: production
     concurrency:
       group: publish-${{ inputs.tag_name }}

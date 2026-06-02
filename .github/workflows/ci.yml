@@ -9,6 +9,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Opt all third-party GitHub Actions in this workflow into Node.js 24
+      # before GitHub forces the changeover on 2026-06-16. Remove once the
+      # `actions/*` / `googleapis/*` releases we use publish Node-24 builds.
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
     steps:
       - uses: actions/checkout@v4
 

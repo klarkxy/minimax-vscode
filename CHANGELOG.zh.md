@@ -35,6 +35,19 @@ workflow 修复后 CI 才能继续过。
   语法拒绝，整条 workflow 一直 validate 失败。改成只用 `vars.*`
   判定，secret 是否存在移到 step 内部的 bash 守卫里。CI 重跑
   就能通过了。
+- **从 `release.yml` 里移除了市场推送步骤。** 之前 `Publish to
+  VS Code Marketplace` 和 `Publish to Open VSX` 两个 step 是用
+  `vars.PUBLISH_*` 开关守着的，但开关从来没被设过，等于死代码、
+  看着也乱。整体删除。等以后要推市场时，临时改用 `rescue.yml`
+  手动跑；它的三个推送开关现在默认全部 `false`，绝对不会再
+  出现"token 为空还去推"的 silent failure。
+- **三个 workflow 全部切换到 Node.js 24**。GitHub 将在
+  2026-06-16 弃用第三方 Action 的 Node 20 runtime，
+  `release-please-action@v4` 现在每次跑都会 warn。我们
+  三个 workflow（CI / Release / Rescue）都在 job 级设了
+  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'` 提前切。
+  以后 `googleapis/*` 和 `actions/*` 发布 Node-24 版本后
+  可以删掉这个 env。
 
 Dashboard 环形图中心仍显示 all-in token 总量（input + cacheWrite +
 cacheRead + output）——这个数字乘上价格表就是估算的账单。legend
