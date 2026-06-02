@@ -303,6 +303,18 @@ section h2 {
 	color: var(--fg-mute);
 	text-transform: uppercase;
 	letter-spacing: 0.04em;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+.card h3 .reset-pill {
+	text-transform: none;
+	letter-spacing: 0;
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--fg-mute);
+	font-variant-numeric: tabular-nums;
 }
 .kv { display: flex; justify-content: space-between; padding: 4px 0; }
 .kv span:first-child { color: var(--fg-mute); }
@@ -591,70 +603,55 @@ footer {
 	}
 	function platformSection(plan) {
 		if (!plan) return '';
-		// Build the two "row data" cards. Omit the "Used" row when the
-		// platform didn't report a total — we'd otherwise just be showing
-		// "0 / 0". Matches minimax-status's "title · reset-time" layout
-		// when total === 0.
-		const currentRows = plan.currentTotal > 0
-			? [
-				[i18n.fieldUsed, fmtFull(plan.currentUsed) + ' / ' + fmtFull(plan.currentTotal)],
-				[i18n.fieldResetsIn, plan.currentResetText],
-			]
-			: [[i18n.fieldResetsIn, plan.currentResetText]];
-		const currentDataCard = card(plan.modelName + ' · 5h', currentRows);
-		const weeklyRows = plan.weeklyTotal > 0
-			? [
-				[i18n.fieldUsed, fmtFull(plan.weeklyUsed) + ' / ' + fmtFull(plan.weeklyTotal)],
-				[i18n.fieldWeeklyReset, plan.weeklyResetText],
-			]
-			: [[i18n.fieldWeeklyReset, plan.weeklyResetText]];
-		const weeklyDataCard = plan.weeklyUnlimited
-			? card(i18n.fieldWeekly + ' · ∞', [[i18n.fieldWeeklyReset, '—']])
-			: card(i18n.fieldWeekly, weeklyRows);
-
-		// Build the matching "progress bar" cards. Each progress bar card
-		// carries the same title as its data card, so the two rows line up
-		// visually and the user can pair bar + numbers at a glance.
-		const currentProgressCard = (
-			'<div class="card"><h3>' + escapeHtml(plan.modelName + ' · 5h') + '</h3>' +
-			progressBlock(plan.currentPercentage, plan.currentUsed, plan.currentTotal) +
-			'</div>'
+		// Per the latest design: two cards (5h + weekly) only. The card
+		// title is the model name + window; the percentage fills the bar
+		// and the reset time sits on the right end of the title row as a
+		// small pill. The previous "Used: X / Y" data card and the
+		// per-model table were dropped — when total=0 the X/Y would have
+		// been a meaningless "0 / 0", and when total>0 the bar already
+		// shows the same information at a glance.
+		const planBar = (pct) => {
+			const clamped = Math.max(0, Math.min(100, pct || 0));
+			const cls = progressClass(clamped);
+			return (
+				'<div class="progress ' + cls + '"><div class="fill" style="width: ' + clamped + '%"></div></div>' +
+				'<div class="kv" style="margin-top: 6px;"><span class="dim">' + clamped + '%</span></div>'
+			);
+		};
+		const cardWithReset = (title, pct, resetText) => (
+			'<div class="card"><h3>' +
+				'<span>' + escapeHtml(title) + '</span>' +
+				'<span class="reset-pill">' + escapeHtml(resetText) + '</span>' +
+			'</h3>' + planBar(pct) + '</div>'
 		);
-		const weeklyProgressCard = plan.weeklyUnlimited
-			? '<div class="card"><h3>' + escapeHtml(i18n.fieldWeekly) + ' · ∞</h3></div>'
-			: '<div class="card"><h3>' + escapeHtml(i18n.fieldWeekly) + '</h3>' +
-				progressBlock(plan.weeklyPercentage, plan.weeklyUsed, plan.weeklyTotal) +
-			'</div>';
+
+		const currentCard = cardWithReset(
+			plan.modelName + ' · 5h',
+			plan.currentPercentage,
+			plan.currentResetText,
+		);
+		const weeklyCard = plan.weeklyUnlimited
+			? '<div class="card"><h3><span>' + escapeHtml(i18n.fieldWeekly) + '</span>' +
+				'<span class="reset-pill">∞</span></h3>' + planBar(0) + '</div>'
+			: cardWithReset(
+				i18n.fieldWeekly,
+				plan.weeklyPercentage,
+				plan.weeklyResetText,
+			);
 
 		const expiryCard = plan.expiryDate
 			? card(i18n.fieldExpiry, [
 					[plan.expiryDate, i18n.fieldExpiryDays(plan.expiryDays ?? 0)],
 				])
 			: '';
-		const modelsTable = (plan.allModels && plan.allModels.length)
-			? '<table style="margin-top: 14px;"><thead><tr><th>' + escapeHtml(i18n.platformModelHeader) + '</th><th class="right">' + escapeHtml(i18n.fieldUsed) + '</th><th class="right">' + escapeHtml(i18n.fieldTotal) + '</th><th class="right">%</th></tr></thead><tbody>' +
-				plan.allModels.map(function (m) {
-					// Per-model row: render an em-dash in the used/total
-					// cells when no total was reported (e.g. "general"),
-					// so the row stays tabular-aligned with the rest of
-					// the table instead of showing a meaningless "0".
-					const usedCell = m.total > 0 ? fmtFull(m.used) : i18n.fieldUnlisted;
-					const totalCell = m.total > 0 ? fmtFull(m.total) : i18n.fieldUnlisted;
-					return '<tr><td>' + escapeHtml(m.name) + '</td><td class="right">' + usedCell + '</td><td class="right">' + totalCell + '</td><td class="right">' + m.percentage + '%</td></tr>';
-				}).join('') + '</tbody></table>'
-			: '';
+
 		return (
 			'<section><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
 			'<div class="grid grid-2">' +
-				currentProgressCard +
-				weeklyProgressCard +
-			'</div>' +
-			'<div class="grid grid-2">' +
-				currentDataCard +
-				weeklyDataCard +
+				currentCard +
+				weeklyCard +
 			'</div>' +
 			expiryCard +
-			modelsTable +
 			'</section>'
 		);
 	}
