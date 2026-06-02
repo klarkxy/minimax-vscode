@@ -32,6 +32,7 @@ export interface DashboardMessages {
 	fieldRemaining: string;
 	fieldResetsIn: string;
 	fieldWeeklyReset: string;
+	fieldWeekly: string;
 	fieldExpiry: string;
 	fieldExpiryDays: (days: number) => string;
 	/** Em-dash placeholder for quota numbers the platform did not report. */
@@ -68,7 +69,8 @@ const en: DashboardMessages = {
 	fieldUsed: 'Used',
 	fieldRemaining: 'Remaining',
 	fieldResetsIn: 'Resets in',
-	fieldWeeklyReset: 'Weekly resets in',
+	fieldWeeklyReset: 'Resets in',
+	fieldWeekly: 'Weekly',
 	fieldExpiry: 'Subscription expires',
 	fieldUnlisted: '—',
 	fieldExpiryDays: (days) => {
@@ -107,8 +109,9 @@ const zh: DashboardMessages = {
 	fieldTotal: '合计',
 	fieldUsed: '已用',
 	fieldRemaining: '剩余',
-	fieldResetsIn: '重置倒计时',
-	fieldWeeklyReset: '周限额重置',
+	fieldResetsIn: '距下次重置',
+	fieldWeeklyReset: '距下次重置',
+	fieldWeekly: '周额度',
 	fieldExpiry: '套餐到期',
 	fieldUnlisted: '—',
 	fieldExpiryDays: (days) => {

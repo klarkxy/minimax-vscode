@@ -591,33 +591,41 @@ footer {
 	}
 	function platformSection(plan) {
 		if (!plan) return '';
-		// 5h card: omit the "Used" row entirely when the platform didn't
-		// report a total — we'd otherwise just be showing "0 / 0". The
-		// "Resets in" row still renders. Matches minimax-status's
-		// "title · reset-time" layout when total === 0.
+		// Build the two "row data" cards. Omit the "Used" row when the
+		// platform didn't report a total — we'd otherwise just be showing
+		// "0 / 0". Matches minimax-status's "title · reset-time" layout
+		// when total === 0.
 		const currentRows = plan.currentTotal > 0
 			? [
 				[i18n.fieldUsed, fmtFull(plan.currentUsed) + ' / ' + fmtFull(plan.currentTotal)],
 				[i18n.fieldResetsIn, plan.currentResetText],
 			]
 			: [[i18n.fieldResetsIn, plan.currentResetText]];
-		const current = card(plan.modelName, currentRows);
-		const currentProgress = (
-			'<div style="margin-top: 10px;">' + progressBlock(plan.currentPercentage, plan.currentUsed, plan.currentTotal) + '</div>'
-		);
-		// Weekly card: same hide-when-no-total rule.
+		const currentDataCard = card(plan.modelName + ' · 5h', currentRows);
 		const weeklyRows = plan.weeklyTotal > 0
 			? [
 				[i18n.fieldUsed, fmtFull(plan.weeklyUsed) + ' / ' + fmtFull(plan.weeklyTotal)],
 				[i18n.fieldWeeklyReset, plan.weeklyResetText],
 			]
 			: [[i18n.fieldWeeklyReset, plan.weeklyResetText]];
-		const weekly = plan.weeklyUnlimited
-			? card(i18n.fieldRemaining, [[i18n.fieldWeeklyReset, '∞']])
-			: card(i18n.fieldRemaining, weeklyRows);
-		const weeklyProgress = plan.weeklyUnlimited
-			? ''
-			: '<div style="margin-top: 10px;">' + progressBlock(plan.weeklyPercentage, plan.weeklyUsed, plan.weeklyTotal) + '</div>';
+		const weeklyDataCard = plan.weeklyUnlimited
+			? card(i18n.fieldWeekly + ' · ∞', [[i18n.fieldWeeklyReset, '—']])
+			: card(i18n.fieldWeekly, weeklyRows);
+
+		// Build the matching "progress bar" cards. Each progress bar card
+		// carries the same title as its data card, so the two rows line up
+		// visually and the user can pair bar + numbers at a glance.
+		const currentProgressCard = (
+			'<div class="card"><h3>' + escapeHtml(plan.modelName + ' · 5h') + '</h3>' +
+			progressBlock(plan.currentPercentage, plan.currentUsed, plan.currentTotal) +
+			'</div>'
+		);
+		const weeklyProgressCard = plan.weeklyUnlimited
+			? '<div class="card"><h3>' + escapeHtml(i18n.fieldWeekly) + ' · ∞</h3></div>'
+			: '<div class="card"><h3>' + escapeHtml(i18n.fieldWeekly) + '</h3>' +
+				progressBlock(plan.weeklyPercentage, plan.weeklyUsed, plan.weeklyTotal) +
+			'</div>';
+
 		const expiryCard = plan.expiryDate
 			? card(i18n.fieldExpiry, [
 					[plan.expiryDate, i18n.fieldExpiryDays(plan.expiryDays ?? 0)],
@@ -638,12 +646,14 @@ footer {
 		return (
 			'<section><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
 			'<div class="grid grid-2">' +
-				'<div class="card"><h3>' + escapeHtml(plan.modelName) + ' · 5h</h3>' + currentProgress + '</div>' +
-				weeklyProgress + '' +
-				expiryCard +
+				currentProgressCard +
+				weeklyProgressCard +
 			'</div>' +
-			(current + '') +
-			(weekly + '') +
+			'<div class="grid grid-2">' +
+				currentDataCard +
+				weeklyDataCard +
+			'</div>' +
+			expiryCard +
 			modelsTable +
 			'</section>'
 		);
