@@ -234,7 +234,7 @@ async function resetUsage(): Promise<void> {
 }
 
 async function showProviderStatus(auth: AuthManager): Promise<void> {
-	const ext = vscode.extensions.getExtension('klarkxy.minimax-copilot');
+	const ext = vscode.extensions.getExtension('klarkxy.minimax-vscode-copilot');
 	const hasKey = await auth.hasApiKey();
 	const visible = getVisibleModels();
 	const stats = cachedUsage?.read();
