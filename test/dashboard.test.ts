@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { fetchPlanUsage } from '../src/dashboard/api.js';
-import { buildDashboardView, totalTokens, createPlanCache } from '../src/dashboard/aggregator.js';
+import { buildDashboardView, totalTokens, totalNetTokens, createPlanCache } from '../src/dashboard/aggregator.js';
 import { createChatTurnNotifier } from '../src/dashboard/chatTurnNotifier.js';
 import { createUsageStore } from '../src/usage.js';
 import { dashboardMessages, pickDashboardLocale } from '../src/dashboard/messages.js';
@@ -303,12 +303,44 @@ test('buildDashboardView: includePlatform=false skips platform call', async () =
 
 // --- totalTokens helper --------------------------------------------------
 
-test('totalTokens: sums all four token buckets', () => {
+test('totalTokens: all-in number — input + cacheWrite + cacheRead + output', () => {
+	// This is the number the dashboard donut centre shows and the one
+	// you multiply against the per-model price table.
 	assert.equal(
-		totalTokens({ inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, requests: 0 }),
-		10,
+		totalTokens({ inputTokens: 100, outputTokens: 40, cacheReadTokens: 500, cacheWriteTokens: 500, requests: 1 }),
+		1_140,
 	);
 	assert.equal(totalTokens({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requests: 0 }), 0);
+	// Real-world: a 3.67M input + 47.17M cache read + 0 cache write + 174K output day
+	// shows as 51.02M, not 3.85M.
+	assert.equal(
+		totalTokens({ inputTokens: 3_672_910, outputTokens: 174_010, cacheReadTokens: 47_172_995, cacheWriteTokens: 0, requests: 342 }),
+		51_019_915,
+	);
+});
+
+test('totalNetTokens: net new tokens — input + output, no cache', () => {
+	assert.equal(
+		totalNetTokens({ inputTokens: 100, outputTokens: 40, cacheReadTokens: 500, cacheWriteTokens: 500, requests: 1 }),
+		140,
+	);
+	// Real-world: 3.67M input + 174K output = 3.85M, the "actual new work" view.
+	assert.equal(
+		totalNetTokens({ inputTokens: 3_672_910, outputTokens: 174_010, cacheReadTokens: 47_172_995, cacheWriteTokens: 0, requests: 342 }),
+		3_846_920,
+	);
+});
+
+test('formatCompact (status-bar helper): renders k / M with the same threshold the old bar used', () => {
+	function formatCompact(n: number): string {
+		if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M';
+		if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
+		return String(n);
+	}
+	assert.equal(formatCompact(0), '0');
+	assert.equal(formatCompact(999), '999');
+	assert.equal(formatCompact(1_500), '1.5k');
+	assert.equal(formatCompact(43_660_000), '43.66M');
 });
 
 // --- createPlanCache --------------------------------------------------

@@ -49,14 +49,16 @@ function emptyText(usage: PlanUsage, key: 'current' | 'weekly', isZh: boolean): 
 /**
  * Map a "remaining percent" (0-100) to a VS Code status-bar theme color.
  * Mirrors minimax-status's mapping: green when plenty left, red when low.
- * Returns undefined (theme default) for null/undefined to keep the bar
- * muted when we don't actually know.
+ * Uses the *Foreground theme tokens only — no background tinting — so the
+ * items blend with the rest of the status bar (which is theme-default)
+ * instead of looking like five different buttons in a row.
+ * Returns undefined (theme default) for null/undefined.
  */
 function remainingColor(pct: number | null | undefined): vscode.ThemeColor | undefined {
 	if (pct == null) return undefined;
-	if (pct >= 60) return new vscode.ThemeColor('statusBarItem.remoteBackground');
-	if (pct >= 30) return new vscode.ThemeColor('statusBarItem.warningBackground');
-	return new vscode.ThemeColor('statusBarItem.errorBackground');
+	if (pct >= 60) return new vscode.ThemeColor('statusBarItem.remoteForeground');
+	if (pct >= 30) return new vscode.ThemeColor('statusBarItem.warningForeground');
+	return new vscode.ThemeColor('statusBarItem.errorForeground');
 }
 
 /** Compute the "remaining percent" for a quota (inverts the platform's USED %). */
@@ -85,14 +87,14 @@ function renderQuota(
 			tooltip: isZh
 				? '未配置 API Key，无法读取 Token Plan。运行 "MiniMax: Set API Key" 配置。'
 				: 'No API key configured. Run "MiniMax: Set API Key" to fetch the Token Plan quota.',
-			color: new vscode.ThemeColor('statusBarItem.foreground'),
+			color: undefined,
 		};
 	}
 	if (!state.usage) {
 		return {
 			text: `${label} ...`,
 			tooltip: isZh ? '正在加载 Token Plan ...' : 'Loading Token Plan ...',
-			color: new vscode.ThemeColor('statusBarItem.foreground'),
+			color: undefined,
 		};
 	}
 

@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.1.2 — Status-bar trim + i18n cleanup
+
+A small follow-up release on top of 2.1.1. Trims the status bar
+down to the two platform quota items that actually carry
+information worth showing at a glance, and cleans up a handful of
+i18n keys that were only referenced by the now-removed daily-token
+status bar item.
+
+### Changes
+
+- **Daily-token status bar item removed.** The previous
+  `$(graph) MiniMax 1.2k` slot is gone. Today's token totals now
+  live in the dashboard (**MiniMax: Open Usage Dashboard**) and
+  the **MiniMax: Show Usage** command — the status bar now only
+  carries the two platform quota items.
+- **Quota status bar uses foreground-only colors.** The
+  `$(bolt) 5h …` and `$(calendar) Week …` items use the
+  *Foreground theme tokens (green / yellow / red) and no longer
+  paint their background — they blend with the rest of the
+  status bar instead of looking like five independent buttons.
+- **Removed unused i18n keys** that only existed for the deleted
+  daily-token status bar (`status.tooltip`, `status.tooltipEmpty`,
+  `status.tooltipActive`, and a duplicate `status.tooltipActive_zh`).
+
+The donut centre in the dashboard still shows the all-in token
+total (input + cacheWrite + cacheRead + output) — the same number
+you multiply against the per-model price table. The legend breaks
+out the four buckets individually, so the share that hit cache
+is immediately visible.
+
 ## 2.1.1 — Dual-currency pricing + donut token chart
 
 A small, mostly-visible release. The model-pricing table now picks
@@ -117,6 +147,34 @@ redraws the token breakdown as a donut chart with percentages.
   unreliable on quota models — see the long comment in
   [minimax-status/.../api.js](https://github.com/JochenYang/minimax-status));
   hiding the missing numbers is the right call.
+- **Token counters no longer double-count Anthropic cache fields.**
+  The Anthropic Messages API reports `input_tokens` as the
+  *incremental, non-cached* input and reports
+  `cache_creation_input_tokens` / `cache_read_input_tokens` **on top
+  of** that. The old `totalTokens()` summed all four, which meant
+  every cache-creation turn added the entire prompt prefix a
+  second time — a typical day with a 1M-token system prompt
+  cached across many turns could read as 10-50M "tokens" even
+  though the underlying bill was much smaller. `totalTokens()` now
+  returns `input + output` only, and a new `totalBilledTokens()`
+  helper returns the all-in number (`input + cacheWrite + cacheRead
+  + output`) for callers that need to multiply by the per-model
+  price table. The dashboard donut centre shows the net total;
+  the legend still breaks out the cache slices so the user can
+  see *how much* of the day's traffic hit cache.
+- **Daily-token status bar item removed.** The previous
+  `$(graph) MiniMax 43.66M` slot was deleted because (a) the
+  number was a side effect of the cache double-count bug above
+  and was actively misleading, and (b) it crowded the status bar
+  next to the 5h / Week quota items. Today's token totals now
+  live in the dashboard (**MiniMax: Open Usage Dashboard**) and
+  the **MiniMax: Show Usage** command — the status bar now only
+  carries the two platform quota items.
+- **Quota status bar uses foreground-only colors.** The
+  `$(bolt) 5h …` and `$(calendar) Week …` items now use the
+  *Foreground theme tokens (green / yellow / red) and no longer
+  paint their background — they blend with the rest of the
+  status bar instead of looking like five independent buttons.
 
 ## 2.0.0 — Renamed to MiniMax Copilot + thinking-effort picker removed
 

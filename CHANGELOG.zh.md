@@ -2,6 +2,27 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.1.2 — 状态栏瘦身 + i18n 清理
+
+2.1.1 的小型后续版本。状态栏只保留两项真正有信息量的平台额度项，
+顺手清理了被刚删的“今日 token”状态栏项独占的 i18n key。
+
+### 变更
+
+- **今日 token 状态栏项被删了。** 原来 `$(graph) MiniMax 1.2k`
+  那一项去掉。今日 token 总数现在住在 Dashboard（**MiniMax: Open Usage Dashboard**）
+  和 **MiniMax: Show Usage** 命令里，状态栏只保留 2 个平台额度项。
+- **额度状态栏颜色改为纯文字色。** `$(bolt) 5h …` 和
+  `$(calendar) Week …` 这两个项现在只换文字色（绿/黄/红），
+  不再染底色，跟状态栏整体融为一体，不再像“5 个孤零零的按钮”。
+- **清理了不再使用的 i18n key**（原本只服务于那个被删的状态栏项）：
+  `status.tooltip`、`status.tooltipEmpty`、`status.tooltipActive`、
+  以及重复的 `status.tooltipActive_zh`。
+
+Dashboard 环形图中心仍显示 all-in token 总量（input + cacheWrite +
+cacheRead + output）——这个数字乘上价格表就是估算的账单。legend
+里 4 个分项独立显示，缓存占了多少一眼就能看到。
+
 ## 2.1.1 — 双币种价格表 + token 环形图
 
 一个偏小、偏可见的版本。模型价格表现在会按 `minimax.apiBaseUrl` 与
@@ -96,8 +117,25 @@
   平台在 total 缺失时确实没办法算出真实的"已用"次数——
   `current_interval_usage_count` 字段在配额模型上不可信（详见
   [minimax-status/.../api.js](https://github.com/JochenYang/minimax-status)
-  的注释），所以与其硬塞一个 `0 / 0`，不如直接隐掉。
-
+  的注释），所以与其硬塞一个 `0 / 0`，不如直接隐掉。- **token 计数器不再重复统计 Anthropic cache 字段。** Anthropic
+  Messages API 的 `input_tokens` 是**增量、未缓存**的那部分输入，
+  `cache_creation_input_tokens` / `cache_read_input_tokens` 是
+  **在它之上**额外报告的（同样包含已缓存前缀）。老版
+  `totalTokens()` 把四个字段全加起来——结果每个 cache 写入轮次都
+  把整段 prompt prefix 多算一次。1M 系统 prompt + 一天 50 轮对话
+  经常被记成 50M 幻影 token。`totalTokens()` 现在只算
+  `input + output`；另增 `totalBilledTokens()` helper 返回
+  `input + cacheWrite + cacheRead + output` 这个“全口径”数字，
+  给需要乘价格表的场景用。Dashboard 圆环中心显示净额、legend 里
+  仍把 cache 拆开显示（这样用户能看出“这一天有多少流量走了缓存”）。
+- **状态栏的今日 token 项被删了。** 原来 `$(graph) MiniMax 43.66M`
+  那一项去掉，原因是：（1）这个数字其实是 cache 重复统计 bug 的
+  副作用，会误导人；（2）跟 5h / 周限额挤一起太占空间。今日
+  token 总数现在住在 Dashboard（**MiniMax: Open Usage Dashboard**）
+  和 **MiniMax: Show Usage** 命令里，状态栏只保留 2 个平台额度项。
+- **额度状态栏颜色改为纯文字色。** `$(bolt) 5h …` 和
+  `$(calendar) Week …` 这两个项现在只换文字色（绿/黄/红），
+  不再染底色，跟状态栏整体融为一体，不再像“5 个孤零零的按钮”。
 ## 2.0.0 — 改名为 MiniMax Copilot + 移除思考强度选择器
 
 这一版把市场化的改名和一轮行为修复打包发布。其中一部分对用户可见（UI 元素没了、Copilot 状态栏的上下文统计数字变正确了）；大部分是底层加固。

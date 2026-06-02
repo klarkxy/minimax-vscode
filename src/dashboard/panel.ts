@@ -535,22 +535,27 @@ footer {
 		);
 	}
 	function localCard(title, usage) {
+		// Donut centre shows the all-in token total (input + cacheWrite +
+		// cacheRead + output) — the same number the per-day totalTokens()
+		// helper in aggregator.ts returns and what the price table multiplies
+		// against. The legend breaks out the four buckets so the user can
+		// see what share of the day's traffic actually hit cache.
 		const slices = [
 			{ key: i18n.fieldInput, value: usage.inputTokens, color: 'var(--accent)' },
 			{ key: i18n.fieldCacheRead, value: usage.cacheReadTokens, color: 'var(--good)' },
 			{ key: i18n.fieldCacheWrite, value: usage.cacheWriteTokens, color: 'var(--warn)' },
 			{ key: i18n.fieldOutput, value: usage.outputTokens, color: 'var(--bad)' },
 		];
-		const total = slices.reduce(function (s, it) { return s + (it.value || 0); }, 0);
+		const totalBilled = slices.reduce(function (s, it) { return s + (it.value || 0); }, 0);
 		let pieBg;
-		if (total > 0) {
+		if (totalBilled > 0) {
 			let cursor = 0;
 			const stops = [];
 			for (const it of slices) {
 				if (!it.value) continue;
-				const start = (cursor / total) * 100;
+				const start = (cursor / totalBilled) * 100;
 				cursor += it.value;
-				const end = (cursor / total) * 100;
+				const end = (cursor / totalBilled) * 100;
 				stops.push(it.color + ' ' + start.toFixed(2) + '% ' + end.toFixed(2) + '%');
 			}
 			pieBg = 'conic-gradient(' + stops.join(', ') + ')';
@@ -558,7 +563,7 @@ footer {
 			pieBg = 'var(--border)';
 		}
 		const legend = slices.map(function (it) {
-			const pct = total > 0 ? ((it.value / total) * 100).toFixed(1) : '0.0';
+			const pct = totalBilled > 0 ? ((it.value / totalBilled) * 100).toFixed(1) : '0.0';
 			return '<li>' +
 				'<span class="dot" style="background:' + it.color + '"></span>' +
 				'<span class="lbl">' + escapeHtml(it.key) + '</span>' +
@@ -572,7 +577,7 @@ footer {
 			'<div class="pie-wrap">' +
 				'<div class="pie" style="background:' + pieBg + '">' +
 					'<div class="pie-center">' +
-						'<div class="pie-total">' + escapeHtml(fmtNumber(total)) + '</div>' +
+						'<div class="pie-total">' + escapeHtml(fmtNumber(totalBilled)) + '</div>' +
 						'<div class="pie-cap">' + escapeHtml(i18n.fieldTotal) + '</div>' +
 					'</div>' +
 				'</div>' +

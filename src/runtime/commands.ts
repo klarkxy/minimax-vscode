@@ -7,7 +7,6 @@ import { getBaseUrl } from '../config';
 import { chooseCommitModel, generateCommitMessage } from '../git/commitMessage';
 import { createUsageStore, type UsageStore } from '../usage';
 import { DashboardPanel } from '../dashboard/panel';
-import { createUsageStatusBar, type UsageStatusBar } from '../dashboard/statusBar';
 import { createPlanStatusBar, type PlanStatusBar } from '../dashboard/planStatusBar';
 import { createPlanCache, type PlanCache } from '../dashboard/aggregator';
 import type { ChatTurnNotifier } from '../dashboard/chatTurnNotifier';
@@ -15,7 +14,6 @@ import type { ChatTurnNotifier } from '../dashboard/chatTurnNotifier';
 let cachedContext: vscode.ExtensionContext | undefined;
 let cachedAuth: AuthManager | undefined;
 let cachedUsage: UsageStore | undefined;
-let cachedStatusBar: UsageStatusBar | undefined;
 let cachedPlanCache: PlanCache | undefined;
 let cachedPlanStatusBar: PlanStatusBar | undefined;
 let turnNotifierDisposable: vscode.Disposable | undefined;
@@ -31,14 +29,6 @@ export function setCommandContext(context: vscode.ExtensionContext): void {
 	cachedContext = context;
 	cachedAuth = new AuthManager(context);
 	cachedUsage = createUsageStore(context.globalState);
-	if (!cachedStatusBar) {
-		cachedStatusBar = createUsageStatusBar({
-			store: cachedUsage,
-			auth: cachedAuth,
-			command: 'minimax.openDashboard',
-		});
-		context.subscriptions.push(cachedStatusBar);
-	}
 	if (!cachedPlanStatusBar) {
 		cachedPlanStatusBar = createPlanStatusBar({ cache: getPlanCache() });
 		context.subscriptions.push(cachedPlanStatusBar);

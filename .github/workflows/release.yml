@@ -69,15 +69,27 @@ jobs:
 
       - name: Publish to VS Code Marketplace
         # Marketplace 暂不自动发布；需手动开启 PUBLISH_VSCODE_MARKETPLACE=true + 配置 VSCE_PAT
-        if: ${{ vars.PUBLISH_VSCODE_MARKETPLACE == 'true' && secrets.VSCE_PAT != '' }}
-        run: npm exec -- vsce publish --packagePath "${{ steps.vsix.outputs.path }}" --skip-duplicate
+        # Note: secrets.* cannot be referenced in an `if:` condition (GitHub
+        # actions restriction), so we check it in the shell instead.
+        if: ${{ vars.PUBLISH_VSCODE_MARKETPLACE == 'true' }}
+        run: |
+          if [[ -z "$VSCE_PAT" ]]; then
+            echo "::warning::VSCE_PAT is empty; skipping marketplace publish"
+            exit 0
+          fi
+          npm exec -- vsce publish --packagePath "${{ steps.vsix.outputs.path }}" --skip-duplicate
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Publish to Open VSX
         # Open VSX 暂不自动发布；需手动开启 PUBLISH_OPEN_VSX=true + 配置 OVSX_PAT
-        if: ${{ vars.PUBLISH_OPEN_VSX == 'true' && secrets.OVSX_PAT != '' }}
-        run: npm exec -- ovsx publish --skip-duplicate "${{ steps.vsix.outputs.path }}"
+        if: ${{ vars.PUBLISH_OPEN_VSX == 'true' }}
+        run: |
+          if [[ -z "$OVSX_PAT" ]]; then
+            echo "::warning::OVSX_PAT is empty; skipping open-vsx publish"
+            exit 0
+          fi
+          npm exec -- ovsx publish --skip-duplicate "${{ steps.vsix.outputs.path }}"
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
 

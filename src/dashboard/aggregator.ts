@@ -153,14 +153,35 @@ export async function buildDashboardView(
 	return view;
 }
 
-/** Sum a `ModelUsage` slice into a single total token count. */
+/**
+ * All-in tokens billed for the slice — input + cacheWrite + cacheRead + output.
+ *
+ * This is the number the dashboard's "Today" donut centre displays and
+ * what you should multiply against the per-model price table to estimate
+ * spend. Anthropic reports `usage.input_tokens` as the **incremental,
+ * non-cached** input and reports `cache_creation_input_tokens` /
+ * `cache_read_input_tokens` **on top of** that; both cache fields still
+ * count toward spend (writes at the full rate, reads at the discounted
+ * cache rate), so the all-in sum is the right one for "how much did I
+ * touch?". The legend breaks out the four buckets individually so the
+ * user can see what share of the traffic actually hit cache.
+ */
 export function totalTokens(usage: ModelUsage): number {
 	return (
 		usage.inputTokens +
-		usage.outputTokens +
+		usage.cacheWriteTokens +
 		usage.cacheReadTokens +
-		usage.cacheWriteTokens
+		usage.outputTokens
 	);
+}
+
+/**
+ * Net new tokens (incremental input that wasn't cached, plus output).
+ * Useful for "how much actual new work did I do today" — the cache
+ * prefix doesn't count here.
+ */
+export function totalNetTokens(usage: ModelUsage): number {
+	return usage.inputTokens + usage.outputTokens;
 }
 
 /** Cached `Memento`-backed factory — re-exported here so the dashboard
