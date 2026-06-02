@@ -47,21 +47,31 @@ function emptyText(usage: PlanUsage, key: 'current' | 'weekly', isZh: boolean): 
 }
 
 /**
- * Map a "remaining percent" (0-100) to a VS Code status-bar theme color.
- * Mirrors minimax-status's mapping: green when plenty left, red when low.
+ * Map a "used percent" (0-100) to a VS Code status-bar theme color.
+ * Semantics: green = plenty of headroom, red = running out. Thresholds
+ * match the dashboard's progressClass so the two surfaces agree.
  * Uses the *Foreground theme tokens only — no background tinting — so the
  * items blend with the rest of the status bar (which is theme-default)
  * instead of looking like five different buttons in a row.
  * Returns undefined (theme default) for null/undefined.
  */
-function remainingColor(pct: number | null | undefined): vscode.ThemeColor | undefined {
-	if (pct == null) return undefined;
-	if (pct >= 60) return new vscode.ThemeColor('statusBarItem.remoteForeground');
-	if (pct >= 30) return new vscode.ThemeColor('statusBarItem.warningForeground');
-	return new vscode.ThemeColor('statusBarItem.errorForeground');
+function usedColor(usedPct: number | null | undefined): vscode.ThemeColor | undefined {
+	if (usedPct == null) return undefined;
+	if (usedPct >= 85) return new vscode.ThemeColor('statusBarItem.errorForeground');
+	if (usedPct >= 60) return new vscode.ThemeColor('statusBarItem.warningForeground');
+	return new vscode.ThemeColor('statusBarItem.remoteForeground');
 }
 
-/** Compute the "remaining percent" for a quota (inverts the platform's USED %). */
+/** Get the platform's reported USED percent (0-100) for a quota. */
+function usedPctOf(plan: PlanUsage, key: 'current' | 'weekly'): number | null {
+	if (key === 'weekly' && plan.weeklyUnlimited) return null;
+	if (key === 'current') {
+		return plan.currentPercentage ?? null;
+	}
+	return plan.weeklyPercentage ?? null;
+}
+
+/** Get the platform's reported REMAINING percent (0-100) for a quota. */
 function remainingPctOf(plan: PlanUsage, key: 'current' | 'weekly'): number | null {
 	if (key === 'weekly' && plan.weeklyUnlimited) return null;
 	if (key === 'current') {
@@ -99,8 +109,8 @@ function renderQuota(
 	}
 
 	const plan = state.usage;
-	const pct = remainingPctOf(plan, key);
-	if (pct == null) {
+	const usedPct = usedPctOf(plan, key);
+	if (usedPct == null) {
 		return {
 			text: `${label} ${emptyText(plan, key, isZh)}`,
 			tooltip: isZh
@@ -110,29 +120,37 @@ function renderQuota(
 		};
 	}
 
-	const remainingText = `${pct}%`;
-	const color = remainingColor(pct);
+	const remainingPct = remainingPctOf(plan, key);
+	const usedText = `${usedPct}%`;
+	const color = usedColor(usedPct);
 	const resetText = key === 'current' ? plan.currentResetText : plan.weeklyResetText;
 	const total = key === 'current' ? plan.currentTotal : plan.weeklyTotal;
 	const used = key === 'current' ? plan.currentUsed : plan.weeklyUsed;
 
-	// Long-form tooltip. Mirrors the dashboard's "X / Y · reset" layout
-	// but only when the platform actually reported a total — for the
-	// "general" model the total is 0 and the dashboard hides the pair.
+	// Long-form tooltip. The status bar text shows the USED percent (so
+	// the number + colour match the user's intuition — "54%" means I've
+	// used 54%, not "54% remains"). Tooltip carries both halves for
+	// the user who wants to do the subtraction.
 	const pairLine = total > 0
 		? isZh
-			? `剩余 ${used.toLocaleString('en-US')} / ${total.toLocaleString('en-US')}`
-			: `Remaining ${used.toLocaleString('en-US')} / ${total.toLocaleString('en-US')}`
+			? `已用 ${used.toLocaleString('en-US')} / ${total.toLocaleString('en-US')}`
+			: `Used ${used.toLocaleString('en-US')} / ${total.toLocaleString('en-US')}`
+		: '';
+	const remainingLine = remainingPct != null
+		? isZh
+			? `剩余 ${remainingPct}%`
+			: `${remainingPct}% remaining`
 		: '';
 
 	const tooltip = [
-		`${label}: ${remainingText} ${isZh ? '剩余' : 'remaining'}`,
+		`${label}: ${usedText} ${isZh ? '已用' : 'used'}`,
 		pairLine,
+		remainingLine,
 		`${isZh ? '重置' : 'Resets in'}: ${resetText}`,
 		isZh ? '点击打开 Dashboard 查看详情' : 'Click to open the dashboard for details',
 	].filter(Boolean).join(' · ');
 
-	return { text: `${label} ${remainingText}`, tooltip, color };
+	return { text: `${label} ${usedText}`, tooltip, color };
 }
 
 export function createPlanStatusBar(deps: PlanStatusBarDeps): PlanStatusBar {
