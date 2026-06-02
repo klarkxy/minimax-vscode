@@ -1,13 +1,8 @@
 # MiniMax Copilot
 
+<!-- marketplace-readme:remove-start -->
 > 🇬🇧 English | [🇨🇳 简体中文](./README.zh.md)
-
-> **Distribution status:** The extension currently ships through
-> **Open VSX** and **GitHub Releases** only. The publisher is **not yet
-> listed on the Microsoft VS Code Marketplace** while the original
-> Microsoft / Azure DevOps tenant is being restored. See
-> [`MARKETPLACE.md`](./MARKETPLACE.md) for the live status and what
-> users can do in the meantime.
+<!-- marketplace-readme:remove-end -->
 
 A [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat)
 language model provider that adds **MiniMax M3** and **M2.7** to the

@@ -1,8 +1,8 @@
 # MiniMax Copilot
 
+<!-- marketplace-readme:remove-start -->
 > 🇨🇳 简体中文 | [🇬🇧 English documentation](./README.md)
-
-> **发布状态**：目前只通过 **Open VSX** 和 **GitHub Releases** 分发。由于原 Microsoft / Azure DevOps 租户正在恢复中,**暂未上架** VS Code 官方市场。最新进展请看 [`MARKETPLACE.md`](./MARKETPLACE.md)。
+<!-- marketplace-readme:remove-end -->
 
 为 [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat)
 增加 **MiniMax M3 / M2.7** 模型供应方的 VS Code 扩展。用 [Token Plan](https://platform.minimax.io/user-center/payment/token-plan)
