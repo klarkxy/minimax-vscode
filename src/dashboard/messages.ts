@@ -34,6 +34,8 @@ export interface DashboardMessages {
 	fieldWeeklyReset: string;
 	fieldExpiry: string;
 	fieldExpiryDays: (days: number) => string;
+	/** Em-dash placeholder for quota numbers the platform did not report. */
+	fieldUnlisted: string;
 	fieldStarted: string;
 	fieldUpdated: string;
 	windowToday: string;
@@ -68,6 +70,7 @@ const en: DashboardMessages = {
 	fieldResetsIn: 'Resets in',
 	fieldWeeklyReset: 'Weekly resets in',
 	fieldExpiry: 'Subscription expires',
+	fieldUnlisted: '—',
 	fieldExpiryDays: (days) => {
 		if (days < 0) return `expired ${Math.abs(days)}d ago`;
 		if (days === 0) return 'expires today';
@@ -107,6 +110,7 @@ const zh: DashboardMessages = {
 	fieldResetsIn: '重置倒计时',
 	fieldWeeklyReset: '周限额重置',
 	fieldExpiry: '套餐到期',
+	fieldUnlisted: '—',
 	fieldExpiryDays: (days) => {
 		if (days < 0) return `已过期 ${Math.abs(days)} 天`;
 		if (days === 0) return '今天到期';

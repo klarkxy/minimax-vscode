@@ -147,6 +147,23 @@ MiniMax 的 Anthropic 兼容端点只接受一个二值开关
 
 面板里有 **清空计数器** 按钮，会弹确认框后清空本地 Memento；平台侧数据无法在扩展里清零。
 
+### 状态栏额度项
+
+日常 token 计数器的右边还有两个状态栏项，不用打开 Dashboard 就能一眼看到额度：
+
+- `$(bolt) 5h 73%` — 5 小时窗口的**剩余**百分比
+- `$(calendar) Week 11%` — 周限额的**剩余**百分比
+
+颜色直接走 `statusBarItem.remoteBackground` / `warningBackground` /
+`errorBackground` 这三个主题 token（剩余多则绿、少则红），亮色 / 暗色主题
+都跟得上。hover 显示 `X / Y · 重置 Hh Mm` 的简短摘要，跟 Dashboard 里
+的卡片一致；点击直接打开 Dashboard。未配置 API Key 时两项都是灰色
+破折号，hover 提示运行 **MiniMax: Set API Key**。
+
+这两项和 Dashboard **共享**同一个 in-process plan cache（`fetchPlanUsage`
+本身的 8 秒 TTL 仍然生效），所以打开 Dashboard 或让状态栏自动刷新都不会
+产生额外的 HTTP 请求。
+
 ## 端点自动选择
 
 激活时如果 `minimax.apiBaseUrl` 仍是出厂默认，扩展会按 VS Code 显示语言自动选择端点：

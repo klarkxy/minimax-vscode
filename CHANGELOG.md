@@ -1,5 +1,123 @@
 # Changelog
 
+## 2.1.1 — Dual-currency pricing + donut token chart
+
+A small, mostly-visible release. The model-pricing table now picks
+USD or CNY automatically based on the user's `minimax.apiBaseUrl`
+and `vscode.env.language`, and the usage dashboard's local card
+redraws the token breakdown as a donut chart with percentages.
+
+### New features
+
+- **Dual-currency pricing (USD / CNY).** The single-CNY price table
+  has been split into `PRICING_CNY` and `PRICING_USD`, and a new
+  `pickPricingTable()` helper picks the right one at runtime:
+  - `apiBaseUrl` contains `minimaxi.com` → CNY (¥), regardless of
+    locale.
+  - Otherwise, Chinese locales (`zh`, `zh-*`, `zh_*`) → CNY (¥).
+  - Everything else → USD ($).
+  - `MODELS` is now `MODEL_TEMPLATES`; new `getModels(baseUrl)`
+    expands the pricing field from the chosen table. All UI
+    surfaces that render prices (model-picker tooltip,
+    **MiniMax: Show Pricing** command, commit-model picker, and
+    replay markers) now go through `getModels()` so the symbol
+    matches the user's billing currency.
+  - `README.md` now uses USD as the primary table and `README.zh.md`
+    uses CNY; both files have a callout pointing at the other price
+    site and noting that the picker / **Show Pricing** command render
+    the table that matches the active `minimax.apiBaseUrl`.
+  - New helpers `isChineseLocale()` and `isChinaBaseUrl()` are
+    exported from `src/models/registry.ts` for any future code that
+    needs the same routing logic.
+  - `ModelPricing.currency` is now the union `'CNY' | 'USD'`
+    (previously hard-coded to `'CNY'`).
+- **Status-bar quota items (`5h 73%` / `Week 11%`).** Two new
+  `StatusBarItem`s sit to the right of the existing
+  `$(graph) MiniMax 1.2k` daily counter and show the platform's
+  5-hour and weekly quotas at a glance:
+  - `$(bolt) 5h 73%` — **remaining** percent of the 5h reset window.
+  - `$(calendar) Week 11%` — **remaining** percent of the weekly
+    limit (or `∞` when the plan reports an unlimited weekly budget).
+  - Coloured via the built-in
+    `statusBarItem.remoteBackground` / `warningBackground` /
+    `errorBackground` theme tokens (green when plenty left, red when
+    low) so the bar stays legible in both light and dark themes.
+  - Hovering shows a `X / Y · resets in Hh Mm` summary that mirrors
+    the dashboard's quota card (the `X / Y` pair is omitted when the
+    platform did not report a total, same as the dashboard's fix
+    below). Clicking either item opens the dashboard.
+  - Without an API key both items render a muted em-dash placeholder
+    and the tooltip nudges the user to run **MiniMax: Set API Key**.
+- **Shared `PlanCache` between Dashboard and status bar.** A new
+  `createPlanCache()` in `src/dashboard/aggregator.ts` keeps the
+  last successful `coding_plan/remains` response in a single
+  in-process store and broadcasts updates to any subscribers
+  (dashboard panel, status-bar items, future surfaces). Concurrent
+  `refresh()` calls deduplicate to one HTTP request, and the
+  underlying `fetchPlanUsage` 8s TTL still throttles the actual
+  transport. The extension invalidates the cache whenever
+  `AuthManager.onDidChangeApiKey` fires, so switching API keys
+  immediately re-renders the right quota.
+- **Event-driven plan refresh — no background timer.** The plan
+  cache pulses on five events, all already in the extension's
+  critical path:
+  1. Extension activation / first command registration (so the
+     status bar shows a real value within a few seconds of VS Code
+     opening, not only after the user opens the dashboard).
+  2. `AuthManager.onDidChangeApiKey` (set / clear / rotate key).
+  3. `vscode.workspace.onDidChangeConfiguration` for
+     `minimax.apiBaseUrl` (covers **MiniMax: Switch to Global /
+     Chinese API**, which updates config but not auth state).
+  4. `ChatTurnNotifier.onTurnEnd` (a new event emitter fired once
+     per Copilot user-facing turn by
+     `MiniMaxChatProvider.provideLanguageModelChatResponse`, **not**
+     once per internal API request). The notifier throttles to one
+     broadcast per 30 s window so a user banging out 10 turns in a
+     row still triggers at most one platform fetch.
+  5. Dashboard open / Refresh / view-state-visible (the existing
+     path, now also routed through the shared cache so the status
+     bar sees the same response).
+  No `setInterval` is installed; the extension does no background
+  network work when idle. The dashboard's own
+  `DashboardPanel.refresh()` now calls `planCache.refresh()`
+  instead of `fetchPlanUsage` directly, so the two consumers
+  always render the exact same snapshot.
+
+### Fixes
+
+- **Usage dashboard local card now renders as a donut chart.**
+  The flat key-value list (input / cache read / cache write / output)
+  has been replaced with a `conic-gradient` donut and a colour-coded
+  legend that shows each token type, its count, and its share of
+  the total. The donut is built from the same four `var(--accent)` /
+  `var(--good)` / `var(--warn)` / `var(--bad)` CSS tokens the rest
+  of the dashboard already uses, so the colours stay in sync with
+  the theme. The `requests` count is preserved in a footer row
+  below the chart, and on viewports ≤480 px the donut and legend
+  stack vertically for readability.
+- **Token Plan panel no longer shows meaningless "0 / 0" pairs.**
+  Some platform quota models (notably `general`) return a
+  `current_interval_remaining_percent` *without* a matching
+  `current_interval_total_count`, so the dashboard used to render
+  `0 / 0` for the used/total numbers even when the progress bar
+  clearly showed a real percentage. Following the
+  [minimax-status](https://github.com/JochenYang/minimax-status)
+  reference, the renderer now:
+  - Drops the `X / Y` suffix from the progress bar entirely when
+    `total === 0`, leaving just the bar + percentage.
+  - Hides the `Used: X / Y` row in the 5h / weekly cards when no
+    total was reported, so the card collapses to the reset-time
+    row (mirroring the "title · reset-time" layout used by
+    minimax-status).
+  - Renders an em-dash (`—`) in the per-model table's
+    used/total cells when the model has no reported total, so
+    the table stays tabular-aligned.
+  The platform gives us no way to derive a real used count when
+  the total is missing (`current_interval_usage_count` is
+  unreliable on quota models — see the long comment in
+  [minimax-status/.../api.js](https://github.com/JochenYang/minimax-status));
+  hiding the missing numbers is the right call.
+
 ## 2.0.0 — Renamed to MiniMax Copilot + thinking-effort picker removed
 
 This release bundles the marketplace rename with a round of

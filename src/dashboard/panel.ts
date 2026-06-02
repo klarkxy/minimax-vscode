@@ -22,13 +22,15 @@ import {
 	type DashboardLocale,
 	type DashboardMessages,
 } from './messages';
-import { buildDashboardView } from './aggregator';
+import { buildDashboardView, type PlanCache } from './aggregator';
 import type { DashboardView } from './types';
 
 export interface DashboardPanelDeps {
 	extensionUri: vscode.Uri;
 	auth: AuthManager;
 	usageStore: UsageStore;
+	/** Shared plan cache (status bar reads from this too). */
+	planCache: PlanCache;
 	/** Optional platform host override; defaults to the configured base URL. */
 	host?: 'china' | 'global';
 }
@@ -46,8 +48,8 @@ export class DashboardPanel {
 	private readonly disposables: vscode.Disposable[] = [];
 	private readonly storeSubscription: vscode.Disposable;
 	private readonly authChangeSubscription: vscode.Disposable;
+	private readonly planCacheSubscription: vscode.Disposable;
 	private state: DashboardPanelState = { locale: 'en' };
-	private refreshTimer: NodeJS.Timeout | undefined;
 	private inFlight = false;
 	private readonly messageListener = (raw: vscode.WebviewMessage) => this.handleMessage(raw);
 
@@ -61,6 +63,11 @@ export class DashboardPanel {
 			void this.refresh();
 		});
 		this.authChangeSubscription = deps.auth.onDidChangeApiKey(() => {
+			void this.refresh();
+		});
+		// The shared plan cache fires on every successful fetch — keep the
+		// dashboard in sync so we don't have to schedule our own timer.
+		this.planCacheSubscription = deps.planCache.subscribe(() => {
 			void this.refresh();
 		});
 
@@ -101,12 +108,9 @@ export class DashboardPanel {
 	}
 
 	dispose(): void {
-		if (refreshTimerHandle(this)) {
-			clearInterval(this.refreshTimer);
-			this.refreshTimer = undefined;
-		}
 		this.storeSubscription.dispose();
 		this.authChangeSubscription.dispose();
+		this.planCacheSubscription.dispose();
 		for (const disposable of this.disposables) {
 			disposable.dispose();
 		}
@@ -124,6 +128,16 @@ export class DashboardPanel {
 		this.inFlight = true;
 		try {
 			const apiKey = await this.deps.auth.getApiKey();
+			// Route the platform fetch through the shared plan cache so
+			// the dashboard render and the status-bar quota items see
+			// *exactly* the same response. The cache dedups concurrent
+			// calls and the 8s TTL throttles bursts.
+			if (apiKey) {
+				await this.deps.planCache.refresh({
+					apiKey,
+					host: this.deps.host,
+				});
+			}
 			const view = await buildDashboardView({
 				store: this.deps.usageStore,
 				platform: apiKey
@@ -506,10 +520,18 @@ footer {
 	function progressBlock(percentage, used, total) {
 		const pct = Math.max(0, Math.min(100, percentage || 0));
 		const cls = progressClass(pct);
+		// Some quota models (e.g. the platform's "general" model) return a
+		// remaining-percent but no matching current_interval_total_count,
+		// so we cannot derive a meaningful "used" count from total=0. In
+		// that case we render the bar + percentage only and omit the
+		// "X / Y" suffix — mirrors minimax-status's behavior when its
+		// totalCount is zero.
+		const pairHtml = total > 0
+			? '<span class="dim">' + fmtFull(used) + ' / ' + fmtFull(total) + '</span>'
+			: '';
 		return (
 			'<div class="progress ' + cls + '"><div class="fill" style="width: ' + pct + '%"></div></div>' +
-			'<div class="kv" style="margin-top: 6px;"><span class="dim">' + pct + '%</span>' +
-			'<span class="dim">' + fmtFull(used) + ' / ' + fmtFull(total) + '</span></div>'
+			'<div class="kv" style="margin-top: 6px;"><span class="dim">' + pct + '%</span>' + pairHtml + '</div>'
 		);
 	}
 	function localCard(title, usage) {
@@ -564,19 +586,30 @@ footer {
 	}
 	function platformSection(plan) {
 		if (!plan) return '';
-		const current = card(plan.modelName, [
-			[i18n.fieldUsed, fmtFull(plan.currentUsed) + ' / ' + fmtFull(plan.currentTotal)],
-			[i18n.fieldResetsIn, plan.currentResetText],
-		]);
+		// 5h card: omit the "Used" row entirely when the platform didn't
+		// report a total — we'd otherwise just be showing "0 / 0". The
+		// "Resets in" row still renders. Matches minimax-status's
+		// "title · reset-time" layout when total === 0.
+		const currentRows = plan.currentTotal > 0
+			? [
+				[i18n.fieldUsed, fmtFull(plan.currentUsed) + ' / ' + fmtFull(plan.currentTotal)],
+				[i18n.fieldResetsIn, plan.currentResetText],
+			]
+			: [[i18n.fieldResetsIn, plan.currentResetText]];
+		const current = card(plan.modelName, currentRows);
 		const currentProgress = (
 			'<div style="margin-top: 10px;">' + progressBlock(plan.currentPercentage, plan.currentUsed, plan.currentTotal) + '</div>'
 		);
+		// Weekly card: same hide-when-no-total rule.
+		const weeklyRows = plan.weeklyTotal > 0
+			? [
+				[i18n.fieldUsed, fmtFull(plan.weeklyUsed) + ' / ' + fmtFull(plan.weeklyTotal)],
+				[i18n.fieldWeeklyReset, plan.weeklyResetText],
+			]
+			: [[i18n.fieldWeeklyReset, plan.weeklyResetText]];
 		const weekly = plan.weeklyUnlimited
 			? card(i18n.fieldRemaining, [[i18n.fieldWeeklyReset, '∞']])
-			: card(i18n.fieldRemaining, [
-					[i18n.fieldUsed, fmtFull(plan.weeklyUsed) + ' / ' + fmtFull(plan.weeklyTotal)],
-					[i18n.fieldWeeklyReset, plan.weeklyResetText],
-				]);
+			: card(i18n.fieldRemaining, weeklyRows);
 		const weeklyProgress = plan.weeklyUnlimited
 			? ''
 			: '<div style="margin-top: 10px;">' + progressBlock(plan.weeklyPercentage, plan.weeklyUsed, plan.weeklyTotal) + '</div>';
@@ -588,7 +621,13 @@ footer {
 		const modelsTable = (plan.allModels && plan.allModels.length)
 			? '<table style="margin-top: 14px;"><thead><tr><th>' + escapeHtml(i18n.platformModelHeader) + '</th><th class="right">' + escapeHtml(i18n.fieldUsed) + '</th><th class="right">' + escapeHtml(i18n.fieldTotal) + '</th><th class="right">%</th></tr></thead><tbody>' +
 				plan.allModels.map(function (m) {
-					return '<tr><td>' + escapeHtml(m.name) + '</td><td class="right">' + fmtFull(m.used) + '</td><td class="right">' + fmtFull(m.total) + '</td><td class="right">' + m.percentage + '%</td></tr>';
+					// Per-model row: render an em-dash in the used/total
+					// cells when no total was reported (e.g. "general"),
+					// so the row stays tabular-aligned with the rest of
+					// the table instead of showing a meaningless "0".
+					const usedCell = m.total > 0 ? fmtFull(m.used) : i18n.fieldUnlisted;
+					const totalCell = m.total > 0 ? fmtFull(m.total) : i18n.fieldUnlisted;
+					return '<tr><td>' + escapeHtml(m.name) + '</td><td class="right">' + usedCell + '</td><td class="right">' + totalCell + '</td><td class="right">' + m.percentage + '%</td></tr>';
 				}).join('') + '</tbody></table>'
 			: '';
 		return (
@@ -717,15 +756,6 @@ declare module 'vscode' {
 }
 
 // --- helpers ---
-
-function refreshTimerHandle(panel: DashboardPanel): boolean {
-	// Timer is intentionally opt-in (currently unused; reserved for
-	// future auto-refresh). We still expose the field so dispose()
-	// stays correct if a future caller starts the timer.
-	const value = (panel as unknown as { refreshTimer?: NodeJS.Timeout })
-		.refreshTimer;
-	return value !== undefined;
-}
 
 function escapeHtml(value: string): string {
 	return value

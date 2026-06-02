@@ -4,7 +4,7 @@ import { logger } from '../logger';
 import { MiniMaxChatProvider } from '../provider';
 import { setCommitModelStore } from '../git/commitMessage';
 import { registerActionUrls } from './actions';
-import { registerCommands, setCommandContext } from './commands';
+import { registerCommands, setCommandContext, bindChatTurnNotifier } from './commands';
 import { autoSelectEndpointIfUnset } from './endpoint';
 import { initializeDiagnostics } from './diagnostics';
 import { registerProvider } from './provider';
@@ -27,6 +27,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	try {
 		const provider = await registerProvider(context);
 		activeProvider = provider;
+
+		// Hook the provider's chat-turn boundary notifier into the
+		// plan cache so the status-bar quota items pulse at most once
+		// per Copilot user turn (not per internal API request).
+		bindChatTurnNotifier(provider.chatTurnNotifier);
 
 		void showWelcomeIfNeeded(context, provider).catch((error) => {
 			logger.warn(t('extension.welcomeFailed'), error);

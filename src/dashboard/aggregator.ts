@@ -14,6 +14,87 @@ export interface AggregatorOptions {
 	now?: () => Date;
 }
 
+// ---- Shared plan cache (Dashboard + status bar) --------------------------
+//
+// Both the dashboard webview and the status-bar quota items need the
+// same coding_plan/remains response. Rather than each one running its
+// own fetch on its own schedule, the extension keeps a single in-process
+// PlanCache that stores the last successful PlanUsage and broadcasts
+// it to any subscribers (status-bar items, the dashboard panel, future
+// surfaces). The underlying transport is still throttled by the 8s TTL
+// inside fetchPlanUsage so concurrent calls deduplicate cleanly.
+
+export interface PlanSnapshot {
+	usage: PlanUsage;
+	fetchedAt: number;
+}
+
+export interface PlanCache {
+	/** Most recent successful snapshot, or undefined before the first fetch. */
+	read(): PlanSnapshot | undefined;
+	/**
+	 * Fetch a fresh snapshot. The same in-flight promise is returned to
+	 * concurrent callers so the underlying HTTP request is only ever
+	 * made once. Failures are NOT cached; subsequent calls will retry.
+	 */
+	refresh(platform: PlanApiOptions): Promise<PlanApiResult>;
+	/** Subscribe to cache-changed events. Returns a Disposable. */
+	subscribe(listener: () => void): { dispose(): void };
+	/** Invalidate (e.g. when the user changes the API key). */
+	invalidate(): void;
+}
+
+/** Create a fresh PlanCache — one per extension host. */
+export function createPlanCache(): PlanCache {
+	let snapshot: PlanSnapshot | undefined;
+	let inFlight: Promise<PlanApiResult> | undefined;
+	const listeners = new Set<() => void>();
+
+	function notify(): void {
+		for (const fn of listeners) {
+			try {
+				fn();
+			} catch {
+				// Listener errors must not poison the broadcaster.
+			}
+		}
+	}
+
+	return {
+		read() {
+			return snapshot;
+		},
+		async refresh(platform) {
+			if (inFlight) {
+				return inFlight;
+			}
+			const promise = fetchPlanUsage(platform).then((result) => {
+				inFlight = undefined;
+				if (result.ok) {
+					snapshot = { usage: result.usage, fetchedAt: Date.now() };
+					notify();
+				}
+				return result;
+			});
+			inFlight = promise;
+			return promise;
+		},
+		subscribe(listener) {
+			listeners.add(listener);
+			return {
+				dispose() {
+					listeners.delete(listener);
+				},
+			};
+		},
+		invalidate() {
+			snapshot = undefined;
+			inFlight = undefined;
+			notify();
+		},
+	};
+}
+
 /**
  * Build a fresh `DashboardView`. The local data fetch is synchronous
  * (in-memory + memento); the platform call is awaited and may fail.

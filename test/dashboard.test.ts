@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { fetchPlanUsage } from '../src/dashboard/api.js';
-import { buildDashboardView, totalTokens } from '../src/dashboard/aggregator.js';
+import { buildDashboardView, totalTokens, createPlanCache } from '../src/dashboard/aggregator.js';
+import { createChatTurnNotifier } from '../src/dashboard/chatTurnNotifier.js';
 import { createUsageStore } from '../src/usage.js';
 import { dashboardMessages, pickDashboardLocale } from '../src/dashboard/messages.js';
 
@@ -146,6 +147,43 @@ test('fetchPlanUsage: malformed json surfaces as error', async () => {
 	}
 });
 
+test('fetchPlanUsage: total=0 with only remaining-percent (general quota model)', async () => {
+	// Real-world case: the platform's "general" quota returns a
+	// `current_interval_remaining_percent` but no `current_interval_total_count`
+	// and no weekly fields. The dashboard renderer treats `total === 0` as
+	// "no number to show" (mirrors `minimax-status`).
+	const payload = {
+		model_remains: [
+			{
+				model_name: 'general',
+				current_interval_total_count: 0,
+				current_interval_remaining_percent: 75, // 25% used
+				current_interval_status: 1,
+				remains_time: 1000 * 60 * 60 * 3, // 3h
+				// weekly fields intentionally omitted
+			},
+		],
+	};
+	const result = await fetchPlanUsage({
+		apiKey: 'k',
+		fetchImpl: () => Promise.resolve(jsonResponse(payload)),
+	});
+	assert.equal(result.ok, true);
+	if (result.ok) {
+		assert.equal(result.usage.modelName, 'general');
+		assert.equal(result.usage.currentTotal, 0);
+		// No total → cannot derive a meaningful "used" count, so 0.
+		assert.equal(result.usage.currentUsed, 0);
+		// 100 - 75 = 25%
+		assert.equal(result.usage.currentPercentage, 25);
+		assert.equal(result.usage.currentResetText, '3h 0m');
+		// No weekly fields → weeklyUnlimited, no reset text rendered.
+		assert.equal(result.usage.weeklyUnlimited, true);
+		assert.equal(result.usage.weeklyTotal, 0);
+		assert.equal(result.usage.weeklyUsed, 0);
+	}
+});
+
 test('fetchPlanUsage: payload without model_remains returns unsupported', async () => {
 	const result = await fetchPlanUsage({
 		apiKey: 'k',
@@ -271,4 +309,91 @@ test('totalTokens: sums all four token buckets', () => {
 		10,
 	);
 	assert.equal(totalTokens({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requests: 0 }), 0);
+});
+
+// --- createPlanCache --------------------------------------------------
+
+test('createPlanCache: refresh deduplicates concurrent calls', async () => {
+	const cache = createPlanCache();
+	let calls = 0;
+	const fetchImpl = () => {
+		calls += 1;
+		return Promise.resolve(jsonResponse(validPayload));
+	};
+	const platform = { apiKey: 'k', fetchImpl };
+	const results = await Promise.all([
+		cache.refresh(platform),
+		cache.refresh(platform),
+		cache.refresh(platform),
+	]);
+	assert.equal(results.length, 3);
+	for (const r of results) assert.equal(r.ok, true);
+	assert.equal(calls, 1, 'all three concurrent refreshes share one HTTP call');
+	assert.ok(cache.read(), 'snapshot is stored after the first successful fetch');
+});
+
+test('createPlanCache: subscribers are notified on successful fetch', async () => {
+	const cache = createPlanCache();
+	let notifications = 0;
+	const sub = cache.subscribe(() => { notifications += 1; });
+	const platform = { apiKey: 'k', fetchImpl: () => Promise.resolve(jsonResponse(validPayload)) };
+	await cache.refresh(platform);
+	assert.equal(notifications, 1);
+	assert.equal(cache.read()?.usage.modelName, 'MiniMax-M3');
+	sub.dispose();
+	await cache.refresh(platform);
+	assert.equal(notifications, 1, 'subscriber is gone, no further notifications');
+});
+
+test('createPlanCache: invalidate clears snapshot and notifies', async () => {
+	const cache = createPlanCache();
+	let notifications = 0;
+	const sub = cache.subscribe(() => { notifications += 1; });
+	const platform = { apiKey: 'k', fetchImpl: () => Promise.resolve(jsonResponse(validPayload)) };
+	await cache.refresh(platform);
+	assert.equal(cache.read()?.usage.modelName, 'MiniMax-M3');
+	cache.invalidate();
+	assert.equal(cache.read(), undefined);
+	assert.equal(notifications, 2, 'one for the successful fetch, one for the invalidate');
+	sub.dispose();
+});
+
+// --- createChatTurnNotifier ------------------------------------------------
+
+test('createChatTurnNotifier: end broadcasts once per notify', () => {
+	const notifier = createChatTurnNotifier({ minIntervalMs: 0 });
+	let calls = 0;
+	const sub = notifier.onTurnEnd(() => { calls += 1; });
+	notifier.notifyTurnEnd();
+	notifier.notifyTurnEnd();
+	notifier.notifyTurnEnd();
+	assert.equal(calls, 3, 'minIntervalMs=0 disables throttling');
+	sub.dispose();
+	notifier.notifyTurnEnd();
+	assert.equal(calls, 3, 'subscriber is gone');
+});
+
+test('createChatTurnNotifier: throttles end broadcasts to one per minIntervalMs', () => {
+	const notifier = createChatTurnNotifier({ minIntervalMs: 30_000 });
+	let calls = 0;
+	notifier.onTurnEnd(() => { calls += 1; });
+	// 10 back-to-back turns: only the first should fire.
+	for (let i = 0; i < 10; i += 1) {
+		notifier.notifyTurnEnd();
+	}
+	assert.equal(calls, 1, 'throttle collapses bursty turns to one broadcast');
+});
+
+test('createChatTurnNotifier: start and end are independent', () => {
+	const notifier = createChatTurnNotifier({ minIntervalMs: 0 });
+	let startCalls = 0;
+	let endCalls = 0;
+	notifier.onTurnStart(() => { startCalls += 1; });
+	notifier.onTurnEnd(() => { endCalls += 1; });
+	notifier.notifyTurnStart();
+	notifier.notifyTurnEnd();
+	notifier.notifyTurnStart();
+	notifier.notifyTurnEnd();
+	assert.equal(startCalls, 2);
+	assert.equal(endCalls, 2);
 });

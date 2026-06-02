@@ -4,6 +4,7 @@ import { getStabilizeToolListEnabled } from '../config';
 import { t } from '../i18n';
 import { getVisibleModels } from '../models/registry';
 import { createUsageStore, type UsageStore } from '../usage';
+import { createChatTurnNotifier, type ChatTurnNotifier } from '../dashboard/chatTurnNotifier';
 import {
 	classifyProviderRequest,
 	createCacheDiagnosticsRecorder,
@@ -32,6 +33,19 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 		this.onDidChangeLanguageModelChatInformationEmitter.event;
 
 	private readonly cacheDiagnostics = createCacheDiagnosticsRecorder();
+
+	/**
+	 * Fires once per Copilot user-facing turn (not per internal API
+	 * request). A single turn can fan out to many Anthropic requests
+	 * (tool calls, thinking sub-steps, cache retries); the dashboard
+	 * plan cache listens to this so it pulses at most once per turn.
+	 */
+	private readonly _chatTurnNotifier: ChatTurnNotifier = createChatTurnNotifier();
+
+	/** Public accessor for cross-module subscribers (e.g. dashboard). */
+	get chatTurnNotifier(): ChatTurnNotifier {
+		return this._chatTurnNotifier;
+	}
 
 	/** Vision proxy: resolver + cached model. */
 	private readonly vision = createVisionModelGetter();
@@ -178,24 +192,32 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 			getVisionModel: () => this.vision.get(),
 		});
 
-		return streamChatCompletion({
-			prepared,
-			progress,
-			token,
-			initialResponseNotice: toolFlow.initialResponseNotice,
-			getCharsPerToken: () => this.charsPerToken,
-			setCharsPerToken: (charsPerToken) => {
-				this.charsPerToken = charsPerToken;
-			},
-			onUsage: (usage) => {
-				void this.usageStore.record(modelInfo.id, {
-					inputTokens: usage.input_tokens,
-					outputTokens: usage.output_tokens,
-					cacheReadTokens: usage.cache_read_input_tokens,
-					cacheWriteTokens: usage.cache_creation_input_tokens,
-				});
-			},
-		});
+		this._chatTurnNotifier.notifyTurnStart();
+		try {
+			return await streamChatCompletion({
+				prepared,
+				progress,
+				token,
+				initialResponseNotice: toolFlow.initialResponseNotice,
+				getCharsPerToken: () => this.charsPerToken,
+				setCharsPerToken: (charsPerToken) => {
+					this.charsPerToken = charsPerToken;
+				},
+				onUsage: (usage) => {
+					void this.usageStore.record(modelInfo.id, {
+						inputTokens: usage.input_tokens,
+						outputTokens: usage.output_tokens,
+						cacheReadTokens: usage.cache_read_input_tokens,
+						cacheWriteTokens: usage.cache_creation_input_tokens,
+					});
+				},
+			});
+		} finally {
+			// Fire on both resolve and throw — the platform quota is
+			// affected by every attempt that consumed a request, even
+			// ones that errored mid-stream.
+			this._chatTurnNotifier.notifyTurnEnd();
+		}
 	}
 
 	provideTokenCount(

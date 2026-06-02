@@ -215,6 +215,29 @@ The dashboard has a **Reset counters** button that clears the local
 Memento after a confirmation prompt; the platform data cannot be
 reset from the extension.
 
+### Status-bar quota items
+
+Two extra status-bar items live to the right of the daily-token
+counter so you can see your plan usage at a glance without opening
+the dashboard:
+
+- `$(bolt) 5h 73%` — 5-hour reset window, **remaining** percent
+- `$(calendar) Week 11%` — weekly limit, **remaining** percent
+
+The colour follows the `statusBarItem.remoteBackground` /
+`warningBackground` / `errorBackground` theme tokens (green when
+plenty left, red when low), so the bar stays legible in both light
+and dark themes. Hovering shows a `X / Y · resets in Hh Mm` summary
+that mirrors the dashboard's quota card; clicking the item opens the
+dashboard. Without an API key both items render a muted em-dash
+placeholder and the tooltip nudges you to run
+**MiniMax: Set API Key**.
+
+Both items are driven by the **same** in-process plan cache as the
+dashboard (`fetchPlanUsage`'s 8s TTL still applies), so opening the
+dashboard or letting the status bar refresh does not add a second
+HTTP call.
+
 ## Endpoint auto-selection
 
 On first activation, if `minimax.apiBaseUrl` is still at its factory

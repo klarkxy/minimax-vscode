@@ -2,6 +2,102 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.1.1 — 双币种价格表 + token 环形图
+
+一个偏小、偏可见的版本。模型价格表现在会按 `minimax.apiBaseUrl` 与
+`vscode.env.language` 自动在 USD / CNY 之间切换，用量面板的「local」卡片
+也把 token 明细重画成了带百分比的环形图。
+
+### 新增功能
+
+- **USD / CNY 双币种价格支持。** 原来单一的 CNY 价表拆成
+  `PRICING_CNY` 和 `PRICING_USD`，新增的 `pickPricingTable()` helper 在
+  运行时按下面的规则选表：
+  - `apiBaseUrl` 里包含 `minimaxi.com` → 强制 CNY (¥)，无视语言环境。
+  - 否则，中文 locale（`zh`、`zh-*`、`zh_*`）→ CNY (¥)。
+  - 其它全部 → USD ($)。
+  - `MODELS` 改名 `MODEL_TEMPLATES`，新增 `getModels(baseUrl)` 在运行时
+    把 `pricing` 字段从选中的表里展开。所有展示价格的 UI 入口
+    （模型选择器 tooltip、**MiniMax: Show Pricing** 命令、commit model
+    选择器、replay marker）都改成走 `getModels()`，保证币种符号与用户的
+    实际结算币种一致。
+  - `README.md` 现在以 USD 为主表，`README.zh.md` 以 CNY 为主表，两份
+    README 都新增了一段提示，说明国内/国际价格站点之间的差异，并指出
+    模型选择器与 **Show Pricing** 命令会按当前 `minimax.apiBaseUrl`
+    自动渲染对应的那张表。
+  - `isChineseLocale()` 与 `isChinaBaseUrl()` 两个 helper 从
+    `src/models/registry.ts` 导出，方便以后其它代码复用同一套路由逻辑。
+  - `ModelPricing.currency` 字段类型从硬编码的 `'CNY'` 放宽为
+    `'CNY' | 'USD'`。
+- **状态栏额度项（`5h 73%` / `Week 11%`）。** 在现有
+  `$(graph) MiniMax 1.2k` 计数器的右边新增两个 `StatusBarItem`，
+  一眼看到平台的 5h / 周额度：
+  - `$(bolt) 5h 73%` — 5h 窗口的**剩余**百分比。
+  - `$(calendar) Week 11%` — 周限额的**剩余**百分比（平台报“无限”
+    时显示 `∞`）。
+  - 颜色走内置的 `statusBarItem.remoteBackground` /
+    `warningBackground` / `errorBackground` 三个主题 token
+    （剩得多则绿、少则红），亮色 / 暗色主题都跟得上。
+  - hover 显示 `X / Y · 重置 Hh Mm` 简报，跟 Dashboard 的卡片一致
+    （平台未报 total 时不显示 `X / Y`，跟下面那条修复同源）。
+    点击直接打开 Dashboard。
+  - 未配 API Key 时两项都是灰色破折号，hover 提示运行
+    **MiniMax: Set API Key**。
+- **Dashboard 与状态栏共享 `PlanCache`。** `src/dashboard/aggregator.ts`
+  里新增 `createPlanCache()`，把 `coding_plan/remains` 的最近一次成功
+  响应缓存在一个 in-process 仓库里，广播给所有订阅者（Dashboard 面板、
+  状态栏额度项、以及将来可能的新表面）。并发 `refresh()` 会合并到
+  同一个 HTTP 请求上，底层 `fetchPlanUsage` 的 8 秒 TTL 仍负责节流。
+  扩展在 `AuthManager.onDidChangeApiKey` 触发时主动 `invalidate()`，
+  切换 API Key 后额度会立刻按新 Key 重新拉取。
+- **事件驱动的 plan 刷新——不装后台定时器。** 计划缓存在以下五个
+  原有事件上主动 pulse（这些都是扩展关键路径上已有的信号，不是额外
+  装的轮询）：
+  1. 扩展激活 / 首次注册命令（VS Code 打开几秒后状态栏就有真实数字，
+     不用等用户开 Dashboard）。
+  2. `AuthManager.onDidChangeApiKey`（设 Key / 清 Key / 换 Key）。
+  3. `vscode.workspace.onDidChangeConfiguration` 监听
+     `minimax.apiBaseUrl`（**MiniMax: Switch to Global / Chinese API**
+     走的是改配置不改 auth 状态，必须额外接上）。
+  4. `ChatTurnNotifier.onTurnEnd`——新增的事件源，由
+     `MiniMaxChatProvider.provideLanguageModelChatResponse` 在
+     `streamChatCompletion` resolve / throw 之后（**finally** 里）发
+     射，**每轮 Copilot 对话一次**（不是每条内部 API 请求）。notifier
+     自身带 30 秒最小间隔，所以用户连续发 10 轮对话也最多只触发
+     一次平台拉取。
+  5. Dashboard 打开 / Refresh / 切到可见（原有路径，**也**改成走共享
+     cache，所以 Dashboard 与状态栏一定渲染同一份快照）。
+  完全不装 `setInterval`，空闲时零后台网络流量。
+  `DashboardPanel.refresh()` 也从直接调 `fetchPlanUsage` 改成走
+  `planCache.refresh()`，两个消费者看到的快照永远一致。
+
+### 修复
+
+- **用量面板的 local 卡片重画为环形图。** 原来一排 key-value 列表
+  （input / cache read / cache write / output）现在改为 `conic-gradient`
+  渲染的环形图 + 带配色的 legend，同时显示每种 token 的数量与占比。
+  配色复用了面板里已经在用的 `var(--accent)` / `var(--good)` /
+  `var(--warn)` / `var(--bad)` 四个 token，所以颜色会跟随主题自动适配。
+  `requests` 计数保留在环形图下方的独立一行；视口 ≤480 px 时环形图与
+  legend 自动改为纵向堆叠，保证小屏可读。
+- **Token Plan 面板不再显示无意义的 "0 / 0"。** 部分平台配额模型
+  （最典型的是 `general`）会返回 `current_interval_remaining_percent`
+  却**不**返回 `current_interval_total_count`，导致进度条明明有真实
+  百分比，下面的 `已用 / 合计` 却永远显示 `0 / 0`。参考
+  [minimax-status](https://github.com/JochenYang/minimax-status) 的做法，
+  渲染器现在按下面的规则处理：
+  - 进度条：当 `total === 0` 时，**完全不渲染** "X / Y" 这一段，只剩
+    进度条 + 百分比。
+  - 5h / 周限额卡片：当没有 total 时，**整行 `Used` 直接隐藏**，卡片
+    退化为只剩"重置倒计时"那一行，跟 minimax-status 的
+    "title · reset-time" 布局一致。
+  - 按模型拆分的明细表：当某个模型没有 total 时，把 used / 合计
+    两列渲染成破折号 `—`，让表格的对齐保持稳定。
+  平台在 total 缺失时确实没办法算出真实的"已用"次数——
+  `current_interval_usage_count` 字段在配额模型上不可信（详见
+  [minimax-status/.../api.js](https://github.com/JochenYang/minimax-status)
+  的注释），所以与其硬塞一个 `0 / 0`，不如直接隐掉。
+
 ## 2.0.0 — 改名为 MiniMax Copilot + 移除思考强度选择器
 
 这一版把市场化的改名和一轮行为修复打包发布。其中一部分对用户可见（UI 元素没了、Copilot 状态栏的上下文统计数字变正确了）；大部分是底层加固。

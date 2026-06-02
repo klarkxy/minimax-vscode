@@ -8,11 +8,24 @@ import { chooseCommitModel, generateCommitMessage } from '../git/commitMessage';
 import { createUsageStore, type UsageStore } from '../usage';
 import { DashboardPanel } from '../dashboard/panel';
 import { createUsageStatusBar, type UsageStatusBar } from '../dashboard/statusBar';
+import { createPlanStatusBar, type PlanStatusBar } from '../dashboard/planStatusBar';
+import { createPlanCache, type PlanCache } from '../dashboard/aggregator';
+import type { ChatTurnNotifier } from '../dashboard/chatTurnNotifier';
 
 let cachedContext: vscode.ExtensionContext | undefined;
 let cachedAuth: AuthManager | undefined;
 let cachedUsage: UsageStore | undefined;
 let cachedStatusBar: UsageStatusBar | undefined;
+let cachedPlanCache: PlanCache | undefined;
+let cachedPlanStatusBar: PlanStatusBar | undefined;
+let turnNotifierDisposable: vscode.Disposable | undefined;
+
+function getPlanCache(): PlanCache {
+	if (!cachedPlanCache) {
+		cachedPlanCache = createPlanCache();
+	}
+	return cachedPlanCache;
+}
 
 export function setCommandContext(context: vscode.ExtensionContext): void {
 	cachedContext = context;
@@ -25,6 +38,61 @@ export function setCommandContext(context: vscode.ExtensionContext): void {
 			command: 'minimax.openDashboard',
 		});
 		context.subscriptions.push(cachedStatusBar);
+	}
+	if (!cachedPlanStatusBar) {
+		cachedPlanStatusBar = createPlanStatusBar({ cache: getPlanCache() });
+		context.subscriptions.push(cachedPlanStatusBar);
+		// Kick the initial key-state read so the placeholder shows the
+		// right thing before the user has interacted with the extension.
+		void refreshPlanKeyState();
+		// Whenever the user sets / clears the API key, re-mirror the
+		// state into the status bar and (re)warm the shared plan cache.
+		context.subscriptions.push(cachedAuth.onDidChangeApiKey(() => {
+			void refreshPlanKeyState();
+		}));
+		// The user can also flip apiBaseUrl at runtime via the
+		// switchToGlobal / switchToChina commands; those update the
+		// config but not the auth state, so subscribe to config changes
+		// to detect host switches and re-pulse the cache.
+		context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
+			if (e.affectsConfiguration('minimax.apiBaseUrl')) {
+				void pulsePlanCache();
+			}
+		}));
+	}
+}
+
+/**
+ * Wire the provider's turn-boundary notifier to the plan cache. Called
+ * by lifecycle.ts once `registerProvider()` returns. We intentionally
+ * don't listen to `UsageStore.subscribe` here — a single Copilot turn
+ * fans out to many internal API requests, so per-request events would
+ * pulse the plan cache 10+ times per turn. Turn-end is the canonical
+ * "we just spent tokens" signal; the notifier itself throttles to
+ * one broadcast per `minIntervalMs` window.
+ */
+export function bindChatTurnNotifier(notifier: ChatTurnNotifier): void {
+	turnNotifierDisposable?.dispose();
+	turnNotifierDisposable = notifier.onTurnEnd(() => {
+		void pulsePlanCache();
+	});
+}
+
+/** Fire-and-forget plan refresh — dedup'd by the 8s TTL. */
+function pulsePlanCache(): void {
+	void refreshPlanKeyState();
+}
+
+/** Mirror the current auth state into the plan status bar. */
+async function refreshPlanKeyState(): Promise<void> {
+	if (!cachedAuth || !cachedPlanStatusBar) return;
+	const key = await cachedAuth.getApiKey();
+	cachedPlanStatusBar.setKeyState(key ? 'set' : 'unset');
+	if (key) {
+		// Best-effort warm-up; the dashboard will reuse the same snapshot.
+		void getPlanCache().refresh({ apiKey: key, host: detectHost() });
+	} else {
+		getPlanCache().invalidate();
 	}
 }
 
@@ -71,8 +139,12 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 				extensionUri: cachedContext.extensionUri,
 				auth: cachedAuth,
 				usageStore: cachedUsage,
+				planCache: getPlanCache(),
 				host: detectHost(),
 			});
+			// Fire-and-forget: ensure the cache has a fresh snapshot for
+			// both the dashboard render and the status bar to consume.
+			void refreshPlanKeyState();
 		}),
 	);
 }
