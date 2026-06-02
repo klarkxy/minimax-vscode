@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { AuthManager } from '../auth';
 import { t } from '../i18n';
 import { logger } from '../logger';
-import { MODELS, getVisibleModels } from '../models/registry';
+import { getModels, getVisibleModels } from '../models/registry';
 import { getBaseUrl } from '../config';
 import { chooseCommitModel, generateCommitMessage } from '../git/commitMessage';
 import { createUsageStore, type UsageStore } from '../usage';
@@ -119,13 +119,15 @@ async function showPricing(): Promise<void> {
 	const headerRow = `| ${t('pricing.header.model')} | ${t('pricing.header.input')} | ${t('pricing.header.output')} | ${t('pricing.header.cacheRead')} | ${t('pricing.header.cacheWrite')} |`;
 	const sep = `| --- | ---: | ---: | ---: | ---: |`;
 
-	const rows = MODELS.map((m) => {
-		const { input, output, cacheRead, cacheWrite, note } = m.pricing;
-		const fmt = (n: number | null) => (n === null ? t('pricing.unlisted') : `¥${n.toFixed(2)}`);
+	const models = getModels(baseUrl);
+	const rows = models.map((m) => {
+		const { input, output, cacheRead, cacheWrite, currency } = m.pricing;
+		const symbol = currency === 'USD' ? '$' : '¥';
+		const fmt = (n: number | null) => (n === null ? t('pricing.unlisted') : `${symbol}${n.toFixed(2)}`);
 		return `| ${m.id} | ${fmt(input)} | ${fmt(output)} | ${fmt(cacheRead)} | ${fmt(cacheWrite)} |`;
 	});
 
-	const notes = MODELS.filter((m) => m.pricing.note).map(
+	const notes = models.filter((m) => m.pricing.note).map(
 		(m) => `- **${m.id}**: ${m.pricing.note}`,
 	);
 

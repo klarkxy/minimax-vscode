@@ -64,7 +64,8 @@ export function toChatInfo(
 
 function formatPricingTooltip(m: ModelDefinition): string {
 	const { pricing, contextLength, maxInputTokens, maxOutputTokens } = m;
-	const fmt = (n: number | null) => (n === null ? t('pricing.unlisted') : `¥${n} /M`);
+	const symbol = pricing.currency === 'USD' ? '$' : '¥';
+	const fmt = (n: number | null) => (n === null ? t('pricing.unlisted') : `${symbol}${n} /M`);
 	const lines = [
 		`Context: ${formatNumber(contextLength)} (effective: ${formatNumber(maxInputTokens)})`,
 		`Output cap: ${formatNumber(maxOutputTokens)}`,

@@ -137,16 +137,23 @@ export interface StreamCallbacks {
 // ---- Model definitions ----
 
 /**
- * Cost per million tokens, in the API account's billing currency (¥).
- * `null` means the price was not published in the source we scraped; the UI
- * shows "see official" instead.
+ * Cost per million tokens, in the API account's billing currency.
+ *
+ * - `CNY` for `platform.minimaxi.com` (China) — scraped from
+ *   https://platform.minimaxi.com/docs/guides/pricing-paygo
+ * - `USD` for `platform.minimax.io` (global) — scraped from
+ *   https://platform.minimax.io/docs/guides/pricing-paygo
+ *
+ * The UI picks the table based on the user's `minimax.apiBaseUrl` and
+ * `vscode.env.language`; `null` means the price was not published in
+ * the source we scraped and renders as "see official".
  */
 export interface ModelPricing {
 	input: number | null;
 	output: number | null;
 	cacheRead: number | null;
 	cacheWrite: number | null;
-	currency: 'CNY';
+	currency: 'CNY' | 'USD';
 	note?: string;
 }
 

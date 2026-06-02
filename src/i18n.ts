@@ -196,8 +196,8 @@ const en: Translations = {
 	'error.network.generic': '[{0}] Network request failed. Check network, firewall, and proxy settings.',
 	'error.unknown': 'MiniMax request failed: {0}',
 
-	// Pricing (per million tokens, ¥)
-	'pricing.title': 'MiniMax model pricing (per million tokens, ¥)',
+	// Pricing (per million tokens, currency follows the user's apiBaseUrl)
+	'pricing.title': 'MiniMax model pricing (per million tokens, USD)',
 	'pricing.header.model': 'Model',
 	'pricing.header.input': 'Input',
 	'pricing.header.output': 'Output',
@@ -205,7 +205,7 @@ const en: Translations = {
 	'pricing.header.cacheWrite': 'Cache write',
 	'pricing.unlisted': 'see official',
 	'pricing.note':
-		'Prices scraped from platform.minimaxi.com/docs/guides/pricing-paygo. Token Plan subscription is billed separately.',
+		'Prices scraped from platform.minimax.io/docs/guides/pricing-paygo. Token Plan subscription is billed separately.',
 	'pricing.providers': 'Uses the Anthropic-compatible protocol ({0}) via {1}.',
 
 	// Extension

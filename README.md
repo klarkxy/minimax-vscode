@@ -74,19 +74,28 @@ API key.
 > by MiniMax and are not shipped. Power users can re-add them via
 > `minimax.modelIdOverrides` + `minimax.visibleModels`.
 
-## Pricing (per million tokens, ¥)
+## Pricing (per million tokens, USD)
+
+> The prices below match the international billing site
+> [platform.minimax.io](https://platform.minimax.io/docs/guides/pricing-paygo)
+> (`https://api.minimax.io/anthropic`). The Chinese mirror
+> ([platform.minimaxi.com](https://platform.minimaxi.com/docs/guides/pricing-paygo),
+> `https://api.minimaxi.com/anthropic`) charges in CNY at different
+> rates — see [`README.zh.md`](./README.zh.md) for that table.
+> The picker tooltip and **MiniMax: Show Pricing** both render the
+> table that matches the active `minimax.apiBaseUrl`.
 
 | Model | Input | Output | Cache read | Cache write |
 | --- | ---: | ---: | ---: | ---: |
-| MiniMax M3 (≤512K input) | 4.20 | 16.80 | 0.84 | — |
-| MiniMax M3 (>512K input, limited) | 8.40 | 33.60 | 1.68 | — |
-| MiniMax M2.7 | 2.10 | 8.40 | 0.42 | 2.625 |
-| MiniMax M2.7-highspeed | 4.20 | 16.80 | 0.42 | 2.625 |
+| MiniMax M3 (≤512K input) | $0.60 | $2.40 | $0.12 | — |
+| MiniMax M3 (>512K input, limited) | $1.20 | $4.80 | $0.24 | — |
+| MiniMax M2.7 | $0.30 | $1.20 | $0.06 | $0.375 |
+| MiniMax M2.7-highspeed | $0.60 | $2.40 | $0.06 | $0.375 |
 
-> M3 is currently at 7-day half price: input ¥2.10 / output ¥8.40 /
-> cache read ¥0.42. Source:
-> [platform.minimaxi.com/docs/guides/pricing-paygo](https://platform.minimaxi.com/docs/guides/pricing-paygo).
-> Token Plan subscription is billed separately.
+> The M3 >512K input tier is in limited rollout and the API rejects
+> requests with `max_tokens > 512_000`. The effective input is capped
+> at 512K until the rollout completes. Token Plan subscription is
+> billed separately.
 
 ## Configuration
 

@@ -2,43 +2,103 @@ import * as vscode from 'vscode';
 import { MINIMAX_TOOLS_LIMIT } from '../consts';
 import type { ModelDefinition, ModelPricing } from '../types';
 
-const CURRENCY = 'CNY' as const;
+/**
+ * Per-million-token prices scraped from the official pricing pages.
+ *
+ * - CNY (¥) — https://platform.minimaxi.com/docs/guides/pricing-paygo
+ * - USD ($) — https://platform.minimax.io/docs/guides/pricing-paygo
+ *
+ * `MODELS` references a key into these tables; the actual `pricing`
+ * field attached to a `ModelDefinition` is resolved at runtime via
+ * `localizeModelPricing()` based on the user's `minimax.apiBaseUrl` and
+ * `vscode.env.language`.
+ */
+type PricingKey = 'm3' | 'm3Large' | 'm27' | 'm27Highspeed';
 
-/** Per-million-token prices scraped from platform.minimaxi.com. */
-const PRICING = {
+const PRICING_CNY: Record<PricingKey, ModelPricing> = {
 	/** M3 in the standard ≤512K tier (限 7 天五折 → 原价). */
 	m3: {
 		input: 4.2,
 		output: 16.8,
 		cacheRead: 0.84,
 		cacheWrite: null,
-		currency: CURRENCY,
+		currency: 'CNY',
 		note: '7 天限时五折: 输入 ¥2.10 / 输出 ¥8.40 / 缓存读取 ¥0.42',
-	} satisfies ModelPricing,
+	},
 	/** M3 in the >512K tier (限量供应, 需联系销售). */
 	m3Large: {
 		input: 8.4,
 		output: 33.6,
 		cacheRead: 1.68,
 		cacheWrite: null,
-		currency: CURRENCY,
+		currency: 'CNY',
 		note: '>512K 输入限量供应，需联系销售；预计数日后全量开放',
-	} satisfies ModelPricing,
+	},
 	m27: {
 		input: 2.1,
 		output: 8.4,
 		cacheRead: 0.42,
 		cacheWrite: 2.625,
-		currency: CURRENCY,
-	} satisfies ModelPricing,
+		currency: 'CNY',
+	},
 	m27Highspeed: {
 		input: 4.2,
 		output: 16.8,
 		cacheRead: 0.42,
 		cacheWrite: 2.625,
-		currency: CURRENCY,
-	} satisfies ModelPricing,
+		currency: 'CNY',
+	},
 };
+
+const PRICING_USD: Record<PricingKey, ModelPricing> = {
+	m3: {
+		input: 0.6,
+		output: 2.4,
+		cacheRead: 0.12,
+		cacheWrite: null,
+		currency: 'USD',
+	},
+	m3Large: {
+		input: 1.2,
+		output: 4.8,
+		cacheRead: 0.24,
+		cacheWrite: null,
+		currency: 'USD',
+		note: '>512K input tokens are limited-availability; contact sales. Public rollout expected within days.',
+	},
+	m27: {
+		input: 0.3,
+		output: 1.2,
+		cacheRead: 0.06,
+		cacheWrite: 0.375,
+		currency: 'USD',
+	},
+	m27Highspeed: {
+		input: 0.6,
+		output: 2.4,
+		cacheRead: 0.06,
+		cacheWrite: 0.375,
+		currency: 'USD',
+	},
+};
+
+/** Whether the user's locale is Chinese (so we use CNY / ¥). */
+export function isChineseLocale(language: string = vscode.env.language): boolean {
+	const lower = language.toLowerCase();
+	return lower === 'zh' || lower.startsWith('zh-') || lower.startsWith('zh_');
+}
+
+/** True if `baseUrl` points to the China platform. */
+export function isChinaBaseUrl(baseUrl: string): boolean {
+	return baseUrl.includes('minimaxi.com');
+}
+
+/** Pick the CNY vs USD price table for a given baseUrl + locale. */
+export function pickPricingTable(baseUrl: string): Record<PricingKey, ModelPricing> {
+	if (isChinaBaseUrl(baseUrl)) return PRICING_CNY;
+	if (isChineseLocale()) return PRICING_CNY;
+	return PRICING_USD;
+}
 
 /**
  * Model registry.
@@ -55,7 +115,9 @@ const PRICING = {
  * figure (so VS Code shows the model's true ambition) but cap effective
  * input and output at 512K until the rollout completes.
  */
-export const MODELS: ModelDefinition[] = [
+type ModelTemplate = Omit<ModelDefinition, 'pricing'> & { pricingKey: PricingKey };
+
+const MODEL_TEMPLATES: ModelTemplate[] = [
 	{
 		id: 'MiniMax-M3',
 		name: 'MiniMax M3',
@@ -75,7 +137,7 @@ export const MODELS: ModelDefinition[] = [
 			supportsBudget: false,
 			supportsAdaptive: true,
 		},
-		pricing: PRICING.m3,
+		pricingKey: 'm3',
 	},
 	{
 		id: 'MiniMax-M2.7',
@@ -95,7 +157,7 @@ export const MODELS: ModelDefinition[] = [
 			supportsBudget: false,
 			supportsAdaptive: false,
 		},
-		pricing: PRICING.m27,
+		pricingKey: 'm27',
 	},
 	{
 		id: 'MiniMax-M2.7-highspeed',
@@ -115,24 +177,60 @@ export const MODELS: ModelDefinition[] = [
 			supportsBudget: false,
 			supportsAdaptive: false,
 		},
-		pricing: PRICING.m27Highspeed,
+		pricingKey: 'm27Highspeed',
 	},
 ];
 
+/**
+ * Read the configured `minimax.apiBaseUrl`, falling back to the global
+ * `https://api.minimax.io/v1` (the default in `package.json`).
+ */
+function readConfiguredBaseUrl(): string {
+	try {
+		const config = vscode.workspace.getConfiguration('minimax');
+		const raw = config.get<string>('apiBaseUrl');
+		if (raw && typeof raw === 'string') return raw;
+	} catch {
+		// getConfiguration may throw if called before the extension is
+		// fully initialised; fall through to the default.
+	}
+	return 'https://api.minimax.io/v1';
+}
+
+/**
+ * Expand the localizable model templates into concrete `ModelDefinition`s
+ * using the price table appropriate for the user's `baseUrl` and locale.
+ * Callers should go through this rather than reading `MODELS` directly so
+ * the rendered prices match the user's billing currency.
+ */
+export function getModels(baseUrl: string = readConfiguredBaseUrl()): ModelDefinition[] {
+	const table = pickPricingTable(baseUrl);
+	return MODEL_TEMPLATES.map((t) => {
+		const { pricingKey, ...rest } = t;
+		return { ...rest, pricing: table[pricingKey] };
+	});
+}
+
 /** Models visible in the model picker (filtered by `minimax.visibleModels`). */
-export function getVisibleModels(): readonly ModelDefinition[] {
+export function getVisibleModels(
+	baseUrl: string = readConfiguredBaseUrl(),
+): readonly ModelDefinition[] {
+	const models = getModels(baseUrl);
 	const config = vscode.workspace.getConfiguration('minimax');
 	const raw = config.get<unknown>('visibleModels');
 	if (!Array.isArray(raw)) {
-		return MODELS;
+		return models;
 	}
 	const configuredIds = new Set(
 		raw.filter((value): value is string => typeof value === 'string'),
 	);
-	const visible = MODELS.filter((m) => configuredIds.has(m.id));
-	return visible.length > 0 ? visible : MODELS;
+	const visible = models.filter((m) => configuredIds.has(m.id));
+	return visible.length > 0 ? visible : models;
 }
 
-export function findModelById(id: string): ModelDefinition | undefined {
-	return MODELS.find((m) => m.id === id);
+export function findModelById(
+	id: string,
+	baseUrl: string = readConfiguredBaseUrl(),
+): ModelDefinition | undefined {
+	return getModels(baseUrl).find((m) => m.id === id);
 }

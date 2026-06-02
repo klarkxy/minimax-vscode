@@ -50,6 +50,13 @@ API Key 就能直接用。
 
 ## 价格（每百万 token，人民币）
 
+> 以下为国内站
+> [platform.minimaxi.com](https://platform.minimaxi.com/docs/guides/pricing-paygo)
+> （`https://api.minimaxi.com/anthropic`）的人民币报价。国际站
+> [platform.minimax.io](https://platform.minimax.io/docs/guides/pricing-paygo)
+> 按美元结算，费率不同，参见 [`README.md`](./README.md)。模型选择器 tooltip
+> 和 **MiniMax: Show Pricing** 会按当前 `minimax.apiBaseUrl` 自动渲染对应的价格表。
+
 | 模型 | 输入 | 输出 | 缓存读取 | 缓存写入 |
 | --- | ---: | ---: | ---: | ---: |
 | MiniMax M3 (≤512K 输入) | 4.20 | 16.80 | 0.84 | — |
@@ -57,8 +64,7 @@ API Key 就能直接用。
 | MiniMax M2.7 | 2.10 | 8.40 | 0.42 | 2.625 |
 | MiniMax M2.7-highspeed | 4.20 | 16.80 | 0.42 | 2.625 |
 
-> M3 当前处于 7 天限时五折：输入 ¥2.10 / 输出 ¥8.40 / 缓存读取 ¥0.42。价格数据来自
-> [platform.minimaxi.com/docs/guides/pricing-paygo](https://platform.minimaxi.com/docs/guides/pricing-paygo)。
+> M3 当前处于 7 天限时五折：输入 ¥2.10 / 输出 ¥8.40 / 缓存读取 ¥0.42。
 > Token Plan 订阅另计。
 
 ## 配置项

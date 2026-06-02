@@ -350,6 +350,73 @@ td.right, th.right { text-align: right; }
 	display: flex; justify-content: space-between;
 	color: var(--fg-mute); font-size: 11px; margin-top: 2px;
 }
+.pie-card { display: flex; flex-direction: column; }
+.pie-wrap {
+	display: flex; align-items: center; gap: 12px;
+	margin: 4px 0 10px;
+}
+.pie {
+	flex: 0 0 auto;
+	width: 88px; height: 88px;
+	border-radius: 50%;
+	position: relative;
+}
+.pie::before {
+	content: '';
+	position: absolute;
+	inset: 28%;
+	border-radius: 50%;
+	background: var(--bg);
+}
+.pie-center {
+	position: absolute;
+	inset: 0;
+	display: flex; flex-direction: column;
+	align-items: center; justify-content: center;
+	font-variant-numeric: tabular-nums;
+	line-height: 1.1;
+	pointer-events: none;
+}
+.pie-total { font-size: 12px; font-weight: 600; }
+.pie-cap {
+	font-size: 9px; color: var(--fg-mute);
+	text-transform: uppercase; letter-spacing: 0.04em;
+	margin-top: 1px;
+}
+.legend {
+	list-style: none; margin: 0; padding: 0;
+	flex: 1; min-width: 0;
+}
+.legend li {
+	display: flex; align-items: center; gap: 6px;
+	padding: 2px 0;
+	font-size: 12px;
+}
+.legend .dot {
+	width: 9px; height: 9px;
+	border-radius: 2px;
+	flex: 0 0 auto;
+}
+.legend .lbl {
+	color: var(--fg-mute);
+	flex: 1; min-width: 0;
+	overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.legend .val { font-variant-numeric: tabular-nums; font-weight: 500; }
+.legend .pct {
+	color: var(--fg-mute);
+	font-weight: 400;
+	margin-left: 4px;
+	font-size: 11px;
+}
+.pie-card .kv-total {
+	border-top: 1px solid var(--border);
+	padding-top: 8px;
+	margin-top: auto;
+}
+@media (max-width: 480px) {
+	.pie-wrap { flex-direction: column; align-items: flex-start; }
+}
 .model-tag {
 	display: inline-block;
 	background: var(--chip);
@@ -446,13 +513,54 @@ footer {
 		);
 	}
 	function localCard(title, usage) {
-		return card(title, [
-			[i18n.fieldInput, fmtFull(usage.inputTokens)],
-			[i18n.fieldCacheRead, fmtFull(usage.cacheReadTokens)],
-			[i18n.fieldCacheWrite, fmtFull(usage.cacheWriteTokens)],
-			[i18n.fieldOutput, fmtFull(usage.outputTokens)],
-			[i18n.fieldRequests, fmtFull(usage.requests)],
-		]);
+		const slices = [
+			{ key: i18n.fieldInput, value: usage.inputTokens, color: 'var(--accent)' },
+			{ key: i18n.fieldCacheRead, value: usage.cacheReadTokens, color: 'var(--good)' },
+			{ key: i18n.fieldCacheWrite, value: usage.cacheWriteTokens, color: 'var(--warn)' },
+			{ key: i18n.fieldOutput, value: usage.outputTokens, color: 'var(--bad)' },
+		];
+		const total = slices.reduce(function (s, it) { return s + (it.value || 0); }, 0);
+		let pieBg;
+		if (total > 0) {
+			let cursor = 0;
+			const stops = [];
+			for (const it of slices) {
+				if (!it.value) continue;
+				const start = (cursor / total) * 100;
+				cursor += it.value;
+				const end = (cursor / total) * 100;
+				stops.push(it.color + ' ' + start.toFixed(2) + '% ' + end.toFixed(2) + '%');
+			}
+			pieBg = 'conic-gradient(' + stops.join(', ') + ')';
+		} else {
+			pieBg = 'var(--border)';
+		}
+		const legend = slices.map(function (it) {
+			const pct = total > 0 ? ((it.value / total) * 100).toFixed(1) : '0.0';
+			return '<li>' +
+				'<span class="dot" style="background:' + it.color + '"></span>' +
+				'<span class="lbl">' + escapeHtml(it.key) + '</span>' +
+				'<span class="val">' + fmtFull(it.value) +
+					'<span class="pct">' + pct + '%</span>' +
+				'</span>' +
+			'</li>';
+		}).join('');
+		return (
+			'<div class="card pie-card"><h3>' + escapeHtml(title) + '</h3>' +
+			'<div class="pie-wrap">' +
+				'<div class="pie" style="background:' + pieBg + '">' +
+					'<div class="pie-center">' +
+						'<div class="pie-total">' + escapeHtml(fmtNumber(total)) + '</div>' +
+						'<div class="pie-cap">' + escapeHtml(i18n.fieldTotal) + '</div>' +
+					'</div>' +
+				'</div>' +
+				'<ul class="legend">' + legend + '</ul>' +
+			'</div>' +
+			'<div class="kv kv-total">' +
+				'<span>' + escapeHtml(i18n.fieldRequests) + '</span>' +
+				'<span>' + fmtFull(usage.requests) + '</span>' +
+			'</div></div>'
+		);
 	}
 	function platformSection(plan) {
 		if (!plan) return '';

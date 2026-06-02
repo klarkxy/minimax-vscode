@@ -4,7 +4,7 @@ import { CONFIG_SECTION, COMMIT_MODEL_LAST_USED_KEY } from '../consts';
 import { getApiModelId, getBaseUrl } from '../config';
 import { t } from '../i18n';
 import { logger } from '../logger';
-import { MODELS, findModelById, getVisibleModels } from '../models/registry';
+import { getModels, findModelById, getVisibleModels } from '../models/registry';
 import type { MiniMaxMessage, MiniMaxRequest, MiniMaxUsage } from '../types';
 import {
 	buildScmContext,
@@ -193,7 +193,7 @@ export async function pickCommitModelId(
 	const defaultId = resolveCommitModelId();
 	const lastUsed = readLastUsedCommitModel();
 	const visible = getVisibleModels();
-	const models = visible.length > 0 ? [...visible] : [...MODELS];
+	const models = visible.length > 0 ? [...visible] : [...getModels()];
 	if (models.length === 0) {
 		return defaultId;
 	}
@@ -272,7 +272,7 @@ let globalStateMemento: vscode.Memento | undefined;
 
 /** Validate that the configured commit model exists; returns true on hit. */
 export function isKnownCommitModelId(id: string): boolean {
-	return MODELS.some((m) => m.id === id);
+	return getModels().some((m) => m.id === id);
 }
 
 /**
