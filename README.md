@@ -5,35 +5,35 @@
 <!-- marketplace-readme:remove-end -->
 
 A [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat)
-language model provider that adds **MiniMax M3** and **M2.7** to the
-Copilot model picker. Backed by a [Token Plan](https://platform.minimax.io/user-center/payment/token-plan)
+language model provider. It registers **MiniMax M3**, **M2.7** and
+**M2.7-highspeed** with the Copilot model picker, backed by a
+[Token Plan](https://platform.minimax.io/user-center/payment/token-plan)
 API key.
 
 > Architecture ported from
 > [`deepseek-v4-for-copilot`](https://github.com/Vizards/deepseek-v4-for-copilot)
 > (MIT) and adapted to the MiniMax Anthropic-compatible API.
 
-## What you get
+## Features
 
-- **M3, M2.7, M2.7-highspeed** in the Copilot model picker, with
-  per-model context, output cap, and pricing shown in the tooltip.
-- **Image input on M3** (native multimodal) and a vision proxy fallback
-  for M2.x so image attachments work on every model.
-- **Tool calling** with an optional experimental cache-stabilisation
-  switch that keeps the upstream prompt cache warm.
+- **M3, M2.7 and M2.7-highspeed** show up in the Copilot model picker
+  with per-model context, output cap and pricing in the tooltip.
+- **Image input on M3** (native multimodal); M2.x uses a vision proxy
+  fallback so image attachments work on every model.
+- **Tool calling** with an experimental cache-stabilisation switch
+  that keeps the upstream prompt cache warm.
 - **Git commit message generation** wired into the SCM input box.
-  Conventional-Commits + gitmoji by default; drafts in place of
-  whatever you had typed.
-- **Per-model sampling controls** — set `temperature`, `topK`, etc.
-  per model without editing code.
-- **Cumulative usage tracker** — input / output / cache-read tokens
+  Conventional Commits + gitmoji by default; it can also polish
+  whatever you already typed.
+- **Per-model sampling controls** — set `temperature`, `topK` and
+  friends per model without editing code.
+- **Cumulative usage tracker** — input, output and cache-read tokens
   across the whole extension lifetime, with a status command.
-- **Usage dashboard** — a one-click webview (status-bar entry + a
-  command) that renders today / 7-day / 30-day token usage, a
-  30-day bar chart, per-model breakdown, and the platform
-  `coding_plan/remains` data (5h reset, weekly limit, subscription
-  expiry) when an API key is configured. The counter updates live
-  as new requests land.
+- **Usage dashboard** — a one-click webview (status-bar entry plus a
+  command) showing today / 7-day / 30-day token usage, a 30-day bar
+  chart, per-model breakdown, and the platform `coding_plan/remains`
+  data (5h reset, weekly limit, subscription expiry) when an API
+  key is configured. The counter updates live as new requests land.
 - **Diagnostics** — per-request classifier, cache-hit stats, and a
   verbose mode that dumps every request to disk.
 - **Bilingual UI** that follows the VS Code display language.
@@ -53,9 +53,9 @@ API key.
 1. Grab a Token Plan API key from
    [Account / Token Plan](https://platform.minimax.io/user-center/payment/token-plan).
 2. Run **MiniMax: Set API Key** from the command palette.
-3. Pick a model in the Copilot model picker. Run
-   **MiniMax: Show Pricing** to compare costs.
-4. Done — chat with the model directly in Copilot Chat, or use
+3. Pick a model in the Copilot model picker. **MiniMax: Show Pricing**
+   will compare costs.
+4. Chat with the model in Copilot Chat, or hit
    **MiniMax: Generate Commit Message** in the SCM input box.
 
 ## Models

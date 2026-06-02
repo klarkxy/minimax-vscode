@@ -1,75 +1,63 @@
 # Changelog
 
-## 2.1.2 — Status-bar trim, dashboard layout, release-please fix
+## 2.1.2 — Status-bar trim, dashboard layout, CI fixes
 
-A polish release on top of 2.1.1. The status bar now shows only
-the two platform quota items (no more daily-token slot), the
-dashboard's Token Plan section is reorganised so the progress
-bars and reset times line up cleanly, and the release-please
-workflow is fixed so it can parse the publish-gate conditions
-again.
+Three threads in this release: trim the status bar down to the
+two platform quota items, give the dashboard's Token Plan
+section a proper layout, and unblock CI.
 
 ### Changes
 
-- **Daily-token status bar item removed.** The previous
-  `$(graph) MiniMax 1.2k` slot is gone. Today's token totals now
-  live in the dashboard (**MiniMax: Open Usage Dashboard**) and
-  the **MiniMax: Show Usage** command — the status bar now only
-  carries the two platform quota items.
-- **Status bar shows *used* percent, not remaining.** The 5h and
-  Week items now display `5h 54%` / `Week 88%` to mean "I've used
-  54% / 88% of the quota", with colour thresholds (≥85% red,
-  60-85% yellow, <60% green) matching the dashboard's progress
-  bar so the number and the colour agree with the user's
-  intuition. The tooltip still carries the full "used X / Y,
-  remaining Z%" breakdown for the user who wants it.
+- **Daily-token status bar item removed.** The
+  `$(graph) MiniMax 1.2k` slot is gone; today's token totals live
+  in the dashboard (**MiniMax: Open Usage Dashboard**) and the
+  **MiniMax: Show Usage** command.
+- **Status bar now shows the *used* percent.** The 5h and Week
+  items read `5h 54%` / `Week 88%` to mean "I've used 54% / 88% of
+  the quota", with colour thresholds (≥85% red, 60-85% yellow,
+  <60% green) matching the dashboard's progress bar. The
+  tooltip still carries the full "used X / Y, remaining Z%"
+  breakdown.
 - **Status bar uses foreground-only colors.** The `$(bolt) 5h …`
-  and `$(calendar) Week …` items use the *Foreground theme tokens
-  and no longer paint a background — they blend with the rest of
-  the status bar instead of looking like five independent
-  buttons.
+  and `$(calendar) Week …` items use the `*Foreground` theme
+  tokens. They blend with the rest of the status bar instead of
+  looking like five independent buttons.
 - **Dashboard Token Plan section reorganised.** The two quota
-  windows (5h and Week) each render as a single card with the
-  percentage on the progress bar and the reset time on the right
-  end of the title row as a small pill. The previous orphan
-  weekly-progress bar, the duplicate "Used: X / Y" data cards, and
-  the per-model breakdown table are all gone — the bar already
-  communicates the same information at a glance, and the table
-  had a row with `—`/`—` for the `general` model that wasn't
-  carrying any weight. Plan card titles are now consistent
+  windows (5h and Week) each render as a single card: the
+  percentage on the bar, the reset time as a small pill on the
+  right end of the title row. The orphan weekly-progress bar,
+  the duplicate "Used: X / Y" data cards, and the per-model
+  breakdown table are gone. Card titles are now consistent
   (`GENERAL · 5h` and `周额度`) so the pair reads naturally.
 - **Removed unused i18n keys** that only existed for the deleted
   daily-token status bar (`status.tooltip`, `status.tooltipEmpty`,
   `status.tooltipActive`, and a duplicate `status.tooltipActive_zh`).
 - **Release-please workflow fixed.** `.github/workflows/release.yml`
-  was failing validation because it referenced `secrets.*` inside
-  step `if:` conditions, which the GitHub Actions expression
-  grammar disallows. The publish-gate conditions now use only
-  `vars.*` and the secret-presence check has moved into a
-  bash guard inside the step. CI runs against the main branch
-  will pass again.
+  was failing validation because it referenced `secrets.*`
+  inside step `if:` conditions, which the GitHub Actions
+  expression grammar disallows. The publish-gate conditions now
+  use `vars.*` and the secret-presence check moved into a bash
+  guard inside the step.
 - **Marketplace publish steps removed from `release.yml`.** The
   "Publish to VS Code Marketplace" and "Publish to Open VSX"
   steps were guarded behind `vars.PUBLISH_*` toggles that were
-  never set, so they were dead code adding noise. They have
-  been removed entirely. When you eventually want to publish
-  to a marketplace, `rescue.yml` still exists for one-off
+  never set, so they were dead code. When you eventually want to
+  publish to a marketplace, `rescue.yml` still exists for one-off
   manual runs, and its three publish toggles now default to
   `false` so it can never silently fail with an empty token.
 - **All three workflows opted into Node.js 24.** GitHub is
   deprecating the Node 20 runtime for third-party Actions on
-  2026-06-16; `release-please-action@v4` was already emitting
-  a warning about this on every run. All three workflows
-  (CI / Release / Rescue) now set
-  `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'` at the job level
-  to opt in early. Remove the env var once the `googleapis/*`
+  2026-06-16; `release-please-action@v4` was already warning
+  about this on every run. All three workflows (CI / Release /
+  Rescue) now set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'`
+  at the job level. Drop the env var once the `googleapis/*`
   and `actions/*` releases we depend on publish Node-24 builds.
 
 The donut centre in the dashboard still shows the all-in token
-total (input + cacheWrite + cacheRead + output) — the same number
-you multiply against the per-model price table. The legend
-breaks out the four buckets individually, so the share that hit
-cache is immediately visible.
+total (input + cacheWrite + cacheRead + output) — the same
+number you multiply against the per-model price table. The
+legend breaks out the four buckets individually, so the share
+that hit cache is immediately visible.
 
 ## 2.1.1 — Dual-currency pricing + donut token chart
 
@@ -78,30 +66,30 @@ USD or CNY automatically based on the user's `minimax.apiBaseUrl`
 and `vscode.env.language`, and the usage dashboard's local card
 redraws the token breakdown as a donut chart with percentages.
 
-### New features
+### Features
 
 - **Dual-currency pricing (USD / CNY).** The single-CNY price table
-  has been split into `PRICING_CNY` and `PRICING_USD`, and a new
+  splits into `PRICING_CNY` and `PRICING_USD`. A new
   `pickPricingTable()` helper picks the right one at runtime:
   - `apiBaseUrl` contains `minimaxi.com` → CNY (¥), regardless of
     locale.
   - Otherwise, Chinese locales (`zh`, `zh-*`, `zh_*`) → CNY (¥).
   - Everything else → USD ($).
-  - `MODELS` is now `MODEL_TEMPLATES`; new `getModels(baseUrl)`
-    expands the pricing field from the chosen table. All UI
-    surfaces that render prices (model-picker tooltip,
-    **MiniMax: Show Pricing** command, commit-model picker, and
-    replay markers) now go through `getModels()` so the symbol
-    matches the user's billing currency.
-  - `README.md` now uses USD as the primary table and `README.zh.md`
-    uses CNY; both files have a callout pointing at the other price
-    site and noting that the picker / **Show Pricing** command render
-    the table that matches the active `minimax.apiBaseUrl`.
+  - `MODELS` is renamed `MODEL_TEMPLATES`. A new `getModels(baseUrl)`
+    expands the pricing field from the chosen table. Every UI
+    surface that renders prices (model-picker tooltip,
+    **MiniMax: Show Pricing** command, commit-model picker, replay
+    markers) goes through `getModels()` so the symbol matches the
+    user's billing currency.
+  - `README.md` uses USD as the primary table; `README.zh.md` uses
+    CNY. Both files have a callout pointing at the other price
+    site and noting that the picker / **Show Pricing** command
+    render the table that matches the active `minimax.apiBaseUrl`.
   - New helpers `isChineseLocale()` and `isChinaBaseUrl()` are
     exported from `src/models/registry.ts` for any future code that
     needs the same routing logic.
-  - `ModelPricing.currency` is now the union `'CNY' | 'USD'`
-    (previously hard-coded to `'CNY'`).
+  - `ModelPricing.currency` widens to the union `'CNY' | 'USD'`
+    (was hard-coded to `'CNY'`).
 - **Status-bar quota items (`5h 73%` / `Week 11%`).** Two new
   `StatusBarItem`s sit to the right of the existing
   `$(graph) MiniMax 1.2k` daily counter and show the platform's
@@ -148,7 +136,7 @@ redraws the token breakdown as a donut chart with percentages.
   5. Dashboard open / Refresh / view-state-visible (the existing
      path, now also routed through the shared cache so the status
      bar sees the same response).
-  No `setInterval` is installed; the extension does no background
+  No `setInterval` is installed. The extension does no background
   network work when idle. The dashboard's own
   `DashboardPanel.refresh()` now calls `planCache.refresh()`
   instead of `fetchPlanUsage` directly, so the two consumers
@@ -158,7 +146,7 @@ redraws the token breakdown as a donut chart with percentages.
 
 - **Usage dashboard local card now renders as a donut chart.**
   The flat key-value list (input / cache read / cache write / output)
-  has been replaced with a `conic-gradient` donut and a colour-coded
+  is replaced with a `conic-gradient` donut and a colour-coded
   legend that shows each token type, its count, and its share of
   the total. The donut is built from the same four `var(--accent)` /
   `var(--good)` / `var(--warn)` / `var(--bad)` CSS tokens the rest
@@ -183,11 +171,11 @@ redraws the token breakdown as a donut chart with percentages.
   - Renders an em-dash (`—`) in the per-model table's
     used/total cells when the model has no reported total, so
     the table stays tabular-aligned.
-  The platform gives us no way to derive a real used count when
+  The platform gives no way to derive a real used count when
   the total is missing (`current_interval_usage_count` is
   unreliable on quota models — see the long comment in
-  [minimax-status/.../api.js](https://github.com/JochenYang/minimax-status));
-  hiding the missing numbers is the right call.
+  [minimax-status/.../api.js](https://github.com/JochenYang/minimax-status)).
+  Hiding the missing numbers is the right call.
 - **Token counters no longer double-count Anthropic cache fields.**
   The Anthropic Messages API reports `input_tokens` as the
   *incremental, non-cached* input and reports
@@ -197,19 +185,20 @@ redraws the token breakdown as a donut chart with percentages.
   second time — a typical day with a 1M-token system prompt
   cached across many turns could read as 10-50M "tokens" even
   though the underlying bill was much smaller. `totalTokens()` now
-  returns `input + output` only, and a new `totalBilledTokens()`
+  returns `input + output` only. A new `totalBilledTokens()`
   helper returns the all-in number (`input + cacheWrite + cacheRead
   + output`) for callers that need to multiply by the per-model
   price table. The dashboard donut centre shows the net total;
-  the legend still breaks out the cache slices so the user can
-  see *how much* of the day's traffic hit cache.
+  the legend still breaks out the cache slices so you can see
+  *how much* of the day's traffic hit cache.
 - **Daily-token status bar item removed.** The previous
-  `$(graph) MiniMax 43.66M` slot was deleted because (a) the
-  number was a side effect of the cache double-count bug above
-  and was actively misleading, and (b) it crowded the status bar
-  next to the 5h / Week quota items. Today's token totals now
-  live in the dashboard (**MiniMax: Open Usage Dashboard**) and
-  the **MiniMax: Show Usage** command — the status bar now only
+  `$(graph) MiniMax 43.66M` slot was deleted for two reasons:
+  (a) the number was a side effect of the cache double-count bug
+  above and was actively misleading, and (b) it crowded the
+  status bar next to the 5h / Week quota items. Today's token
+  totals now live in the dashboard (**MiniMax: Open Usage
+  Dashboard**) and the **MiniMax: Show Usage** command — the
+  status bar only
   carries the two platform quota items.
 - **Quota status bar uses foreground-only colors.** The
   `$(bolt) 5h …` and `$(calendar) Week …` items now use the

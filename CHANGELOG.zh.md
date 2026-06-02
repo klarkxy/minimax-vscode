@@ -2,45 +2,41 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
-## 2.1.2 — 状态栏瘦身、Dashboard 重排、release-please 修复
+## 2.1.2 — 状态栏瘦身、Dashboard 重排、CI 修复
 
-2.1.1 的抛光版本。状态栏只保留两项平台额度项（原“今日 token”项删除），
-Dashboard 的 Token Plan 区重排让进度条和重置时间对齐，release-please
-workflow 修复后 CI 才能继续过。
+三条线：状态栏只留两项平台额度；Dashboard 的 Token Plan 区重排后
+进度条和重置时间对齐；release-please workflow 修好后 CI 重新能跑。
 
 ### 变更
 
-- **今日 token 状态栏项被删了。** 原来 `$(graph) MiniMax 1.2k`
-  那一项去掉。今日 token 总数现在住在 Dashboard（**MiniMax: Open Usage Dashboard**）
-  和 **MiniMax: Show Usage** 命令里，状态栏只保留 2 个平台额度项。
-- **状态栏改为显示“已用%”，不是“剩余%”。** `5h 54%` /
-  `Week 88%` 现在意思明确是“已用 54% / 88%”，色阶阈值
-  （≥85% 红、60-85% 黄、<60% 绿）跟 Dashboard 进度条完全一致，
-  数字和颜色终于和直觉对上了。Tooltip 仍保留完整对账信息
-  （`已用 X / Y`、`剩余 Z%`），需要细看时随时可看。
+- **状态栏去掉了“今日 token”项。** 原来 `$(graph) MiniMax 1.2k`
+  这个槽位没了。今日 token 总量去 Dashboard（**MiniMax: Open Usage Dashboard**）
+  和 **MiniMax: Show Usage** 命令里看。
+- **状态栏改为显示“已用%”。** `5h 54%` / `Week 88%` 表示“已用 54%
+  / 88%”，色阶阈值（≥85% 红、60-85% 黄、<60% 绿）跟 Dashboard
+  进度条一致，数字颜色和直觉对得上。Tooltip 里仍保留
+  `已用 X / Y`、`剩余 Z%` 完整对账信息。
 - **额度状态栏颜色改为纯文字色。** `$(bolt) 5h …` 和
-  `$(calendar) Week …` 这两个项现在只换文字色（绿/黄/红），
-  不再染底色，跟状态栏整体融为一体，不再像“5 个孤零零的按钮”。
-- **Dashboard Token Plan 区重排。** 5h / 周两窗口各自变成
-  一张卡：进度条上显示百分比，重置时间挪到标题右端成小药丸。
-  原来那条孤儿周限额进度条、重复的 “Used: X / Y” 数据卡、按模型
-  明细表全部移除——进度条已经一眼能看出比例，表格里 `general`
-  那行是 `—` / `—`，没有任何信息量。卡片标题统一为
-  `GENERAL · 5h` / `周额度`，配对阅读自然。
-- **清理了不再使用的 i18n key**（原本只服务于那个被删的状态栏项）：
+  `$(calendar) Week …` 现在只换文字色，不再染底色，跟状态栏
+  整体融为一体。
+- **Dashboard Token Plan 区重排。** 5h / 周两窗口各一张卡：
+  进度条上显示百分比，重置时间挪到标题右端成小药丸。原来的
+  孤儿周限额进度条、重复的 “Used: X / Y” 数据卡、按模型明细表
+  全部移除。卡片标题统一为 `GENERAL · 5h` / `周额度`，
+  配对阅读自然。
+- **清理了不再使用的 i18n key**（原本只服务于被删的状态栏项）：
   `status.tooltip`、`status.tooltipEmpty`、`status.tooltipActive`、
   以及重复的 `status.tooltipActive_zh`。
 - **修复 release-please workflow**。`.github/workflows/release.yml`
   之前在 step `if:` 里引用了 `secrets.*`，被 GitHub Actions 表达式
   语法拒绝，整条 workflow 一直 validate 失败。改成只用 `vars.*`
-  判定，secret 是否存在移到 step 内部的 bash 守卫里。CI 重跑
-  就能通过了。
+  判定，secret 是否存在移到 step 内部的 bash 守卫里。
 - **从 `release.yml` 里移除了市场推送步骤。** 之前 `Publish to
   VS Code Marketplace` 和 `Publish to Open VSX` 两个 step 是用
-  `vars.PUBLISH_*` 开关守着的，但开关从来没被设过，等于死代码、
-  看着也乱。整体删除。等以后要推市场时，临时改用 `rescue.yml`
-  手动跑；它的三个推送开关现在默认全部 `false`，绝对不会再
-  出现"token 为空还去推"的 silent failure。
+  `vars.PUBLISH_*` 开关守着的，但开关从来没被设过，纯死代码。
+  整体删除。等以后要推市场时，改用 `rescue.yml` 手动跑；它的
+  三个推送开关现在默认全部 `false`，避免“token 为空还去推”的
+  silent failure。
 - **三个 workflow 全部切换到 Node.js 24**。GitHub 将在
   2026-06-16 弃用第三方 Action 的 Node 20 runtime，
   `release-please-action@v4` 现在每次跑都会 warn。我们
@@ -50,14 +46,13 @@ workflow 修复后 CI 才能继续过。
   可以删掉这个 env。
 
 Dashboard 环形图中心仍显示 all-in token 总量（input + cacheWrite +
-cacheRead + output）——这个数字乘上价格表就是估算的账单。legend
+cacheRead + output），这个数字乘上价格表就是估算的账单。legend
 里 4 个分项独立显示，缓存占了多少一眼就能看到。
 
 ## 2.1.1 — 双币种价格表 + token 环形图
 
-一个偏小、偏可见的版本。模型价格表现在会按 `minimax.apiBaseUrl` 与
-`vscode.env.language` 自动在 USD / CNY 之间切换，用量面板的「local」卡片
-也把 token 明细重画成了带百分比的环形图。
+价格表按 `minimax.apiBaseUrl` 与 `vscode.env.language` 自动在 USD /
+CNY 之间切换，用量面板的「local」卡片也重画成了带百分比的环形图。
 
 ### 新增功能
 
@@ -137,35 +132,35 @@ cacheRead + output）——这个数字乘上价格表就是估算的账单。le
   百分比，下面的 `已用 / 合计` 却永远显示 `0 / 0`。参考
   [minimax-status](https://github.com/JochenYang/minimax-status) 的做法，
   渲染器现在按下面的规则处理：
-  - 进度条：当 `total === 0` 时，**完全不渲染** "X / Y" 这一段，只剩
-    进度条 + 百分比。
-  - 5h / 周限额卡片：当没有 total 时，**整行 `Used` 直接隐藏**，卡片
-    退化为只剩"重置倒计时"那一行，跟 minimax-status 的
+  - 进度条：当 `total === 0` 时，不渲染 "X / Y" 这一段，只剩进度条 +
+    百分比。
+  - 5h / 周限额卡片：当没有 total 时，整行 `Used` 直接隐藏，卡片退化为
+    只剩"重置倒计时"那一行，跟 minimax-status 的
     "title · reset-time" 布局一致。
-  - 按模型拆分的明细表：当某个模型没有 total 时，把 used / 合计
-    两列渲染成破折号 `—`，让表格的对齐保持稳定。
+  - 按模型拆分的明细表：当某个模型没有 total 时，把 used / 合计两列
+    渲染成破折号 `—`，让表格的对齐保持稳定。
   平台在 total 缺失时确实没办法算出真实的"已用"次数——
   `current_interval_usage_count` 字段在配额模型上不可信（详见
   [minimax-status/.../api.js](https://github.com/JochenYang/minimax-status)
-  的注释），所以与其硬塞一个 `0 / 0`，不如直接隐掉。- **token 计数器不再重复统计 Anthropic cache 字段。** Anthropic
+  的注释），与其硬塞一个 `0 / 0`，不如直接隐掉。
+- **token 计数器不再重复统计 Anthropic cache 字段。** Anthropic
   Messages API 的 `input_tokens` 是**增量、未缓存**的那部分输入，
   `cache_creation_input_tokens` / `cache_read_input_tokens` 是
-  **在它之上**额外报告的（同样包含已缓存前缀）。老版
-  `totalTokens()` 把四个字段全加起来——结果每个 cache 写入轮次都
-  把整段 prompt prefix 多算一次。1M 系统 prompt + 一天 50 轮对话
-  经常被记成 50M 幻影 token。`totalTokens()` 现在只算
-  `input + output`；另增 `totalBilledTokens()` helper 返回
-  `input + cacheWrite + cacheRead + output` 这个“全口径”数字，
-  给需要乘价格表的场景用。Dashboard 圆环中心显示净额、legend 里
-  仍把 cache 拆开显示（这样用户能看出“这一天有多少流量走了缓存”）。
+  **在它之上**额外报告的（同样包含已缓存前缀）。老版 `totalTokens()`
+  把四个字段全加起来，结果每个 cache 写入轮次都把整段 prompt prefix
+  多算一次。1M 系统 prompt + 一天 50 轮对话经常被记成 50M 幻影 token。
+  `totalTokens()` 现在只算 `input + output`；另增 `totalBilledTokens()`
+  helper 返回 `input + cacheWrite + cacheRead + output` 这个"全口径"
+  数字，给需要乘价格表的场景用。Dashboard 圆环中心显示净额，legend
+  里仍把 cache 拆开显示（这样用户能看出这一天有多少流量走了缓存）。
 - **状态栏的今日 token 项被删了。** 原来 `$(graph) MiniMax 43.66M`
-  那一项去掉，原因是：（1）这个数字其实是 cache 重复统计 bug 的
-  副作用，会误导人；（2）跟 5h / 周限额挤一起太占空间。今日
-  token 总数现在住在 Dashboard（**MiniMax: Open Usage Dashboard**）
-  和 **MiniMax: Show Usage** 命令里，状态栏只保留 2 个平台额度项。
+  那一项去掉，原因是：（1）这个数字其实是 cache 重复统计 bug 的副
+  作用，会误导人；（2）跟 5h / 周限额挤一起太占空间。今日 token
+  总数现在住在 Dashboard（**MiniMax: Open Usage Dashboard**）和
+  **MiniMax: Show Usage** 命令里，状态栏只保留 2 个平台额度项。
 - **额度状态栏颜色改为纯文字色。** `$(bolt) 5h …` 和
-  `$(calendar) Week …` 这两个项现在只换文字色（绿/黄/红），
-  不再染底色，跟状态栏整体融为一体，不再像“5 个孤零零的按钮”。
+  `$(calendar) Week …` 这两个项现在只换文字色（绿/黄/红），不再染
+  底色，跟状态栏整体融为一体。
 ## 2.0.0 — 改名为 MiniMax Copilot + 移除思考强度选择器
 
 这一版把市场化的改名和一轮行为修复打包发布。其中一部分对用户可见（UI 元素没了、Copilot 状态栏的上下文统计数字变正确了）；大部分是底层加固。
