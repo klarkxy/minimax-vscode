@@ -9,6 +9,13 @@ import { createUsageStore, type UsageStore } from '../usage';
 import { DashboardPanel } from '../dashboard/panel';
 import { createPlanStatusBar, type PlanStatusBar } from '../dashboard/planStatusBar';
 import { createPlanCache, type PlanCache } from '../dashboard/aggregator';
+import {
+	installBundledMmxSkill,
+	installMmxCli,
+	installMmxSkill,
+	loginMmxCli,
+	readMmxCliStatus,
+} from '../dashboard/mmxCli';
 import type { ChatTurnNotifier } from '../dashboard/chatTurnNotifier';
 
 let cachedContext: vscode.ExtensionContext | undefined;
@@ -136,7 +143,127 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 			// both the dashboard render and the status bar to consume.
 			void refreshPlanKeyState();
 		}),
+		vscode.commands.registerCommand('minimax.installMmxCli', () => {
+			if (!cachedAuth || !cachedContext) {
+				void vscode.window.showWarningMessage(t('usage.empty'));
+				return;
+			}
+			void runMmxCliInstallWizard(cachedContext.extensionUri, cachedAuth);
+		}),
 	);
+}
+
+/**
+ * The command-palette entry point for "Install mmx-cli".
+ *
+ * Walks the user through the three official steps in sequence:
+ *   1. `npm install -g mmx-cli`                  (if missing)
+ *   2. `mmx auth login --api-key <key>`          (if no mmx auth)
+ *   3. `npx skills add MiniMax-AI/cli -y -g`     (if no skill)
+ *
+ * Each step is reported back as a VS Code notification. Failures stop
+ * the chain — the user is told which step failed and what the captured
+ * stderr was.
+ */
+async function runMmxCliInstallWizard(
+	extensionUri: vscode.Uri,
+	auth: AuthManager,
+): Promise<void> {
+	let status = await readMmxCliStatus();
+
+	// Step 1 — install the binary.
+	if (status.install !== 'installed') {
+		const choice = await vscode.window.showInformationMessage(
+			t('mmx.installProgress'),
+			{ modal: true },
+			t('mmx.installBtn'),
+		);
+		if (choice !== t('mmx.installBtn')) return;
+		const result = await vscode.window.withProgress(
+			{
+				location: vscode.ProgressLocation.Notification,
+				title: t('mmx.installProgress'),
+				cancellable: false,
+			},
+			async (progress) => {
+				progress.report({ message: 'npm install -g mmx-cli …' });
+				const r = await installMmxCli({ log: (m) => logger.info(`[mmx-cli] ${m}`) });
+				if (r.ok) {
+					progress.report({ message: 'Installed.', increment: 100 });
+				}
+				return r;
+			},
+		);
+		if (!result.ok) {
+			vscode.window.showErrorMessage(t('mmx.installFailed', result.error ?? 'unknown'));
+			return;
+		}
+		vscode.window.showInformationMessage(
+			result.newVersion
+				? t('mmx.installedWithVersion', result.newVersion)
+				: t('mmx.installed'),
+		);
+		status = await readMmxCliStatus();
+	}
+
+	// Step 2 — login with the API key from SecretStorage.
+	if (status.auth !== 'loggedIn') {
+		const apiKey = await auth.getApiKey();
+		if (!apiKey) {
+			const choice = await vscode.window.showWarningMessage(
+				t('mmx.loginRequiresKey'),
+				t('mmx.setApiKey'),
+			);
+			if (choice === t('mmx.setApiKey')) {
+				await vscode.commands.executeCommand('minimax.setApiKey');
+			}
+			return;
+		}
+		if (!status.binPath) {
+			vscode.window.showWarningMessage(t('mmx.loginRequiresInstall'));
+			return;
+		}
+		const result = await loginMmxCli(apiKey, status.binPath);
+		if (!result.ok) {
+			vscode.window.showErrorMessage(t('mmx.loginFailed', result.stderr || result.error || 'unknown'));
+			return;
+		}
+		vscode.window.showInformationMessage(t('mmx.loginOk'));
+	}
+
+	// Step 3 — install the official SKILL so the agent can call mmx.
+	status = await readMmxCliStatus();
+	if (status.skill !== 'installed') {
+		const skill = await installMmxSkill({ log: (m) => logger.info(`[mmx-skill] ${m}`), extensionUri });
+		if (skill.ok) {
+			vscode.window.showInformationMessage(
+				skill.source === 'bundled'
+					? t('mmx.skillInstalledBundled', skill.installedAt ?? '')
+					: t('mmx.skillInstalled'),
+			);
+		} else {
+			// Last-ditch fallback: try the bundled SKILL.md directly.
+			const fallback = await installBundledMmxSkill(extensionUri);
+			if (fallback.ok) {
+				vscode.window.showInformationMessage(
+					t('mmx.skillInstalledBundled', fallback.installedAt ?? ''),
+				);
+			} else {
+				vscode.window.showErrorMessage(t('mmx.skillFailed', skill.error ?? 'unknown'));
+			}
+		}
+	}
+
+	// Reveal the dashboard so the user can see the new green ticks.
+	if (cachedContext && cachedUsage && cachedAuth) {
+		DashboardPanel.show({
+			extensionUri: cachedContext.extensionUri,
+			auth: cachedAuth,
+			usageStore: cachedUsage,
+			planCache: getPlanCache(),
+			host: detectHost(),
+		});
+	}
 }
 
 function detectHost(): 'china' | 'global' {

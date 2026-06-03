@@ -23,6 +23,7 @@ import {
 	type DashboardMessages,
 } from './messages';
 import { buildDashboardView, type PlanCache } from './aggregator';
+import { installBundledMmxSkill, installMmxCli, installMmxSkill, loginMmxCli, readMmxCliStatus, type MmxCliStatus } from './mmxCli';
 import type { DashboardView } from './types';
 
 export interface DashboardPanelDeps {
@@ -208,6 +209,25 @@ export class DashboardPanel {
 					vscode.window.showInformationMessage(confirm);
 					await this.refresh();
 				}
+				return;
+			}
+			case 'mmxInstall': {
+				await handleMmxInstall(this.deps.extensionUri, this.state.locale);
+				await this.refresh();
+				return;
+			}
+			case 'mmxLogin': {
+				await handleMmxLogin(this.deps.auth, this.state.locale);
+				await this.refresh();
+				return;
+			}
+			case 'mmxInstallSkill': {
+				await handleMmxInstallSkill(this.deps.extensionUri, this.state.locale);
+				await this.refresh();
+				return;
+			}
+			case 'mmxRecheck': {
+				await this.refresh();
 				return;
 			}
 		}
@@ -461,6 +481,102 @@ footer {
 	font-size: 11px;
 	display: flex;
 	justify-content: space-between;
+}
+
+/* mmx-cli section */
+.mmx-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 10px;
+	margin-bottom: 14px;
+}
+@media (max-width: 720px) { .mmx-grid { grid-template-columns: 1fr; } }
+.mmx-card {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 12px 14px;
+}
+.mmx-card-title {
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--fg-mute);
+	margin-bottom: 8px;
+}
+.mmx-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 8px;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 500;
+	background: var(--chip);
+	color: var(--chip-fg);
+}
+.mmx-badge-ok { color: var(--good); }
+.mmx-badge-miss { color: var(--warn); }
+.mmx-steps {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 10px 0 12px;
+}
+.mmx-step {
+	display: flex;
+	gap: 10px;
+	padding: 8px 10px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--bg);
+}
+.mmx-step.done { border-color: var(--good); }
+.mmx-step-num {
+	flex: 0 0 auto;
+	width: 22px; height: 22px;
+	border-radius: 50%;
+	background: var(--border);
+	color: var(--fg);
+	display: flex; align-items: center; justify-content: center;
+	font-size: 12px; font-weight: 600;
+}
+.mmx-step.done .mmx-step-num { background: var(--good); color: #0b1014; }
+.mmx-step-body { flex: 1; min-width: 0; }
+.mmx-step-label { font-size: 12px; font-weight: 500; }
+.mmx-step-detail {
+	font-size: 11px;
+	color: var(--fg-mute);
+	font-family: var(--vscode-editor-font-family, ui-monospace, monospace);
+	margin-top: 2px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.mmx-ready {
+	padding: 8px 12px;
+	border-radius: 6px;
+	background: rgba(127, 127, 127, 0.08);
+	border-left: 3px solid var(--fg-mute);
+	font-size: 12px;
+	margin-bottom: 10px;
+}
+.mmx-ready.ok {
+	border-left-color: var(--good);
+	background: rgba(16, 185, 129, 0.08);
+}
+.mmx-note {
+	padding: 8px 12px;
+	border-radius: 6px;
+	border-left: 3px solid var(--warn);
+	background: rgba(245, 158, 11, 0.08);
+	font-size: 12px;
+	margin-bottom: 10px;
+}
+.mmx-actions {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
 }
 </style>
 </head>
@@ -727,12 +843,113 @@ footer {
 		}
 		return '';
 	}
+	function statusBadge(state, okLabel, missingLabel) {
+		if (state === 'installed' || state === 'loggedIn') {
+			return '<span class="mmx-badge mmx-badge-ok">● ' + escapeHtml(okLabel) + '</span>';
+		}
+		if (state === 'unknown') {
+			return '<span class="mmx-badge">○ ' + escapeHtml(okLabel) + '</span>';
+		}
+		return '<span class="mmx-badge mmx-badge-miss">○ ' + escapeHtml(missingLabel) + '</span>';
+	}
+	function mmxSection(mmx) {
+		if (!mmx) return '';
+		const install = mmx.install;
+		const version = mmx.version || '—';
+		const auth = mmx.auth;
+		const skill = mmx.skill;
+
+		const installBadge = statusBadge(install, i18n.mmxInstalled, i18n.mmxMissing);
+		const authLabel = auth === 'loggedIn'
+			? i18n.mmxAuthLoggedIn
+			: auth === 'loggedOut'
+				? i18n.mmxAuthLoggedOut
+				: i18n.mmxAuthUnknown;
+		const authBadge = statusBadge(auth, authLabel, i18n.mmxAuthLoggedOut);
+		const skillBadge = statusBadge(skill, i18n.mmxSkillInstalled, i18n.mmxSkillMissing);
+
+		const stepInstall = install === 'installed';
+		const stepLogin = stepInstall && auth === 'loggedIn';
+		const stepSkill = stepInstall && skill === 'installed';
+
+		const steps = [
+			{
+				done: stepInstall,
+				label: i18n.mmxInstallBtn,
+				detail: install === 'installed'
+					? (mmx.version ? (i18n.mmxVersion + ' ' + escapeHtml(mmx.version)) : 'npm install -g mmx-cli')
+					: 'npm install -g mmx-cli',
+			},
+			{
+				done: stepLogin,
+				label: i18n.mmxLoginBtn,
+				detail: 'mmx auth login --api-key …',
+			},
+			{
+				done: stepSkill,
+				label: i18n.mmxInstallSkillBtn,
+				detail: 'npx skills add MiniMax-AI/cli -y -g',
+			},
+		];
+		const stepsHtml = steps.map(function (s, i) {
+			const marker = s.done ? '✓' : String(i + 1);
+			const cls = s.done ? 'mmx-step done' : 'mmx-step';
+			return (
+				'<div class="' + cls + '">' +
+					'<span class="mmx-step-num">' + marker + '</span>' +
+					'<div class="mmx-step-body">' +
+						'<div class="mmx-step-label">' + escapeHtml(s.label) + '</div>' +
+						'<div class="mmx-step-detail">' + escapeHtml(s.detail) + '</div>' +
+					'</div>' +
+				'</div>'
+			);
+		}).join('');
+
+		const buttons = [];
+		if (install !== 'installed') {
+			buttons.push('<button data-action="mmx-install" class="primary">' + escapeHtml(i18n.mmxInstallBtn) + '</button>');
+		} else {
+			if (auth !== 'loggedIn') {
+				buttons.push('<button data-action="mmx-login" class="primary">' + escapeHtml(i18n.mmxLoginBtn) + '</button>');
+			}
+			if (skill !== 'installed') {
+				buttons.push('<button data-action="mmx-install-skill" class="primary">' + escapeHtml(i18n.mmxInstallSkillBtn) + '</button>');
+			}
+			buttons.push('<button data-action="mmx-recheck">' + escapeHtml(i18n.mmxRecheckBtn) + '</button>');
+		}
+
+		const readyNote = mmx.agentReady
+			? '<div class="mmx-ready ok">' + escapeHtml(i18n.mmxAgentReady) + '</div>'
+			: (install === 'installed'
+				? '<div class="mmx-ready">' + escapeHtml(i18n.mmxAgentNotReady) + '</div>'
+				: '');
+
+		const noteHtml = mmx.note
+			? '<div class="mmx-note">' + escapeHtml(mmx.note) + '</div>'
+			: '';
+
+		return (
+			'<section><h2>' + escapeHtml(i18n.mmxSectionTitle) + '</h2>' +
+			'<p class="dim" style="margin: 0 0 14px;">' + escapeHtml(i18n.mmxSubtitle) + '</p>' +
+			'<div class="mmx-grid">' +
+				'<div class="mmx-card"><div class="mmx-card-title">' + escapeHtml(i18n.mmxCommandLabel) + '</div>' + installBadge + '<div class="dim" style="margin-top:6px;">' + escapeHtml(i18n.mmxVersion) + ' ' + escapeHtml(version) + '</div></div>' +
+				'<div class="mmx-card"><div class="mmx-card-title">mmx auth</div>' + authBadge + '</div>' +
+				'<div class="mmx-card"><div class="mmx-card-title">agent skill</div>' + skillBadge + '</div>' +
+			'</div>' +
+			'<div class="mmx-steps">' + stepsHtml + '</div>' +
+			readyNote +
+			noteHtml +
+			'<div class="mmx-actions">' + buttons.join('') + '</div>' +
+			'</section>'
+		);
+	}
 	function render(view) {
 		const banner = platformBanner(view.sources);
 		const plan = view.plan ? platformSection(view.plan) : '';
 		const local = view.local ? localSection(view.local) : '';
 		const empty = emptyState(view.sources);
-		root.innerHTML = banner + plan + local + empty;
+		const mmx = mmxSection(view.mmxCli);
+		root.innerHTML = banner + plan + local + mmx + empty;
 		updatedStamp.textContent = i18n.fieldUpdated + ': ' + new Date().toLocaleTimeString();
 	}
 	document.addEventListener('click', function (event) {
@@ -742,6 +959,10 @@ footer {
 		if (action === 'refresh') vscode.postMessage({ type: 'refresh' });
 		else if (action === 'close') vscode.postMessage({ type: 'close' });
 		else if (action === 'reset') vscode.postMessage({ type: 'reset' });
+		else if (action === 'mmx-install') vscode.postMessage({ type: 'mmxInstall' });
+		else if (action === 'mmx-login') vscode.postMessage({ type: 'mmxLogin' });
+		else if (action === 'mmx-install-skill') vscode.postMessage({ type: 'mmxInstallSkill' });
+		else if (action === 'mmx-recheck') vscode.postMessage({ type: 'mmxRecheck' });
 	});
 	window.addEventListener('message', function (event) {
 		const message = event.data;
@@ -776,4 +997,126 @@ function escapeHtml(value: string): string {
 		.replace(/>/g, '&gt;')
 		.replace(/"/g, '&quot;')
 		.replace(/'/g, '&#39;');
+}
+
+// --- mmx-cli action helpers --------------------------------------------
+//
+// These are called from `handleMessage` when the user clicks one of the
+// buttons in the mmx-cli section. Each function:
+//   1. Runs the underlying shell command via the mmxCli module.
+//   2. Shows the result to the user via a notification + the "MiniMax:
+//      Show Logs" channel.
+//   3. Returns; the caller re-renders the dashboard so the new status
+//      is reflected immediately.
+//
+// We do the install in a foreground task with a `Progress` so the user
+// sees a spinner. The login + skill-install paths are quick and don't
+// need the spinner.
+
+async function handleMmxInstall(
+	extensionUri: vscode.Uri,
+	locale: DashboardLocale,
+): Promise<void> {
+	const messages = dashboardMessages(locale);
+	await vscode.window.withProgress(
+		{
+			location: vscode.ProgressLocation.Notification,
+			title: t('mmx.installProgress'),
+			cancellable: false,
+		},
+		async (progress) => {
+			progress.report({ message: 'npm install -g mmx-cli …' });
+			const result = await installMmxCli({ log: (m) => logger.info(`[mmx-cli] ${m}`) });
+			if (!result.ok) {
+				logger.warn('mmx-cli install failed', result.error);
+				const detail = result.stderr || result.error || 'unknown error';
+				vscode.window.showErrorMessage(t('mmx.installFailed', detail));
+				return;
+			}
+			progress.report({ message: 'Installed.', increment: 100 });
+			vscode.window.showInformationMessage(
+				result.newVersion
+					? t('mmx.installedWithVersion', result.newVersion)
+					: t('mmx.installed'),
+			);
+			// Touch extensionUri so the linter doesn't warn — also useful
+			// if we ever decide to switch the default install source to
+			// the bundled SKILL.md as a follow-up.
+			void extensionUri;
+			void messages;
+		},
+	);
+}
+
+async function handleMmxLogin(
+	auth: AuthManager,
+	locale: DashboardLocale,
+): Promise<void> {
+	const apiKey = await auth.getApiKey();
+	if (!apiKey) {
+		const choice = await vscode.window.showWarningMessage(
+			t('mmx.loginRequiresKey'),
+			t('mmx.setApiKey'),
+		);
+		if (choice === t('mmx.setApiKey')) {
+			await vscode.commands.executeCommand('minimax.setApiKey');
+		}
+		return;
+	}
+	const status = await readMmxCliStatus();
+	if (status.install !== 'installed' || !status.binPath) {
+		vscode.window.showWarningMessage(t('mmx.loginRequiresInstall'));
+		return;
+	}
+	const result = await loginMmxCli(apiKey, status.binPath);
+	if (!result.ok) {
+		logger.warn('mmx-cli login failed', result.error);
+		vscode.window.showErrorMessage(t('mmx.loginFailed', result.stderr || result.error || 'unknown'));
+		return;
+	}
+	vscode.window.showInformationMessage(t('mmx.loginOk'));
+	void locale;
+}
+
+async function handleMmxInstallSkill(
+	extensionUri: vscode.Uri,
+	locale: DashboardLocale,
+): Promise<void> {
+	await vscode.window.withProgress(
+		{
+			location: vscode.ProgressLocation.Notification,
+			title: t('mmx.skillProgress'),
+			cancellable: false,
+		},
+		async (progress) => {
+			progress.report({ message: 'npx skills add MiniMax-AI/cli -y -g …' });
+			const result = await installMmxSkill({
+				log: (m) => logger.info(`[mmx-cli skill] ${m}`),
+				extensionUri,
+			});
+			if (!result.ok) {
+				logger.warn('mmx-cli skill install failed', result.error);
+				// Last-ditch fallback: copy the bundled SKILL.md directly.
+				progress.report({ message: 'Falling back to bundled SKILL.md …' });
+				const fallback = await installBundledMmxSkill(extensionUri);
+				if (fallback.ok) {
+					vscode.window.showInformationMessage(
+						t('mmx.skillInstalledBundled', fallback.installedAt ?? ''),
+					);
+					return;
+				}
+				vscode.window.showErrorMessage(
+					t('mmx.skillFailed', result.stderr || result.error || 'unknown'),
+				);
+				return;
+			}
+			const source = result.source === 'bundled' ? 'bundled' : 'npx';
+			vscode.window.showInformationMessage(
+				source === 'bundled'
+					? t('mmx.skillInstalledBundled', result.installedAt ?? '')
+					: t('mmx.skillInstalled'),
+			);
+			void locale;
+		},
+	);
 }

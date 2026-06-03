@@ -2,6 +2,33 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.1.3 — 集成 mmx-cli
+
+把官方多模态命令行 `mmx` 作为 Token Plan 的可选伴生工具集成进来。
+安装后，Agent（Copilot Chat、Claude Code、Cursor 等）就能用同一个
+Token Plan API Key 调用图像、视频、音乐、语音、视觉理解与网络检索
+等全部多模态能力。
+
+### 新增
+
+- **Dashboard 底部新增 mmx-cli 板块。** 展示三个状态徽标
+  （CLI 已安装、`mmx auth` 已登录、Agent skill 已安装），
+  以及一份三步清单和一个"重新检测"按钮。清单对照官方入门文档
+  (`platform.minimaxi.com/docs/token-plan/minimax-cli`)：
+  1. `npm install -g mmx-cli`
+  2. `mmx auth login --api-key <key>`（复用 SecretStorage 里
+     已存的 Key；若没有则提示用户去设置）
+  3. `npx skills add MiniMax-AI/cli -y -g`
+  三步全部完成后会显示绿色"Agent 就绪"提示，告诉用户 Agent
+  现在可以在提示词里直接调用 mmx。
+- **新增命令 `MiniMax: 安装 mmx-cli`。** 按顺序引导完成以上三步，
+  并在最后打开 Dashboard。SKILL 步骤在 `npx` 不可用或拉取失败
+  时会回退到把内置 `SKILL.md`（在 `skills/minimax-cli/` 下）
+  拷贝到 `~/.{claude,copilot,mmx}/skills/minimax-cli/SKILL.md`。
+- **内置 `SKILL.md`**（位于 `skills/minimax-cli/`）。作为
+  `npx skills` 无法访问官方仓库时的离线回退方案，内容与官方
+  `MiniMax-AI/cli` slug 一致。
+
 ## 2.1.2 — 状态栏瘦身、Dashboard 重排、CI 修复
 
 三条线：状态栏只留两项平台额度；Dashboard 的 Token Plan 区重排后

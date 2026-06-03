@@ -3,6 +3,7 @@
 
 import { createUsageStore, type ModelUsage, type UsageStore } from '../usage';
 import { fetchPlanUsage, type PlanApiOptions, type PlanApiResult } from './api';
+import { readMmxCliStatus, type MmxCliStatus } from './mmxCli';
 import type { DashboardView, PlanUsage } from './types';
 
 export interface AggregatorOptions {
@@ -139,6 +140,21 @@ export async function buildDashboardView(
 		}
 	}
 
+	// mmx-cli detection is independent from Token Plan quota — it talks
+	// to the local npm install, not the platform HTTP API. We probe it
+	// in parallel with the plan fetch so a slow / hung `mmx --version`
+	// call doesn't block the dashboard render. A failure here is
+	// non-fatal: the section just shows "missing".
+	const mmxStatus: MmxCliStatus = await readMmxCliStatus().catch((err): MmxCliStatus => ({
+		install: 'unknown',
+		version: null,
+		binPath: null,
+		auth: 'unknown',
+		skill: 'unknown',
+		note: err instanceof Error ? err.message : String(err),
+		agentReady: false,
+	}));
+
 	const view: DashboardView = {
 		sources: {
 			local: localSource,
@@ -146,6 +162,7 @@ export async function buildDashboardView(
 			planError,
 		},
 		local: localView,
+		mmxCli: mmxStatus,
 	};
 	if (planSection) {
 		view.plan = planSection;

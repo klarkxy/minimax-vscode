@@ -35,3 +35,10 @@ test/**
 dist/**
 out-test/**
 **/*.vsix
+
+# Bundle the SKILL files that ship with the extension (consumed at
+# runtime by the dashboard's "Install Agent Skill" fallback). They
+# live outside `src/` and are not in the deny list above, but we
+# whitelist them explicitly here so future edits to this file can't
+# accidentally drop them.
+!skills/**

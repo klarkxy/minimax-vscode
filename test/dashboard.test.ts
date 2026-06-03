@@ -230,6 +230,12 @@ test('buildDashboardView: empty store shows local=empty, no plan', async () => {
 	assert.equal(view.local.thirtyDay.requests, 0);
 	assert.equal(view.local.dailySeries.length, 30);
 	assert.equal(view.plan, undefined);
+	// mmx-cli status is always present (the dashboard renders it
+	// unconditionally). In the test sandbox the binary is not on
+	// PATH, so we expect `install: 'missing'` and `agentReady: false`.
+	assert.ok(view.mmxCli, 'mmxCli is always populated');
+	assert.equal(view.mmxCli.install, 'missing');
+	assert.equal(view.mmxCli.agentReady, false);
 });
 
 test('buildDashboardView: populates per-model and daily buckets', async () => {

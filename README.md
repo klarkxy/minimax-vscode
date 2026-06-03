@@ -35,7 +35,11 @@ API key.
   bar chart, a per-model breakdown, and the platform
   `coding_plan/remains` data (5h reset, weekly limit, subscription
   expiry) when an API key is configured. The counter updates live
-  as new requests land.
+  as new requests land. A bottom-of-page **mmx-cli** section
+  detects / installs the official [`mmx`](https://github.com/MiniMax-AI/cli)
+  multimodal CLI and the matching agent SKILL, so the agent can
+  call image / video / music / speech / vision / search with the
+  same Token Plan key.
 - **Diagnostics**: per-request classifier, cache-hit stats, and a
   verbose mode that dumps every request to disk.
 - **Bilingual UI** that follows the VS Code display language.
@@ -133,6 +137,7 @@ API key.
 | **MiniMax: Show Logs** | Focus the MiniMax output channel |
 | **MiniMax: Open Request Dumps Folder** | Reveal verbose request dumps |
 | **MiniMax: Open Usage Dashboard** | Open the usage dashboard (today / 7-day / 30-day tokens, per-model breakdown, 30-day bar chart, platform `coding_plan/remains` data) |
+| **MiniMax: Install mmx-cli (multimodal Token Plan CLI)** | Detect / install `mmx-cli`, log it in with the stored API key, and install the official agent SKILL — the same three steps the [docs](https://platform.minimaxi.com/docs/token-plan/minimax-cli) recommend |
 
 ## Per-model sampling
 
@@ -234,6 +239,37 @@ placeholder and the tooltip nudges you to run
 Both items read the same in-process plan cache as the dashboard
 (the `fetchPlanUsage` 8s TTL still applies), so opening the dashboard
 or letting the status bar refresh does not add a second HTTP call.
+
+### mmx-cli (multimodal companion)
+
+The dashboard's bottom section surfaces the official
+[`mmx`](https://github.com/MiniMax-AI/cli) CLI as an optional
+companion to the Token Plan flow. Once installed, your agent
+(Copilot Chat, Claude Code, Cursor, …) can drive image / video /
+music / speech / vision / web search using the **same** API key.
+
+Detection covers three things:
+
+- **CLI binary** on `PATH` (`mmx --version`)
+- **`mmx auth`** logged in (`mmx auth status`)
+- **Agent SKILL** installed (a `SKILL.md` under
+  `~/.claude/skills/minimax-cli/`,
+  `~/.copilot/skills/minimax-cli/`, or `~/.mmx/skills/minimax-cli/`)
+
+The "Install mmx-cli" button (and the `MiniMax: Install mmx-cli`
+command) walks the three official steps in order:
+
+1. `npm install -g mmx-cli`
+2. `mmx auth login --api-key <key>` — reuses the key already in
+   SecretStorage; the user is prompted to set it if missing
+3. `npx skills add MiniMax-AI/cli -y -g` — the agent can now
+   read the official SKILL. If the registry is unreachable, the
+   bundled `SKILL.md` shipped in the extension is copied to the
+   first writable candidate directory as a fallback.
+
+A green "your agent can use mmx-cli capabilities" hint appears
+once all three checks pass. The "Re-check" button re-probes the
+local environment without re-running any install.
 
 ## Endpoint auto-selection
 

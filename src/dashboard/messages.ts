@@ -43,6 +43,25 @@ export interface DashboardMessages {
 	window7d: string;
 	window30d: string;
 	platformModelHeader: string;
+	// ---- mmx-cli ----
+	mmxSectionTitle: string;
+	mmxSubtitle: string;
+	mmxInstalled: string;
+	mmxMissing: string;
+	mmxVersion: string;
+	mmxAuthLoggedIn: string;
+	mmxAuthLoggedOut: string;
+	mmxAuthUnknown: string;
+	mmxSkillInstalled: string;
+	mmxSkillMissing: string;
+	mmxInstallBtn: string;
+	mmxLoginBtn: string;
+	mmxInstallSkillBtn: string;
+	mmxRecheckBtn: string;
+	mmxAgentReady: string;
+	mmxAgentNotReady: string;
+	mmxCommandLabel: string;
+	mmxViewDocs: string;
 }
 
 const en: DashboardMessages = {
@@ -84,6 +103,27 @@ const en: DashboardMessages = {
 	window7d: 'Last 7 days',
 	window30d: 'Last 30 days',
 	platformModelHeader: 'Model',
+
+	// mmx-cli
+	mmxSectionTitle: 'mmx-cli (multimodal Token Plan)',
+	mmxSubtitle:
+		'Optional companion CLI that gives your agent full multimodal capabilities: image, video, music, speech, vision, and web search — all billed against the same Token Plan API key.',
+	mmxInstalled: 'Installed',
+	mmxMissing: 'Not installed',
+	mmxVersion: 'Version',
+	mmxAuthLoggedIn: 'Logged in',
+	mmxAuthLoggedOut: 'Not logged in',
+	mmxAuthUnknown: 'Auth unknown',
+	mmxSkillInstalled: 'Agent skill ready',
+	mmxSkillMissing: 'Agent skill not installed',
+	mmxInstallBtn: 'Install mmx-cli',
+	mmxLoginBtn: 'Login with API key',
+	mmxInstallSkillBtn: 'Install agent skill',
+	mmxRecheckBtn: 'Re-check',
+	mmxAgentReady: 'Your agent can use mmx-cli capabilities (image / video / music / speech / vision / search).',
+	mmxAgentNotReady: 'Finish the steps below to enable multimodal capabilities for your agent.',
+	mmxCommandLabel: 'CLI',
+	mmxViewDocs: 'Docs',
 };
 
 const zh: DashboardMessages = {
@@ -125,6 +165,27 @@ const zh: DashboardMessages = {
 	window7d: '近 7 日',
 	window30d: '近 30 日',
 	platformModelHeader: '模型',
+
+	// mmx-cli
+	mmxSectionTitle: 'mmx-cli（多模态 Token Plan）',
+	mmxSubtitle:
+		'可选的官方命令行工具，让你的 Agent 直接使用图像、视频、音乐、语音、视觉理解与网络检索等全部多模态能力——共用同一个 Token Plan API Key。',
+	mmxInstalled: '已安装',
+	mmxMissing: '未安装',
+	mmxVersion: '版本',
+	mmxAuthLoggedIn: '已登录',
+	mmxAuthLoggedOut: '未登录',
+	mmxAuthUnknown: '登录状态未知',
+	mmxSkillInstalled: 'Agent skill 已就绪',
+	mmxSkillMissing: 'Agent skill 未安装',
+	mmxInstallBtn: '安装 mmx-cli',
+	mmxLoginBtn: '使用 API Key 登录',
+	mmxInstallSkillBtn: '安装 Agent skill',
+	mmxRecheckBtn: '重新检测',
+	mmxAgentReady: '你的 Agent 已可使用 mmx-cli 的多模态能力（图、视频、音乐、语音、视觉、搜索）。',
+	mmxAgentNotReady: '完成下方步骤后，Agent 即可调用多模态能力。',
+	mmxCommandLabel: '命令行',
+	mmxViewDocs: '官方文档',
 };
 
 const dictionaries: Record<DashboardLocale, DashboardMessages> = { en, zh };

@@ -127,6 +127,22 @@ const zh: Translations = {
 	'status.visibleModels': '可见模型 {0} 个。',
 	'status.lastUsage': '最近一次请求输入 {0} token、输出 {1} token。',
 	'status.usageEmpty': '尚未发起任何请求。',
+
+	// mmx-cli
+	'mmx.installProgress': '正在安装 mmx-cli …',
+	'mmx.installed': 'mmx-cli 安装完成。',
+	'mmx.installedWithVersion': 'mmx-cli 已安装（v{0}）。',
+	'mmx.installFailed': 'mmx-cli 安装失败：{0}',
+	'mmx.installBtn': '安装',
+	'mmx.loginRequiresKey': '登录 mmx-cli 前需要先配置 Token Plan API Key。',
+	'mmx.setApiKey': '设置 API Key',
+	'mmx.loginRequiresInstall': '请先安装 mmx-cli。',
+	'mmx.loginOk': 'mmx-cli 登录成功。',
+	'mmx.loginFailed': 'mmx-cli 登录失败：{0}',
+	'mmx.skillProgress': '正在安装 Agent skill …',
+	'mmx.skillInstalled': 'Agent skill 安装完成。',
+	'mmx.skillInstalledBundled': '已通过内置 SKILL.md 安装到 {0}。',
+	'mmx.skillFailed': 'Agent skill 安装失败：{0}',
 };
 
 const en: Translations = {
@@ -242,6 +258,22 @@ const en: Translations = {
 	'status.visibleModels': '{0} models exposed in the picker.',
 	'status.lastUsage': 'Last request used input {0} tokens, output {1} tokens.',
 	'status.usageEmpty': 'No requests have been made yet.',
+
+	// mmx-cli
+	'mmx.installProgress': 'Installing mmx-cli…',
+	'mmx.installed': 'mmx-cli installed.',
+	'mmx.installedWithVersion': 'mmx-cli installed (v{0}).',
+	'mmx.installFailed': 'mmx-cli install failed: {0}',
+	'mmx.installBtn': 'Install',
+	'mmx.loginRequiresKey': 'Configure a Token Plan API key before logging in to mmx-cli.',
+	'mmx.setApiKey': 'Set API Key',
+	'mmx.loginRequiresInstall': 'Install mmx-cli first.',
+	'mmx.loginOk': 'mmx-cli logged in.',
+	'mmx.loginFailed': 'mmx-cli login failed: {0}',
+	'mmx.skillProgress': 'Installing agent skill…',
+	'mmx.skillInstalled': 'Agent skill installed.',
+	'mmx.skillInstalledBundled': 'Bundled SKILL.md installed to {0}.',
+	'mmx.skillFailed': 'Agent skill install failed: {0}',
 };
 
 const dictionaries: Record<'en' | 'zh', Translations> = { en, zh };

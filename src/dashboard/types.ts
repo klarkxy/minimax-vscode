@@ -9,6 +9,9 @@
 // gracefully and still renders the rest.
 
 import type { ModelUsage, UsageStats } from '../usage';
+import type { MmxCliStatus } from './mmxCli';
+
+export type { MmxCliStatus };
 
 /** Information returned by the platform `coding_plan/remains` API. */
 export interface PlanUsage {
@@ -65,4 +68,6 @@ export interface DashboardView {
 	};
 	/** Platform plan usage, only present when `sources.plan === 'ok'`. */
 	plan?: PlanUsage;
+	/** mmx-cli status. Always present (defaults to "missing"). */
+	mmxCli: MmxCliStatus;
 }

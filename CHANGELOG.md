@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.1.3 — mmx-cli integration
+
+Adds the official multimodal `mmx` CLI as an optional companion to
+the Token Plan flow. The CLI gives the agent (Copilot Chat, Claude
+Code, Cursor, etc.) full access to image, video, music, speech,
+vision, and web search using the same Token Plan API key.
+
+### New
+
+- **mmx-cli section at the bottom of the dashboard.** Shows three
+  status badges (CLI installed, `mmx auth` logged in, agent skill
+  installed) plus a three-step checklist and a "Re-check" button.
+  The checklist mirrors the official onboarding at
+  `platform.minimaxi.com/docs/token-plan/minimax-cli`:
+  1. `npm install -g mmx-cli`
+  2. `mmx auth login --api-key <key>` (reuses the SecretStorage
+     key — the user is prompted to set it if missing)
+  3. `npx skills add MiniMax-AI/cli -y -g`
+  A green "agent ready" hint appears once all three are done,
+  telling the user the agent can now call mmx from a prompt.
+- **`MiniMax: Install mmx-cli` command.** Walks the same three
+  steps in order with a progress notification, then opens the
+  dashboard. The SKILL step falls back to copying the bundled
+  `SKILL.md` (in `skills/minimax-cli/`) to
+  `~/.{claude,copilot,mmx}/skills/minimax-cli/SKILL.md` when
+  `npx` is unavailable or the registry fetch fails.
+- **Bundled `SKILL.md`** under `skills/minimax-cli/`. Documented
+  as a fallback for environments where `npx skills` cannot
+  reach the registry. Same content the official
+  `MiniMax-AI/cli` slug ships, but bundled with the extension so
+  the install step is offline-tolerant.
+
 ## 2.1.2 — Status-bar trim, dashboard layout, CI fixes
 
 Three threads in this release: trim the status bar to the two
