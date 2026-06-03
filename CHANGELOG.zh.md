@@ -2,6 +2,33 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.1.5 — mmx-cli 安装：把 `npm install -g` 交给 Copilot Chat
+
+把扩展内"代跑 `npm install -g mmx-cli`"换成"复制官方指令到剪贴板 +
+打开 Copilot chat"。Agent 拥有扩展所没有的包管理器访问能力（能响应
+交互式 UAC 弹窗、装构建工具、在 npm 临时错误时重试），所以让用户
+把官方三步 prompt 粘到 chat 里发出去，比我们默默跑更稳。
+
+### 变更
+
+- **Dashboard "Install mmx-cli" 按钮** 与
+  **`MiniMax: Install mmx-cli`** 命令现在都把官方 prompt 复制到
+  剪贴板并打开新 Copilot chat，让用户粘过去发。扩展不再调用 shell。
+- **API key 仍然安全**：prompt 里 key 只以字面 `sk-xxxxx` 占位符出现。
+  第 2 步（`mmx auth login`）**仍然**由扩展来跑——key 从 SecretStorage
+  拿出来走 argv 传，**不**进 chat 文本、**不**进磁盘上的会话历史、
+  **不**进 agent 视野。
+- 第 2、3 步（登录 + 安装 SKILL）作为独立按钮保留在 Dashboard，agent
+  跑完第 1 步后用户一路点过去即可。
+- 新增 dashboard 文案 + 新增 `mmxInstallPrompt()` /
+  `copyMmxInstallPromptToChat()` 导出（便于测试）。
+
+### 验证
+
+- TypeScript clean (`tsc -p ./ --noEmit`)
+- 单元测试：**84/84 pass**（新增 2 个：prompt 含三步、prompt 不含
+  真实 key）
+
 ## 2.1.4 — 修 mmx-cli 安装在 Windows 上 `npm not found on PATH` 的问题
 
 修复 **MiniMax: 安装 mmx-cli** 命令在 Windows 上报

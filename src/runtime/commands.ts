@@ -10,8 +10,8 @@ import { DashboardPanel } from '../dashboard/panel';
 import { createPlanStatusBar, type PlanStatusBar } from '../dashboard/planStatusBar';
 import { createPlanCache, type PlanCache } from '../dashboard/aggregator';
 import {
+	copyMmxInstallPromptToChat,
 	installBundledMmxSkill,
-	installMmxCli,
 	installMmxSkill,
 	loginMmxCli,
 	readMmxCliStatus,
@@ -144,139 +144,46 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 			void refreshPlanKeyState();
 		}),
 		vscode.commands.registerCommand('minimax.installMmxCli', () => {
-			if (!cachedAuth || !cachedContext) {
-				void vscode.window.showWarningMessage(t('usage.empty'));
-				return;
-			}
-			void runMmxCliInstallWizard(cachedContext.extensionUri, cachedAuth);
+			// We don't run `npm install -g mmx-cli` ourselves —
+			// instead we copy the official three-step prompt to the
+			// clipboard and open a new Copilot chat, so the agent
+			// can drive the install (richer package-manager access
+			// than an extension has). Steps 2 (login) and 3 (skill)
+			// are still done by us via the dashboard buttons — that
+			// way the API key never leaves the extension process.
+			void openMmxInstallInCopilot();
 		}),
 	);
 }
 
 /**
- * The command-palette entry point for "Install mmx-cli".
- *
- * Walks the user through the three official steps in sequence:
- *   1. `npm install -g mmx-cli`                  (if missing)
- *   2. `mmx auth login --api-key <key>`          (if no mmx auth)
- *   3. `npx skills add MiniMax-AI/cli -y -g`     (if no skill)
- *
- * Each step is reported back as a VS Code notification. Failures stop
- * the chain — the user is told which step failed and what the captured
- * stderr was.
+ * Command-palette entry for `MiniMax: Install mmx-cli`. The flow is
+ * intentionally narrow: it only does the step the extension **can't**
+ * safely do on its own (running `npm install -g mmx-cli`, which on
+ * some Windows hosts needs an interactive UAC prompt that an
+ * extension cannot show). Everything else — login, SKILL install —
+ * stays inside the extension and is reachable from the dashboard
+ * buttons that the user will see immediately after the install
+ * completes.
  */
-async function runMmxCliInstallWizard(
-	extensionUri: vscode.Uri,
-	auth: AuthManager,
-): Promise<void> {
-	let status = await readMmxCliStatus();
-
-	// Step 1 — install the binary.
-	if (status.install !== 'installed') {
-		const choice = await vscode.window.showInformationMessage(
-			t('mmx.installProgress'),
-			{ modal: true },
-			t('mmx.installBtn'),
+async function openMmxInstallInCopilot(): Promise<void> {
+	const result = await copyMmxInstallPromptToChat();
+	if (!result.copied) {
+		const choice = await vscode.window.showWarningMessage(
+			t('mmx.copyFailed'),
+			t('mmx.copyFallback'),
 		);
-		if (choice !== t('mmx.installBtn')) return;
-		const result = await vscode.window.withProgress(
-			{
-				location: vscode.ProgressLocation.Notification,
-				title: t('mmx.installProgress'),
-				cancellable: false,
-			},
-			async (progress) => {
-				progress.report({ message: 'npm install -g mmx-cli …' });
-				const r = await installMmxCli({ log: (m) => logger.info(`[mmx-cli] ${m}`) });
-				if (r.ok) {
-					progress.report({ message: 'Installed.', increment: 100 });
-				}
-				return r;
-			},
-		);
-		if (!result.ok) {
-			// The most common failure is a stale PATH: VS Code was
-			// launched before npm was on it. Offer to reload the
-			// window so the new PATH takes effect.
-			if (result.missing && /npm not found/.test(result.error ?? '')) {
-				const choice = await vscode.window.showErrorMessage(
-					t('mmx.installFailed', result.error ?? 'unknown'),
-					t('mmx.reloadWindow'),
-				);
-				if (choice === t('mmx.reloadWindow')) {
-					await vscode.commands.executeCommand('workbench.action.reloadWindow');
-				}
-				return;
-			}
-			vscode.window.showErrorMessage(t('mmx.installFailed', result.error ?? 'unknown'));
-			return;
+		if (choice === t('mmx.copyFallback')) {
+			await vscode.env.clipboard.writeText(result.prompt);
+			vscode.window.showInformationMessage(t('mmx.copyOk'));
 		}
-		vscode.window.showInformationMessage(
-			result.newVersion
-				? t('mmx.installedWithVersion', result.newVersion)
-				: t('mmx.installed'),
-		);
-		status = await readMmxCliStatus();
+		return;
 	}
-
-	// Step 2 — login with the API key from SecretStorage.
-	if (status.auth !== 'loggedIn') {
-		const apiKey = await auth.getApiKey();
-		if (!apiKey) {
-			const choice = await vscode.window.showWarningMessage(
-				t('mmx.loginRequiresKey'),
-				t('mmx.setApiKey'),
-			);
-			if (choice === t('mmx.setApiKey')) {
-				await vscode.commands.executeCommand('minimax.setApiKey');
-			}
-			return;
-		}
-		if (!status.binPath) {
-			vscode.window.showWarningMessage(t('mmx.loginRequiresInstall'));
-			return;
-		}
-		const result = await loginMmxCli(apiKey, status.binPath);
-		if (!result.ok) {
-			vscode.window.showErrorMessage(t('mmx.loginFailed', result.stderr || result.error || 'unknown'));
-			return;
-		}
-		vscode.window.showInformationMessage(t('mmx.loginOk'));
-	}
-
-	// Step 3 — install the official SKILL so the agent can call mmx.
-	status = await readMmxCliStatus();
-	if (status.skill !== 'installed') {
-		const skill = await installMmxSkill({ log: (m) => logger.info(`[mmx-skill] ${m}`), extensionUri });
-		if (skill.ok) {
-			vscode.window.showInformationMessage(
-				skill.source === 'bundled'
-					? t('mmx.skillInstalledBundled', skill.installedAt ?? '')
-					: t('mmx.skillInstalled'),
-			);
-		} else {
-			// Last-ditch fallback: try the bundled SKILL.md directly.
-			const fallback = await installBundledMmxSkill(extensionUri);
-			if (fallback.ok) {
-				vscode.window.showInformationMessage(
-					t('mmx.skillInstalledBundled', fallback.installedAt ?? ''),
-				);
-			} else {
-				vscode.window.showErrorMessage(t('mmx.skillFailed', skill.error ?? 'unknown'));
-			}
-		}
-	}
-
-	// Reveal the dashboard so the user can see the new green ticks.
-	if (cachedContext && cachedUsage && cachedAuth) {
-		DashboardPanel.show({
-			extensionUri: cachedContext.extensionUri,
-			auth: cachedAuth,
-			usageStore: cachedUsage,
-			planCache: getPlanCache(),
-			host: detectHost(),
-		});
-	}
+	vscode.window.showInformationMessage(
+		result.chatOpened
+			? t('mmx.promptCopiedChatOpened')
+			: t('mmx.promptCopiedChatUnavailable'),
+	);
 }
 
 function detectHost(): 'china' | 'global' {

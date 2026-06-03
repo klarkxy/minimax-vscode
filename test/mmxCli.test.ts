@@ -16,6 +16,7 @@ import {
 	buildAugmentedPathEnv,
 	candidateSkillDirs,
 	extractVersion,
+	mmxInstallPrompt,
 	readMmxCliStatus,
 	readMmxSkillState,
 	readMmxVersion,
@@ -163,4 +164,31 @@ test('resolveNpmEnv: env object contains the bin parent dir on the platform PATH
 		found,
 		`expected env.${key} to contain the bin dir ${dirOfBin}, got ${result.env[key]}`,
 	);
+});
+
+// --- mmx install prompt -----------------------------------------------
+
+test('mmxInstallPrompt: contains the three official steps from the docs', () => {
+	const p = mmxInstallPrompt();
+	// Step 1 - npm install.
+	assert.match(p, /npm install -g mmx-cli/);
+	// Step 2 - mmx auth login with the placeholder key.
+	assert.match(p, /mmx auth login --api-key sk-xxxxx/);
+	// Step 3 - the official SKILL slug.
+	assert.match(p, /MiniMax-AI\/cli/);
+	// Should explicitly mention the dashboard/extension handles the
+	// login step so the user (and the agent reading the prompt) know
+	// the real key never needs to be typed into chat.
+	assert.match(p, /SecretStorage|扩展|extension/i);
+});
+
+test('mmxInstallPrompt: never contains a real-looking key', () => {
+	const p = mmxInstallPrompt();
+	// The prompt should only have the literal `sk-xxxxx` placeholder
+	// in the auth step. Any other `sk-` token of meaningful length
+	// is a leak.
+	const matches = p.match(/sk-[A-Za-z0-9_-]{4,}/g) ?? [];
+	for (const m of matches) {
+		assert.equal(m, 'sk-xxxxx', `unexpected key-like token in prompt: ${m}`);
+	}
 });

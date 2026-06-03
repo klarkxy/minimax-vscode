@@ -1,5 +1,39 @@
 # Changelog
 
+## 2.1.5 — mmx-cli install: delegate `npm install -g` to Copilot Chat
+
+Replaces the in-extension `npm install -g mmx-cli` step with a
+"copy install prompt + open Copilot chat" flow. Agents have richer
+package-manager access than an extension does (e.g. they can
+respond to interactive UAC prompts, install build tools, retry on
+transient npm registry errors), so asking the user to send the
+official three-step prompt to a chat is more reliable than us
+silently running it ourselves.
+
+### Changes
+
+- **Dashboard "Install mmx-cli" button** and the
+  **`MiniMax: Install mmx-cli`** command both now copy the official
+  prompt to the clipboard and open a new Copilot chat so the user
+  can paste-and-send. No shell-out from the extension.
+- **API key safety preserved**: the prompt references the key only
+  as the literal `sk-xxxxx` placeholder. Step 2 (`mmx auth login`)
+  is **still** run by the extension — it pulls the real key from
+  SecretStorage and passes it via argv, so the key never enters
+  the chat transcript, never lands in disk-stored chat history,
+  and never reaches the agent.
+- Steps 2 and 3 (login + SKILL install) are still reachable as
+  separate buttons in the dashboard, so once the agent finishes
+  step 1 the user just clicks through the rest.
+- New dashboard messages and a new `mmxInstallPrompt()` /
+  `copyMmxInstallPromptToChat()` export for testability.
+
+### Verification
+
+- TypeScript clean (`tsc -p ./ --noEmit`)
+- Unit tests: **84/84 pass** (2 new tests: prompt includes the
+  three steps, prompt contains no real-looking key tokens)
+
 ## 2.1.4 — mmx-cli install: fix `npm not found on PATH` on Windows
 
 Hotfix for the **MiniMax: Install mmx-cli** command failing with

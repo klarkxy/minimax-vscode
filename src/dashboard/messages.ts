@@ -55,6 +55,7 @@ export interface DashboardMessages {
 	mmxSkillInstalled: string;
 	mmxSkillMissing: string;
 	mmxInstallBtn: string;
+	mmxOpenChatBtn: string;
 	mmxLoginBtn: string;
 	mmxInstallSkillBtn: string;
 	mmxRecheckBtn: string;
@@ -62,6 +63,7 @@ export interface DashboardMessages {
 	mmxAgentNotReady: string;
 	mmxCommandLabel: string;
 	mmxViewDocs: string;
+	mmxStep1Hint: string;
 }
 
 const en: DashboardMessages = {
@@ -117,6 +119,7 @@ const en: DashboardMessages = {
 	mmxSkillInstalled: 'Agent skill ready',
 	mmxSkillMissing: 'Agent skill not installed',
 	mmxInstallBtn: 'Install mmx-cli',
+	mmxOpenChatBtn: 'Open install prompt in Copilot',
 	mmxLoginBtn: 'Login with API key',
 	mmxInstallSkillBtn: 'Install agent skill',
 	mmxRecheckBtn: 'Re-check',
@@ -124,6 +127,7 @@ const en: DashboardMessages = {
 	mmxAgentNotReady: 'Finish the steps below to enable multimodal capabilities for your agent.',
 	mmxCommandLabel: 'CLI',
 	mmxViewDocs: 'Docs',
+	mmxStep1Hint: 'We delegate this step to your AI agent — agents have richer package-manager access than an extension does. Click the button to copy the official prompt and open a new Copilot chat.',
 };
 
 const zh: DashboardMessages = {
@@ -179,6 +183,7 @@ const zh: DashboardMessages = {
 	mmxSkillInstalled: 'Agent skill 已就绪',
 	mmxSkillMissing: 'Agent skill 未安装',
 	mmxInstallBtn: '安装 mmx-cli',
+	mmxOpenChatBtn: '在 Copilot 中打开安装指令',
 	mmxLoginBtn: '使用 API Key 登录',
 	mmxInstallSkillBtn: '安装 Agent skill',
 	mmxRecheckBtn: '重新检测',
@@ -186,6 +191,7 @@ const zh: DashboardMessages = {
 	mmxAgentNotReady: '完成下方步骤后，Agent 即可调用多模态能力。',
 	mmxCommandLabel: '命令行',
 	mmxViewDocs: '官方文档',
+	mmxStep1Hint: '我们把这步交给你的 AI Agent——它拥有比扩展更完整的包管理器访问能力。点击按钮即可复制官方指令，并打开一个新的 Copilot chat。',
 };
 
 const dictionaries: Record<DashboardLocale, DashboardMessages> = { en, zh };

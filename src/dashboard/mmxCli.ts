@@ -520,68 +520,77 @@ export async function readMmxCliStatus(
 // ---- mutating operations ----------------------------------------------
 
 /**
- * Globally install `mmx-cli` via npm. Opens a visible terminal so the
- * user can see the install progress and any npm warnings.
+ * The official install prompt from
+ *   platform.minimaxi.com/docs/token-plan/minimax-cli
+ * verbatim. We copy it to the user's clipboard so they can paste it
+ * into Copilot Chat (or any other AI agent) and have the agent run
+ * `npm install -g mmx-cli` for them — agents have richer terminal /
+ * package-manager access than our extension does (e.g. they can
+ * retry on a permission prompt, install MSVC build tools, etc.).
  *
- * On success, re-resolves the binary path and reports the new version.
- * Returns the command result even on failure so the caller can show the
- * captured stderr to the user.
+ * The prompt intentionally references the API key as a *placeholder*
+ * (`sk-xxxxx`) — step 2 (login) is the only step that needs the
+ * real key, and we run *that* step ourselves inside the extension
+ * (key stays in SecretStorage, never enters the chat).
  */
-export async function installMmxCli(
-	options: { log?: (msg: string) => void } = {},
-): Promise<MmxCliCommandResult & { newVersion?: string; binPath?: string }> {
-	const log = options.log ?? (() => {});
-	// Resolve npm *before* the install so the npm directory is in the
-	// PATH we hand to the child process. Without this, the user can
-	// hit the "npm not found on PATH" error we just fixed: npm
-	// itself is fine, but VS Code's inherited env doesn't see it.
-	const npm = await resolveNpmEnv();
-	if (!npm) {
-		return {
-			ok: false,
-			stdout: '',
-			stderr: '',
-			missing: true,
-			error:
-				'npm not found on PATH. Install Node.js (https://nodejs.org) and reload VS Code, then click "Re-check".',
-		};
-	}
-	log(`Running: ${npm.bin} install -g mmx-cli`);
-	const result = await run(
-		npm.bin,
-		['install', '-g', MMX_CLI_PACKAGE, '--no-audit', '--no-fund'],
-		{ timeoutMs: INSTALL_TIMEOUT_MS, env: npm.env },
-	);
-	if (!result.ok) {
-		return { ...result };
-	}
-	// `mmx` was just dropped into npm's bin dir; resolveMmxBin will
-	// find it there once we feed it the augmented PATH.
-	const mmx = await resolveMmxBinWithEnv(npm.env);
-	const newVersion = mmx ? await readMmxVersion(mmx) : null;
-	return {
-		...result,
-		newVersion: newVersion ?? undefined,
-		binPath: mmx ?? undefined,
-	};
+export function mmxInstallPrompt(): string {
+	return [
+		'请帮我接入 MiniMax CLI（https://github.com/MiniMax-AI/cli），按以下三步完成安装与配置：',
+		'',
+		'1. 全局安装 CLI：执行 `npm install -g mmx-cli`，完成后用 `mmx --version` 验证',
+		'2. 登录并配置 API Key：执行 `mmx auth login --api-key sk-xxxxx`；',
+		'3. 安装官方 SKILL：执行 `npx skills add MiniMax-AI/cli -y -g`',
+		'',
+		'完成后请执行 `mmx quota` 查看我的 Token Plan 余额，确认整体配置生效。',
+		'',
+		'(第 2 步的 API key 我已存到 VS Code SecretStorage，会在 mmx-cli 装好之后由 MiniMax 扩展代为登录，不需要你拿到 key。)',
+	].join('\n');
 }
 
 /**
- * Same as `resolveMmxBin` but the `where` / `which` child process
- * inherits an augmented PATH. Necessary on Windows when the install
- * just dropped `mmx.cmd` into `%AppData%\npm` — that dir is in the
- * augmented env, but not in the inherited one.
+ * Copy the official install prompt to the user's clipboard and open
+ * a new Copilot chat so they can paste and send it. This is the
+ * "step 1" of the mmx-cli flow that we **delegate to the agent**
+ * rather than executing ourselves — see [`mmxInstallPrompt`] for
+ * the rationale.
+ *
+ * The function is best-effort: clipboard write + chat open are both
+ * fire-and-forget, and the caller is expected to show a confirmation
+ * notification regardless of whether the chat actually opened (the
+ * prompt is on the clipboard either way).
  */
-async function resolveMmxBinWithEnv(
-	env: NodeJS.ProcessEnv,
-): Promise<string | null> {
-	const result = await run('where', ['mmx'], { timeoutMs: 5_000, env });
-	if (!result.ok) return null;
-	const first = result.stdout
-		.split(/\r?\n/)
-		.map((line) => line.trim())
-		.find((line) => line.length > 0);
-	return first ?? null;
+export interface CopyPromptResult {
+	/** True when the clipboard write succeeded. */
+	copied: boolean;
+	/** True when a Copilot chat was opened (we don't strictly need to succeed). */
+	chatOpened: boolean;
+	/** The prompt text that was put on the clipboard, for the UI to display. */
+	prompt: string;
+}
+
+/**
+ * Thin wrapper around `vscode.env.clipboard.writeText` and the
+ * `workbench.action.chat.openNewChatEditor` command. We don't take
+ * a hard dependency on the chat command being available — some
+ * remote / flatpak builds strip it — so we treat it as best-effort.
+ */
+export async function copyMmxInstallPromptToChat(): Promise<CopyPromptResult> {
+	const prompt = mmxInstallPrompt();
+	let copied = false;
+	let chatOpened = false;
+	try {
+		await vscode.env.clipboard.writeText(prompt);
+		copied = true;
+	} catch {
+		copied = false;
+	}
+	try {
+		await vscode.commands.executeCommand('workbench.action.chat.openNewChatEditor');
+		chatOpened = true;
+	} catch {
+		chatOpened = false;
+	}
+	return { copied, chatOpened, prompt };
 }
 
 /**

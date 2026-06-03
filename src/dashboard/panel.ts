@@ -23,7 +23,7 @@ import {
 	type DashboardMessages,
 } from './messages';
 import { buildDashboardView, type PlanCache } from './aggregator';
-import { installBundledMmxSkill, installMmxCli, installMmxSkill, loginMmxCli, readMmxCliStatus, type MmxCliStatus } from './mmxCli';
+import { copyMmxInstallPromptToChat, installBundledMmxSkill, installMmxSkill, loginMmxCli, readMmxCliStatus, type MmxCliStatus } from './mmxCli';
 import type { DashboardView } from './types';
 
 export interface DashboardPanelDeps {
@@ -211,9 +211,11 @@ export class DashboardPanel {
 				}
 				return;
 			}
-			case 'mmxInstall': {
-				await handleMmxInstall(this.deps.extensionUri, this.state.locale);
-				await this.refresh();
+			case 'mmxOpenChat': {
+				await handleMmxOpenChat(this.state.locale);
+				// Don't auto-refresh: the user still needs to send the
+				// prompt in chat. They'll click "Re-check" (or close
+				// and reopen the dashboard) once mmx is installed.
 				return;
 			}
 			case 'mmxLogin': {
@@ -907,7 +909,12 @@ footer {
 
 		const buttons = [];
 		if (install !== 'installed') {
-			buttons.push('<button data-action="mmx-install" class="primary">' + escapeHtml(i18n.mmxInstallBtn) + '</button>');
+			// Step 1 - we do not run the npm install ourselves.
+			// Instead we copy the official three-step prompt to the
+			// clipboard and open a new Copilot chat so the agent can
+			// drive the install (agents have richer package-manager
+			// access than an extension does).
+			buttons.push('<button data-action="mmx-open-chat" class="primary">' + escapeHtml(i18n.mmxOpenChatBtn) + '</button>');
 		} else {
 			if (auth !== 'loggedIn') {
 				buttons.push('<button data-action="mmx-login" class="primary">' + escapeHtml(i18n.mmxLoginBtn) + '</button>');
@@ -959,7 +966,7 @@ footer {
 		if (action === 'refresh') vscode.postMessage({ type: 'refresh' });
 		else if (action === 'close') vscode.postMessage({ type: 'close' });
 		else if (action === 'reset') vscode.postMessage({ type: 'reset' });
-		else if (action === 'mmx-install') vscode.postMessage({ type: 'mmxInstall' });
+		else if (action === 'mmx-open-chat') vscode.postMessage({ type: 'mmxOpenChat' });
 		else if (action === 'mmx-login') vscode.postMessage({ type: 'mmxLogin' });
 		else if (action === 'mmx-install-skill') vscode.postMessage({ type: 'mmxInstallSkill' });
 		else if (action === 'mmx-recheck') vscode.postMessage({ type: 'mmxRecheck' });
@@ -1013,39 +1020,31 @@ function escapeHtml(value: string): string {
 // sees a spinner. The login + skill-install paths are quick and don't
 // need the spinner.
 
-async function handleMmxInstall(
-	extensionUri: vscode.Uri,
+async function handleMmxOpenChat(
 	locale: DashboardLocale,
 ): Promise<void> {
-	const messages = dashboardMessages(locale);
-	await vscode.window.withProgress(
-		{
-			location: vscode.ProgressLocation.Notification,
-			title: t('mmx.installProgress'),
-			cancellable: false,
-		},
-		async (progress) => {
-			progress.report({ message: 'npm install -g mmx-cli …' });
-			const result = await installMmxCli({ log: (m) => logger.info(`[mmx-cli] ${m}`) });
-			if (!result.ok) {
-				logger.warn('mmx-cli install failed', result.error);
-				const detail = result.stderr || result.error || 'unknown error';
-				vscode.window.showErrorMessage(t('mmx.installFailed', detail));
-				return;
-			}
-			progress.report({ message: 'Installed.', increment: 100 });
-			vscode.window.showInformationMessage(
-				result.newVersion
-					? t('mmx.installedWithVersion', result.newVersion)
-					: t('mmx.installed'),
-			);
-			// Touch extensionUri so the linter doesn't warn — also useful
-			// if we ever decide to switch the default install source to
-			// the bundled SKILL.md as a follow-up.
-			void extensionUri;
-			void messages;
-		},
+	const result = await copyMmxInstallPromptToChat();
+	if (!result.copied) {
+		// Clipboard failed (rare — sandboxed builds, missing permission).
+		// Fall back to showing the prompt in a quick-pick so the user
+		// can still copy it by hand.
+		const choice = await vscode.window.showWarningMessage(
+			t('mmx.copyFailed'),
+			t('mmx.copyFallback'),
+		);
+		if (choice === t('mmx.copyFallback')) {
+			await vscode.env.clipboard.writeText(result.prompt);
+			vscode.window.showInformationMessage(t('mmx.copyOk'));
+		}
+		return;
+	}
+	// Tell the user what just happened + how to finish.
+	vscode.window.showInformationMessage(
+		result.chatOpened
+			? t('mmx.promptCopiedChatOpened')
+			: t('mmx.promptCopiedChatUnavailable'),
 	);
+	void locale;
 }
 
 async function handleMmxLogin(
