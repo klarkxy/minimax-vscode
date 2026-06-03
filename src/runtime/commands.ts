@@ -9,13 +9,7 @@ import { createUsageStore, type UsageStore } from '../usage';
 import { DashboardPanel } from '../dashboard/panel';
 import { createPlanStatusBar, type PlanStatusBar } from '../dashboard/planStatusBar';
 import { createPlanCache, type PlanCache } from '../dashboard/aggregator';
-import {
-	copyMmxInstallPromptToChat,
-	installBundledMmxSkill,
-	installMmxSkill,
-	loginMmxCli,
-	readMmxCliStatus,
-} from '../dashboard/mmxCli';
+import { copyMmxInstallPrompt } from '../dashboard/mmxCli';
 import type { ChatTurnNotifier } from '../dashboard/chatTurnNotifier';
 
 let cachedContext: vscode.ExtensionContext | undefined;
@@ -144,46 +138,32 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 			void refreshPlanKeyState();
 		}),
 		vscode.commands.registerCommand('minimax.installMmxCli', () => {
-			// We don't run `npm install -g mmx-cli` ourselves —
-			// instead we copy the official three-step prompt to the
-			// clipboard and open a new Copilot chat, so the agent
-			// can drive the install (richer package-manager access
-			// than an extension has). Steps 2 (login) and 3 (skill)
-			// are still done by us via the dashboard buttons — that
-			// way the API key never leaves the extension process.
-			void openMmxInstallInCopilot();
+			// Detection only — we never install, never log in, never
+			// install the SKILL. The only thing this command does
+			// is copy the official three-step prompt from the docs
+			// to the clipboard, in the language that matches the
+			// configured endpoint. The user decides what to do
+			// next (paste it into a chat, run the commands in a
+			// terminal, etc.).
+			void copyMmxInstallPromptForCommand();
 		}),
 	);
 }
 
 /**
- * Command-palette entry for `MiniMax: Install mmx-cli`. The flow is
- * intentionally narrow: it only does the step the extension **can't**
- * safely do on its own (running `npm install -g mmx-cli`, which on
- * some Windows hosts needs an interactive UAC prompt that an
- * extension cannot show). Everything else — login, SKILL install —
- * stays inside the extension and is reachable from the dashboard
- * buttons that the user will see immediately after the install
- * completes.
+ * Command-palette entry for `MiniMax: Install mmx-cli`. Just copies
+ * the official three-step prompt from the docs to the clipboard, in
+ * the language matching the configured endpoint (`china` → 简体中文,
+ * otherwise → English). The user is fully in control of what to do
+ * with the prompt next.
  */
-async function openMmxInstallInCopilot(): Promise<void> {
-	const result = await copyMmxInstallPromptToChat();
+async function copyMmxInstallPromptForCommand(): Promise<void> {
+	const result = await copyMmxInstallPrompt(detectHost());
 	if (!result.copied) {
-		const choice = await vscode.window.showWarningMessage(
-			t('mmx.copyFailed'),
-			t('mmx.copyFallback'),
-		);
-		if (choice === t('mmx.copyFallback')) {
-			await vscode.env.clipboard.writeText(result.prompt);
-			vscode.window.showInformationMessage(t('mmx.copyOk'));
-		}
+		vscode.window.showErrorMessage(t('mmx.copyFailed'));
 		return;
 	}
-	vscode.window.showInformationMessage(
-		result.chatOpened
-			? t('mmx.promptCopiedChatOpened')
-			: t('mmx.promptCopiedChatUnavailable'),
-	);
+	vscode.window.showInformationMessage(t('mmx.promptCopied'));
 }
 
 function detectHost(): 'china' | 'global' {

@@ -43,7 +43,7 @@ export interface DashboardMessages {
 	window7d: string;
 	window30d: string;
 	platformModelHeader: string;
-	// ---- mmx-cli ----
+	// ---- mmx-cli (detection only) ----
 	mmxSectionTitle: string;
 	mmxSubtitle: string;
 	mmxInstalled: string;
@@ -54,16 +54,13 @@ export interface DashboardMessages {
 	mmxAuthUnknown: string;
 	mmxSkillInstalled: string;
 	mmxSkillMissing: string;
-	mmxInstallBtn: string;
-	mmxOpenChatBtn: string;
-	mmxLoginBtn: string;
-	mmxInstallSkillBtn: string;
+	mmxCopyPromptBtn: string;
 	mmxRecheckBtn: string;
 	mmxAgentReady: string;
 	mmxAgentNotReady: string;
 	mmxCommandLabel: string;
-	mmxViewDocs: string;
-	mmxStep1Hint: string;
+	mmxAuthLabel: string;
+	mmxSkillLabel: string;
 }
 
 const en: DashboardMessages = {
@@ -109,7 +106,7 @@ const en: DashboardMessages = {
 	// mmx-cli
 	mmxSectionTitle: 'mmx-cli (multimodal Token Plan)',
 	mmxSubtitle:
-		'Optional companion CLI that gives your agent full multimodal capabilities: image, video, music, speech, vision, and web search — all billed against the same Token Plan API key.',
+		'Status of the official mmx CLI and its agent SKILL. The extension only reports these; the user (or their AI agent) drives the install themselves. The "Copy prompt" button puts the verbatim three-step prompt from the official docs on the clipboard.',
 	mmxInstalled: 'Installed',
 	mmxMissing: 'Not installed',
 	mmxVersion: 'Version',
@@ -118,16 +115,13 @@ const en: DashboardMessages = {
 	mmxAuthUnknown: 'Auth unknown',
 	mmxSkillInstalled: 'Agent skill ready',
 	mmxSkillMissing: 'Agent skill not installed',
-	mmxInstallBtn: 'Install mmx-cli',
-	mmxOpenChatBtn: 'Open install prompt in Copilot',
-	mmxLoginBtn: 'Login with API key',
-	mmxInstallSkillBtn: 'Install agent skill',
+	mmxCopyPromptBtn: 'Copy official install prompt',
 	mmxRecheckBtn: 'Re-check',
 	mmxAgentReady: 'Your agent can use mmx-cli capabilities (image / video / music / speech / vision / search).',
-	mmxAgentNotReady: 'Finish the steps below to enable multimodal capabilities for your agent.',
+	mmxAgentNotReady: 'mmx-cli is installed but the agent skill is not — your agent can call mmx once the skill is in place.',
 	mmxCommandLabel: 'CLI',
-	mmxViewDocs: 'Docs',
-	mmxStep1Hint: 'We delegate this step to your AI agent — agents have richer package-manager access than an extension does. Click the button to copy the official prompt and open a new Copilot chat.',
+	mmxAuthLabel: 'mmx auth',
+	mmxSkillLabel: 'agent skill',
 };
 
 const zh: DashboardMessages = {
@@ -173,7 +167,7 @@ const zh: DashboardMessages = {
 	// mmx-cli
 	mmxSectionTitle: 'mmx-cli（多模态 Token Plan）',
 	mmxSubtitle:
-		'可选的官方命令行工具，让你的 Agent 直接使用图像、视频、音乐、语音、视觉理解与网络检索等全部多模态能力——共用同一个 Token Plan API Key。',
+		'官方 mmx CLI 和其 Agent SKILL 的状态。本扩展只负责显示状态——安装操作由用户（或用户的 AI Agent）自己完成。点击"复制官方安装指令"即可把官方文档原版三步指令复制到剪贴板。',
 	mmxInstalled: '已安装',
 	mmxMissing: '未安装',
 	mmxVersion: '版本',
@@ -182,16 +176,13 @@ const zh: DashboardMessages = {
 	mmxAuthUnknown: '登录状态未知',
 	mmxSkillInstalled: 'Agent skill 已就绪',
 	mmxSkillMissing: 'Agent skill 未安装',
-	mmxInstallBtn: '安装 mmx-cli',
-	mmxOpenChatBtn: '在 Copilot 中打开安装指令',
-	mmxLoginBtn: '使用 API Key 登录',
-	mmxInstallSkillBtn: '安装 Agent skill',
+	mmxCopyPromptBtn: '复制官方安装指令',
 	mmxRecheckBtn: '重新检测',
 	mmxAgentReady: '你的 Agent 已可使用 mmx-cli 的多模态能力（图、视频、音乐、语音、视觉、搜索）。',
-	mmxAgentNotReady: '完成下方步骤后，Agent 即可调用多模态能力。',
+	mmxAgentNotReady: 'mmx-cli 已装但 Agent skill 还没装——装好之后 Agent 就能直接调用 mmx。',
 	mmxCommandLabel: '命令行',
-	mmxViewDocs: '官方文档',
-	mmxStep1Hint: '我们把这步交给你的 AI Agent——它拥有比扩展更完整的包管理器访问能力。点击按钮即可复制官方指令，并打开一个新的 Copilot chat。',
+	mmxAuthLabel: 'mmx 登录',
+	mmxSkillLabel: 'Agent skill',
 };
 
 const dictionaries: Record<DashboardLocale, DashboardMessages> = { en, zh };

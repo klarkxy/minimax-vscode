@@ -2,6 +2,32 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.1.6 — mmx-cli：只探测 + 端点对应的官方指令
+
+Dashboard 退回最小可用形态：本扩展**只**探测 mmx-cli 的三个状态
+（PATH 上的可执行文件、`mmx auth` 是否登录、Agent SKILL 是否安装），
+**不**替用户执行 `npm install -g` / `mmx auth login` / `npx skills add`
+中的任何一步——所有装包操作由用户（或用户的 AI Agent）在扩展之外完成。
+
+mmx-cli 板块唯一保留的动作是"复制官方三步安装指令到剪贴板"，**语言
+随端点配置自动选择**（`minimaxi.com` → 简体中文，否则 → English）。
+prompt 里只含 `sk-xxxxx` 占位符，粘贴前用户自己把 Token Plan Key
+填进去（或直接在终端里跑这三条命令）。
+
+这一版同时删掉了扩展内的 `npm install -g` / `mmx auth login` /
+`npx skills add` 路径——这些调用在 Windows 上一直踩"command not
+found"类型的坑（npm `PATHEXT`、PATH 没刷新、扩展无法响应的 UAC
+弹窗），既然用户已经是安装的实际执行者，扩展就不必再绕这一圈了。
+
+### 验证
+
+- TypeScript clean (`tsc -p ./ --noEmit`)
+- 单元测试：**78/78 pass**（重写后的测试断言：locale-aware 的
+  prompt 按 `china` / `global` 返回中文/英文，且 prompt 里不含任何
+  真实 key token）
+- 冒烟：`mmxInstallPrompt('china')` 和 `mmxInstallPrompt('global')`
+  返回的字符串与官方文档原版一致
+
 ## 2.1.5 — mmx-cli 安装：把 `npm install -g` 交给 Copilot Chat
 
 把扩展内"代跑 `npm install -g mmx-cli`"换成"复制官方指令到剪贴板 +

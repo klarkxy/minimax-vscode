@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.1.6 — mmx-cli: detection-only, locale-aware install prompt
+
+Reverts the dashboard to the minimal possible surface: the
+extension only **detects** the three mmx-cli states (binary on
+PATH, `mmx auth` logged in, agent SKILL installed). It does **not**
+install the CLI, log in, or install the SKILL — the user (or their
+AI agent) drives all three steps from outside the extension.
+
+The one and only user-facing action in the mmx-cli section is now
+"Copy the official three-step install prompt to the clipboard" in
+the language matching the configured endpoint (China → 简体中文,
+otherwise → English). The prompt contains the API key only as the
+literal `sk-xxxxx` placeholder; the user fills in their real key
+themselves before pasting it into a chat (or, if they prefer, just
+runs the three commands in a terminal).
+
+This also drops the in-extension `npm install -g` / `mmx auth login`
+/ `npx skills add` code paths, which had a recurring class of
+"command not found" failures on Windows (npm `PATHEXT`, missing
+PATH, UAC prompts that extensions can't show) and were redundant
+once we already had the user (or their agent) as the install
+driver.
+
+### Verification
+
+- TypeScript clean (`tsc -p ./ --noEmit`)
+- Unit tests: **78/78 pass** (rewritten to assert the locale-aware
+  prompt returns the Chinese / English text and contains no
+  real-looking key tokens)
+- Smoke test: `mmxInstallPrompt('china')` and `mmxInstallPrompt('global')`
+  return the verbatim prompts from the official docs
+
 ## 2.1.5 — mmx-cli install: delegate `npm install -g` to Copilot Chat
 
 Replaces the in-extension `npm install -g mmx-cli` step with a

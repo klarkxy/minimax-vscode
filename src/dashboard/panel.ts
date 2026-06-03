@@ -23,7 +23,7 @@ import {
 	type DashboardMessages,
 } from './messages';
 import { buildDashboardView, type PlanCache } from './aggregator';
-import { copyMmxInstallPromptToChat, installBundledMmxSkill, installMmxSkill, loginMmxCli, readMmxCliStatus, type MmxCliStatus } from './mmxCli';
+import { copyMmxInstallPrompt, type MmxCliStatus } from './mmxCli';
 import type { DashboardView } from './types';
 
 export interface DashboardPanelDeps {
@@ -211,21 +211,8 @@ export class DashboardPanel {
 				}
 				return;
 			}
-			case 'mmxOpenChat': {
-				await handleMmxOpenChat(this.state.locale);
-				// Don't auto-refresh: the user still needs to send the
-				// prompt in chat. They'll click "Re-check" (or close
-				// and reopen the dashboard) once mmx is installed.
-				return;
-			}
-			case 'mmxLogin': {
-				await handleMmxLogin(this.deps.auth, this.state.locale);
-				await this.refresh();
-				return;
-			}
-			case 'mmxInstallSkill': {
-				await handleMmxInstallSkill(this.deps.extensionUri, this.state.locale);
-				await this.refresh();
+			case 'mmxCopyPrompt': {
+				await handleMmxCopyPrompt(this.deps.host ?? 'global', this.state.locale);
 				return;
 			}
 			case 'mmxRecheck': {
@@ -908,22 +895,13 @@ footer {
 		}).join('');
 
 		const buttons = [];
-		if (install !== 'installed') {
-			// Step 1 - we do not run the npm install ourselves.
-			// Instead we copy the official three-step prompt to the
-			// clipboard and open a new Copilot chat so the agent can
-			// drive the install (agents have richer package-manager
-			// access than an extension does).
-			buttons.push('<button data-action="mmx-open-chat" class="primary">' + escapeHtml(i18n.mmxOpenChatBtn) + '</button>');
-		} else {
-			if (auth !== 'loggedIn') {
-				buttons.push('<button data-action="mmx-login" class="primary">' + escapeHtml(i18n.mmxLoginBtn) + '</button>');
-			}
-			if (skill !== 'installed') {
-				buttons.push('<button data-action="mmx-install-skill" class="primary">' + escapeHtml(i18n.mmxInstallSkillBtn) + '</button>');
-			}
-			buttons.push('<button data-action="mmx-recheck">' + escapeHtml(i18n.mmxRecheckBtn) + '</button>');
-		}
+		// The extension only does detection - it never installs the
+		// CLI, never runs mmx auth login, and never installs the
+		// SKILL. The only user-facing action here is "Copy the
+		// official three-step prompt" (in the right language for
+		// the configured endpoint) and "Re-check" to re-probe.
+		buttons.push('<button data-action="mmx-copy-prompt" class="primary">' + escapeHtml(i18n.mmxCopyPromptBtn) + '</button>');
+		buttons.push('<button data-action="mmx-recheck">' + escapeHtml(i18n.mmxRecheckBtn) + '</button>');
 
 		const readyNote = mmx.agentReady
 			? '<div class="mmx-ready ok">' + escapeHtml(i18n.mmxAgentReady) + '</div>'
@@ -966,9 +944,7 @@ footer {
 		if (action === 'refresh') vscode.postMessage({ type: 'refresh' });
 		else if (action === 'close') vscode.postMessage({ type: 'close' });
 		else if (action === 'reset') vscode.postMessage({ type: 'reset' });
-		else if (action === 'mmx-open-chat') vscode.postMessage({ type: 'mmxOpenChat' });
-		else if (action === 'mmx-login') vscode.postMessage({ type: 'mmxLogin' });
-		else if (action === 'mmx-install-skill') vscode.postMessage({ type: 'mmxInstallSkill' });
+		else if (action === 'mmx-copy-prompt') vscode.postMessage({ type: 'mmxCopyPrompt' });
 		else if (action === 'mmx-recheck') vscode.postMessage({ type: 'mmxRecheck' });
 	});
 	window.addEventListener('message', function (event) {
@@ -1020,102 +996,21 @@ function escapeHtml(value: string): string {
 // sees a spinner. The login + skill-install paths are quick and don't
 // need the spinner.
 
-async function handleMmxOpenChat(
+async function handleMmxCopyPrompt(
+	host: 'china' | 'global',
 	locale: DashboardLocale,
 ): Promise<void> {
-	const result = await copyMmxInstallPromptToChat();
+	// The extension does not install anything, log in, or run any
+	// shell command on the user's behalf here. It just copies the
+	// verbatim prompt from the official MiniMax docs to the
+	// clipboard, in the language matching the configured endpoint.
+	// The user is fully in control of what they do with the prompt
+	// next (paste it into a chat, run the commands themselves, etc.).
+	void locale;
+	const result = await copyMmxInstallPrompt(host);
 	if (!result.copied) {
-		// Clipboard failed (rare — sandboxed builds, missing permission).
-		// Fall back to showing the prompt in a quick-pick so the user
-		// can still copy it by hand.
-		const choice = await vscode.window.showWarningMessage(
-			t('mmx.copyFailed'),
-			t('mmx.copyFallback'),
-		);
-		if (choice === t('mmx.copyFallback')) {
-			await vscode.env.clipboard.writeText(result.prompt);
-			vscode.window.showInformationMessage(t('mmx.copyOk'));
-		}
+		vscode.window.showErrorMessage(t('mmx.copyFailed'));
 		return;
 	}
-	// Tell the user what just happened + how to finish.
-	vscode.window.showInformationMessage(
-		result.chatOpened
-			? t('mmx.promptCopiedChatOpened')
-			: t('mmx.promptCopiedChatUnavailable'),
-	);
-	void locale;
-}
-
-async function handleMmxLogin(
-	auth: AuthManager,
-	locale: DashboardLocale,
-): Promise<void> {
-	const apiKey = await auth.getApiKey();
-	if (!apiKey) {
-		const choice = await vscode.window.showWarningMessage(
-			t('mmx.loginRequiresKey'),
-			t('mmx.setApiKey'),
-		);
-		if (choice === t('mmx.setApiKey')) {
-			await vscode.commands.executeCommand('minimax.setApiKey');
-		}
-		return;
-	}
-	const status = await readMmxCliStatus();
-	if (status.install !== 'installed' || !status.binPath) {
-		vscode.window.showWarningMessage(t('mmx.loginRequiresInstall'));
-		return;
-	}
-	const result = await loginMmxCli(apiKey, status.binPath);
-	if (!result.ok) {
-		logger.warn('mmx-cli login failed', result.error);
-		vscode.window.showErrorMessage(t('mmx.loginFailed', result.stderr || result.error || 'unknown'));
-		return;
-	}
-	vscode.window.showInformationMessage(t('mmx.loginOk'));
-	void locale;
-}
-
-async function handleMmxInstallSkill(
-	extensionUri: vscode.Uri,
-	locale: DashboardLocale,
-): Promise<void> {
-	await vscode.window.withProgress(
-		{
-			location: vscode.ProgressLocation.Notification,
-			title: t('mmx.skillProgress'),
-			cancellable: false,
-		},
-		async (progress) => {
-			progress.report({ message: 'npx skills add MiniMax-AI/cli -y -g …' });
-			const result = await installMmxSkill({
-				log: (m) => logger.info(`[mmx-cli skill] ${m}`),
-				extensionUri,
-			});
-			if (!result.ok) {
-				logger.warn('mmx-cli skill install failed', result.error);
-				// Last-ditch fallback: copy the bundled SKILL.md directly.
-				progress.report({ message: 'Falling back to bundled SKILL.md …' });
-				const fallback = await installBundledMmxSkill(extensionUri);
-				if (fallback.ok) {
-					vscode.window.showInformationMessage(
-						t('mmx.skillInstalledBundled', fallback.installedAt ?? ''),
-					);
-					return;
-				}
-				vscode.window.showErrorMessage(
-					t('mmx.skillFailed', result.stderr || result.error || 'unknown'),
-				);
-				return;
-			}
-			const source = result.source === 'bundled' ? 'bundled' : 'npx';
-			vscode.window.showInformationMessage(
-				source === 'bundled'
-					? t('mmx.skillInstalledBundled', result.installedAt ?? '')
-					: t('mmx.skillInstalled'),
-			);
-			void locale;
-		},
-	);
+	vscode.window.showInformationMessage(t('mmx.promptCopied'));
 }

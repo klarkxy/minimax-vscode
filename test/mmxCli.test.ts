@@ -1,29 +1,27 @@
-// Unit tests for the mmx-cli detection / install helpers.
+// Unit tests for the mmx-cli detection helpers + the official
+// install prompt helper.
 //
-// We don't actually shell out to npm / npx / mmx in tests — the
-// helpers in src/dashboard/mmxCli.ts use `node:child_process` and
-// are tested indirectly by running the unit-test sandbox where
-// `mmx` is not on PATH (so the "missing" branch is the canonical
-// result we assert on).
+// The detection functions shell out to `where mmx` (Windows) /
+// `which mmx` (POSIX) and to `mmx auth status` / `mmx --version`.
+// In the test sandbox `mmx` is not on PATH, so the "missing" branch
+// is the canonical result we assert on.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
 
 import {
-	buildAugmentedPathEnv,
 	candidateSkillDirs,
 	extractVersion,
 	mmxInstallPrompt,
 	readMmxCliStatus,
 	readMmxSkillState,
 	readMmxVersion,
-	resolveNpmBin,
-	resolveNpmEnv,
-	_resetNpmResolutionCacheForTests,
 } from '../src/dashboard/mmxCli.js';
+
+// --- extractVersion ---------------------------------------------------
 
 test('extractVersion: pulls X.Y.Z out of --version output', () => {
 	assert.equal(extractVersion('mmx 1.2.3'), '1.2.3');
@@ -36,10 +34,12 @@ test('extractVersion: falls back to the first line when no semver token', () => 
 	assert.equal(extractVersion(''), null);
 });
 
+// --- candidateSkillDirs -----------------------------------------------
+
 test('candidateSkillDirs: returns the standard install locations', () => {
 	const dirs = candidateSkillDirs('/home/test');
-	// Use path.join to build the expected values so the assertion is
-	// platform-agnostic (path.join uses backslashes on Windows).
+	// path.join uses backslashes on Windows; build the expected list
+	// the same way so the assertion is platform-agnostic.
 	const expected = [
 		join('/home/test', '.claude', 'skills', 'minimax-cli'),
 		join('/home/test', '.copilot', 'skills', 'minimax-cli'),
@@ -47,6 +47,8 @@ test('candidateSkillDirs: returns the standard install locations', () => {
 	];
 	assert.deepEqual(dirs, expected);
 });
+
+// --- readMmxSkillState -----------------------------------------------
 
 test('readMmxSkillState: missing when no SKILL.md is present', async () => {
 	const home = mkdtempSync(join(tmpdir(), 'mmx-test-'));
@@ -58,10 +60,9 @@ test('readMmxSkillState: missing when no SKILL.md is present', async () => {
 	}
 });
 
-test('readMmxSkillState: installed when SKILL.md exists in any candidate', async () => {
+test('readMmxSkillState: installed when SKILL.md exists in .claude/', async () => {
 	const home = mkdtempSync(join(tmpdir(), 'mmx-test-'));
 	try {
-		// Drop a SKILL.md in the first candidate and confirm we find it.
 		const target = join(home, '.claude', 'skills', 'minimax-cli');
 		mkdirSync(target, { recursive: true });
 		writeFileSync(join(target, 'SKILL.md'), '# test');
@@ -85,110 +86,86 @@ test('readMmxSkillState: installed also matches the .copilot location', async ()
 	}
 });
 
+// --- readMmxVersion / readMmxCliStatus --------------------------------
+
 test('readMmxVersion: returns null when mmx is not on PATH', async () => {
-	// In the test sandbox mmx is not installed; execFile rejects with
-	// ENOENT and readMmxVersion should return null (not throw).
+	// In the test sandbox mmx is not installed; execFile rejects
+	// with ENOENT and readMmxVersion should return null (not throw).
 	const version = await readMmxVersion('mmx-definitely-not-on-path');
 	assert.equal(version, null);
 });
 
-test('readMmxCliStatus: missing install + notInstalled auth in the test sandbox', async () => {
+test('readMmxCliStatus: shape is well-formed in the test sandbox', async () => {
 	const status = await readMmxCliStatus();
-	// We're running under Node test runner without `mmx` on PATH.
-	assert.equal(status.install, 'missing');
-	assert.equal(status.binPath, null);
-	assert.equal(status.auth, 'notInstalled');
-	assert.equal(status.agentReady, false);
-});
-
-// --- npm resolution fallback ------------------------------------------
-
-test('buildAugmentedPathEnv: prepends the dir and uses the platform key', () => {
-	const win32 = buildAugmentedPathEnv('C:\\fake\\npm', { platformOverride: 'win32' });
-	assert.equal(win32['Path']?.startsWith('C:\\fake\\npm;'), true);
-	assert.equal(win32['PATH'], undefined);
-
-	const posix = buildAugmentedPathEnv('/usr/local/bin', { platformOverride: 'linux' });
-	assert.equal(posix['PATH']?.startsWith('/usr/local/bin:'), true);
-	assert.equal(posix['Path'], undefined);
-});
-
-test('buildAugmentedPathEnv: no-op when the dir is already on PATH', () => {
-	const win32 = buildAugmentedPathEnv('C:\\fake\\npm', {
-		platformOverride: 'win32',
-	});
-	// Pre-existing PATH in tests is some Windows path that does NOT
-	// contain our fake dir, so this should prepend. The follow-up
-	// call should NOT prepend again.
-	buildAugmentedPathEnv('C:\\fake\\npm', { platformOverride: 'win32' });
-	const second = buildAugmentedPathEnv('C:\\fake\\npm', { platformOverride: 'win32' });
-	assert.equal(second['Path']?.startsWith('C:\\fake\\npm;C:\\fake\\npm;'), false);
-	assert.equal(second['Path'], win32['Path']);
-});
-
-test('resolveNpmBin: returns the absolute .cmd/.exe path (so execFile bypasses PATHEXT)', async () => {
-	// On a normal Node install, `where npm` (Windows) / `which npm`
-	// (POSIX) returns the absolute path to npm. execFile() on Windows
-	// does NOT do PATHEXT resolution on its own — it tries the
-	// literal filename. Without this resolution, `execFile('npm', …)`
-	// fails with ENOENT even though `npm --version` works in the
-	// user's shell. So the regression we guard here is: the resolver
-	// must return a path that ends in the platform's executable
-	// extension (`.cmd` / `.exe` on Windows, nothing on POSIX).
-	_resetNpmResolutionCacheForTests();
-	const bin = await resolveNpmBin();
-	// The CI host has Node installed; on a real dev machine this is
-	// almost always true. Skip rather than flake on a barebones box.
-	if (!bin) return;
-	if (sep === '\\') {
-		assert.ok(/\.(cmd|exe|bat)$/i.test(bin), `expected .cmd/.exe suffix, got ${bin}`);
+	// The CI sandbox may or may not have mmx installed depending on
+	// the host machine, so we don't assert a specific install state.
+	// We do assert the shape: every field is one of the documented
+	// values, and agentReady is the correct boolean for the rest.
+	const installStates: ReadonlyArray<typeof status.install> = [
+		'unknown',
+		'installed',
+		'missing',
+	];
+	assert.ok(installStates.includes(status.install), `unexpected install=${status.install}`);
+	assert.equal(typeof status.version === 'string' || status.version === null, true);
+	assert.equal(typeof status.binPath === 'string' || status.binPath === null, true);
+	if (status.install === 'installed') {
+		assert.ok(status.binPath, 'binPath should be set when install=installed');
 	} else {
-		assert.ok(!/\.(cmd|exe|bat)$/i.test(bin), `POSIX path should not have a Windows suffix, got ${bin}`);
+		// When not installed, auth has to be notInstalled — the
+		// dashboard relies on this to skip the auth probe.
+		assert.equal(status.auth, 'notInstalled');
+	}
+	assert.equal(typeof status.agentReady, 'boolean');
+	// agentReady implies install=installed + auth=loggedIn + skill=installed
+	if (status.agentReady) {
+		assert.equal(status.install, 'installed');
+		assert.equal(status.auth, 'loggedIn');
+		assert.equal(status.skill, 'installed');
 	}
 });
 
-test('resolveNpmEnv: env object contains the bin parent dir on the platform PATH key', async () => {
-	_resetNpmResolutionCacheForTests();
-	const result = await resolveNpmEnv();
-	if (!result) return; // node not installed in the sandbox
-	const isWin = sep === '\\';
-	const key = isWin ? 'Path' : 'PATH';
-	const sepChar = isWin ? ';' : ':';
-	const segments = (result.env[key] ?? '').split(sepChar);
-	const dirOfBin = join(result.bin, '..');
-	const dot = '.';
-	const found =
-		segments.includes(dirOfBin) ||
-		segments.some((entry) => entry === dot && dirOfBin === dot);
-	assert.ok(
-		found,
-		`expected env.${key} to contain the bin dir ${dirOfBin}, got ${result.env[key]}`,
-	);
-});
+// --- mmxInstallPrompt (locale-aware) ----------------------------------
 
-// --- mmx install prompt -----------------------------------------------
-
-test('mmxInstallPrompt: contains the three official steps from the docs', () => {
-	const p = mmxInstallPrompt();
+test('mmxInstallPrompt(china): returns the Chinese prompt', () => {
+	const p = mmxInstallPrompt('china');
 	// Step 1 - npm install.
 	assert.match(p, /npm install -g mmx-cli/);
 	// Step 2 - mmx auth login with the placeholder key.
 	assert.match(p, /mmx auth login --api-key sk-xxxxx/);
 	// Step 3 - the official SKILL slug.
 	assert.match(p, /MiniMax-AI\/cli/);
-	// Should explicitly mention the dashboard/extension handles the
-	// login step so the user (and the agent reading the prompt) know
-	// the real key never needs to be typed into chat.
-	assert.match(p, /SecretStorage|扩展|extension/i);
+	// The Chinese version uses Chinese connective phrasing.
+	assert.match(p, /请帮我接入|全局安装|登录并配置|安装官方 SKILL/);
+});
+
+test('mmxInstallPrompt(global): returns the English prompt', () => {
+	const p = mmxInstallPrompt('global');
+	// Same canonical three steps.
+	assert.match(p, /npm install -g mmx-cli/);
+	assert.match(p, /mmx auth login --api-key sk-xxxxx/);
+	assert.match(p, /MiniMax-AI\/cli/);
+	// The English version uses English connectives.
+	assert.match(p, /Globally install the CLI/);
+	assert.match(p, /Login and configure the API Key/);
+	assert.match(p, /Install the official SKILL/);
 });
 
 test('mmxInstallPrompt: never contains a real-looking key', () => {
-	const p = mmxInstallPrompt();
-	// The prompt should only have the literal `sk-xxxxx` placeholder
-	// in the auth step. Any other `sk-` token of meaningful length
-	// is a leak.
-	const matches = p.match(/sk-[A-Za-z0-9_-]{4,}/g) ?? [];
-	for (const m of matches) {
-		assert.equal(m, 'sk-xxxxx', `unexpected key-like token in prompt: ${m}`);
+	for (const host of ['china', 'global'] as const) {
+		const p = mmxInstallPrompt(host);
+		// The prompt should only have the literal `sk-xxxxx`
+		// placeholder in the auth step. Any other `sk-` token of
+		// meaningful length is a leak.
+		const matches = p.match(/sk-[A-Za-z0-9_-]{4,}/g) ?? [];
+		for (const m of matches) {
+			assert.equal(m, 'sk-xxxxx', `unexpected key-like token in ${host} prompt: ${m}`);
+		}
 	}
+});
+
+test('mmxInstallPrompt: default locale is global (English)', () => {
+	const defaultPrompt = mmxInstallPrompt();
+	const explicitGlobal = mmxInstallPrompt('global');
+	assert.equal(defaultPrompt, explicitGlobal);
 });

@@ -128,28 +128,10 @@ const zh: Translations = {
 	'status.lastUsage': '最近一次请求输入 {0} token、输出 {1} token。',
 	'status.usageEmpty': '尚未发起任何请求。',
 
-	// mmx-cli
-	'mmx.installProgress': '正在安装 mmx-cli …',
-	'mmx.installed': 'mmx-cli 安装完成。',
-	'mmx.installedWithVersion': 'mmx-cli 已安装（v{0}）。',
-	'mmx.installFailed': 'mmx-cli 安装失败：{0}',
-	'mmx.installBtn': '安装',
-	'mmx.reloadWindow': '重新加载窗口',
-	'mmx.openChatBtn': '在 Copilot 中打开',
-	'mmx.promptCopiedChatOpened': '安装指令已复制。Copilot 新聊天已打开——粘贴（Ctrl/Cmd+V）后发送即可。',
-	'mmx.promptCopiedChatUnavailable': '安装指令已复制。在任意 AI Agent（Copilot / Claude Code / Cursor）打开 chat 后粘贴（Ctrl/Cmd+V）即可。',
+	// mmx-cli — the extension only copies the official install
+	// prompt to the clipboard. The user decides what to do next.
+	'mmx.promptCopied': '官方安装指令已复制到剪贴板。',
 	'mmx.copyFailed': '写入剪贴板失败。',
-	'mmx.copyFallback': '复制指令到剪贴板',
-	'mmx.copyOk': '指令已复制到剪贴板。',
-	'mmx.loginRequiresKey': '登录 mmx-cli 前需要先配置 Token Plan API Key。',
-	'mmx.setApiKey': '设置 API Key',
-	'mmx.loginRequiresInstall': '请先安装 mmx-cli。',
-	'mmx.loginOk': 'mmx-cli 登录成功。',
-	'mmx.loginFailed': 'mmx-cli 登录失败：{0}',
-	'mmx.skillProgress': '正在安装 Agent skill …',
-	'mmx.skillInstalled': 'Agent skill 安装完成。',
-	'mmx.skillInstalledBundled': '已通过内置 SKILL.md 安装到 {0}。',
-	'mmx.skillFailed': 'Agent skill 安装失败：{0}',
 };
 
 const en: Translations = {
@@ -266,28 +248,10 @@ const en: Translations = {
 	'status.lastUsage': 'Last request used input {0} tokens, output {1} tokens.',
 	'status.usageEmpty': 'No requests have been made yet.',
 
-	// mmx-cli
-	'mmx.installProgress': 'Installing mmx-cli…',
-	'mmx.installed': 'mmx-cli installed.',
-	'mmx.installedWithVersion': 'mmx-cli installed (v{0}).',
-	'mmx.installFailed': 'mmx-cli install failed: {0}',
-	'mmx.installBtn': 'Install',
-	'mmx.reloadWindow': 'Reload Window',
-	'mmx.openChatBtn': 'Open in Copilot',
-	'mmx.promptCopiedChatOpened': 'Install prompt copied. A new Copilot chat is open — paste (Ctrl/Cmd+V) and send.',
-	'mmx.promptCopiedChatUnavailable': 'Install prompt copied. Open a chat in any AI agent (Copilot, Claude Code, Cursor) and paste (Ctrl/Cmd+V) the prompt.',
+	// mmx-cli — the extension only copies the official install
+	// prompt to the clipboard. The user decides what to do next.
+	'mmx.promptCopied': 'Official install prompt copied to clipboard.',
 	'mmx.copyFailed': 'Could not write to clipboard.',
-	'mmx.copyFallback': 'Copy prompt to clipboard',
-	'mmx.copyOk': 'Prompt copied to clipboard.',
-	'mmx.loginRequiresKey': 'Configure a Token Plan API key before logging in to mmx-cli.',
-	'mmx.setApiKey': 'Set API Key',
-	'mmx.loginRequiresInstall': 'Install mmx-cli first.',
-	'mmx.loginOk': 'mmx-cli logged in.',
-	'mmx.loginFailed': 'mmx-cli login failed: {0}',
-	'mmx.skillProgress': 'Installing agent skill…',
-	'mmx.skillInstalled': 'Agent skill installed.',
-	'mmx.skillInstalledBundled': 'Bundled SKILL.md installed to {0}.',
-	'mmx.skillFailed': 'Agent skill install failed: {0}',
 };
 
 const dictionaries: Record<'en' | 'zh', Translations> = { en, zh };

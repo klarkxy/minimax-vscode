@@ -18,7 +18,7 @@ API Key 就能直接用。
 - **Git commit message 生成**，挂在 SCM 输入框上。默认 Conventional Commits + gitmoji 风格，会把已有草稿当作「待润色」输入。
 - **按模型微调采样参数**（`temperature` / `topK` 等），不用改代码。
 - **累计用量统计**（输入 / 输出 / 缓存读取 token 跨会话累加），有专门的状态命令查看。
-- **用量面板**：状态栏入口加 `MiniMax: 打开用量面板` 命令，能看今日 / 近 7 日 / 近 30 日 token、30 日柱状图、按模型拆分，以及平台 `coding_plan/remains` 给的 5h 重置 / 周限额 / 套餐到期。未配 API Key 时降级为只显示本地数据。面板底部有一个 **mmx-cli** 板块，可以检测 / 安装官方 [`mmx`](https://github.com/MiniMax-AI/cli) 多模态命令行以及对应的 Agent SKILL，装好之后 Agent 就能用同一把 Token Plan Key 调用图像 / 视频 / 音乐 / 语音 / 视觉 / 搜索。
+- **用量面板**：状态栏入口加 `MiniMax: 打开用量面板` 命令，能看今日 / 近 7 日 / 近 30 日 token、30 日柱状图、按模型拆分，以及平台 `coding_plan/remains` 给的 5h 重置 / 周限额 / 套餐到期。未配 API Key 时降级为只显示本地数据。面板底部有一个 **mmx-cli** 板块，仅显示官方 [`mmx`](https://github.com/MiniMax-AI/cli) 多模态命令行的探测状态——装包、登录、装 SKILL 全部交由用户（或用户的 AI Agent）自己完成。
 - **诊断能力**：每个请求自动分类、缓存命中统计；verbose 模式下把完整请求 dump 到磁盘。
 - **双语 UI**（英文 + 简体中文），跟随 VS Code 显示语言自动切换。
 
@@ -101,7 +101,7 @@ API Key 就能直接用。
 | **MiniMax: Show Logs** | 聚焦 MiniMax 输出通道 |
 | **MiniMax: Open Request Dumps Folder** | 在文件管理器中打开请求 dump 目录 |
 | **MiniMax: 打开用量面板** | 打开用量 Dashboard（今日 / 7 日 / 30 日 token、模型拆分、30 日柱状图、平台 `coding_plan/remains` 数据） |
-| **MiniMax: 安装 mmx-cli（多模态 Token Plan 命令行）** | 检测 / 安装 `mmx-cli`，用已存的 Key 登录，并装好官方 Agent SKILL——和 [官方入门文档](https://platform.minimaxi.com/docs/token-plan/minimax-cli) 推荐的三步完全一致 |
+| **MiniMax: 复制 mmx-cli 官方安装指令** | 把 [官方入门文档](https://platform.minimaxi.com/docs/token-plan/minimax-cli) 原版的三步安装指令复制到剪贴板。语言随配置的端点（国内 → 简体中文，国际 → English）。本扩展**不**替你执行任何安装 / 登录 / SKILL 命令。 |
 
 ## 按模型调参
 
@@ -166,13 +166,13 @@ MiniMax 的 Anthropic 兼容端点只接受一个二值开关
 产生额外的 HTTP 请求。
 # mmx-cli（多模态伴生 CLI）
 
-Dashboard 底部有一个板块，把官方
-[`mmx`](https://github.com/MiniMax-AI/cli) 命令行作为 Token Plan 的可选
-伴生工具集成进来。安装后，Agent（Copilot Chat、Claude Code、Cursor …）
-就能用**同一把** API Key 调用图像 / 视频 / 音乐 / 语音 / 视觉理解 / 网络
-检索。
+Dashboard 底部有一个板块，仅负责**显示**官方
+[`mmx`](https://github.com/MiniMax-AI/cli) 命令行的探测状态。装好之后，
+Agent（Copilot Chat、Claude Code、Cursor …）就能用**同一把** Token Plan
+API Key 调用图像 / 视频 / 音乐 / 语音 / 视觉理解 / 网络检索。
 
-检测覆盖三件事：
+扩展**只**检测下面三件事，**不**会替你执行任何装包 / 登录 / 装 SKILL
+的命令：
 
 - **可执行文件** 在 PATH 上（`mmx --version`）
 - **`mmx auth`** 已登录（`mmx auth status`）
@@ -180,18 +180,12 @@ Dashboard 底部有一个板块，把官方
   `~/.copilot/skills/minimax-cli/` 或 `~/.mmx/skills/minimax-cli/`
   任意一个下面能找到 `SKILL.md`）
 
-底部"安装 mmx-cli"按钮（或命令面板的 `MiniMax: 安装 mmx-cli`）会按顺序
-走完官方三步：
-
-1. `npm install -g mmx-cli`
-2. `mmx auth login --api-key <key>`——自动复用 SecretStorage 里已存的
-   Key，没有就提示用户去设置
-3. `npx skills add MiniMax-AI/cli -y -g`——Agent 之后就能读到官方 SKILL。
-   如果远端 registry 拉取失败，会把扩展内置的 `SKILL.md` 拷贝到第一个
-   可写的候选目录作为离线回退。
-
-三项全部勾上之后会出现绿色"你的 Agent 已可使用 mmx-cli 的多模态能力"提示。
-"重新检测"按钮只重新探测本地环境，不会重跑任何安装。
+底部"复制官方安装指令"按钮（或命令面板的 `MiniMax: 复制 mmx-cli 官方安装指令`）
+把 [官方入门文档](https://platform.minimaxi.com/docs/token-plan/minimax-cli)
+原版三步指令复制到剪贴板，**语言随端点配置自动选择**（`minimaxi.com` →
+简体中文，否则 → English）。prompt 里只含 `sk-xxxxx` 占位符，请粘贴前
+手动把 Token Plan Key 填进去（或直接自己到终端跑这三条命令）。装完后
+点"重新检测"，状态徽标会变绿。
 
 ##
 ## 端点自动选择

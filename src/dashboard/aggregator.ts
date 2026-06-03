@@ -144,14 +144,13 @@ export async function buildDashboardView(
 	// to the local npm install, not the platform HTTP API. We probe it
 	// in parallel with the plan fetch so a slow / hung `mmx --version`
 	// call doesn't block the dashboard render. A failure here is
-	// non-fatal: the section just shows "missing".
-	const mmxStatus: MmxCliStatus = await readMmxCliStatus().catch((err): MmxCliStatus => ({
+	// non-fatal: the section just shows "unknown" for each field.
+	const mmxStatus: MmxCliStatus = await readMmxCliStatus().catch((): MmxCliStatus => ({
 		install: 'unknown',
 		version: null,
 		binPath: null,
 		auth: 'unknown',
 		skill: 'unknown',
-		note: err instanceof Error ? err.message : String(err),
 		agentReady: false,
 	}));
 
