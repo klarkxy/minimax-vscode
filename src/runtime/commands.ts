@@ -9,6 +9,7 @@ import { createUsageStore, type UsageStore } from '../usage';
 import { DashboardPanel } from '../dashboard/panel';
 import { createPlanStatusBar, type PlanStatusBar } from '../dashboard/planStatusBar';
 import { createPlanCache, type PlanCache } from '../dashboard/aggregator';
+import { createMmxCliCache, type MmxCliCache } from '../dashboard/mmxCliCache';
 import { copyMmxInstallPrompt } from '../dashboard/mmxCli';
 import type { ChatTurnNotifier } from '../dashboard/chatTurnNotifier';
 
@@ -16,6 +17,7 @@ let cachedContext: vscode.ExtensionContext | undefined;
 let cachedAuth: AuthManager | undefined;
 let cachedUsage: UsageStore | undefined;
 let cachedPlanCache: PlanCache | undefined;
+let cachedMmxCliCache: MmxCliCache | undefined;
 let cachedPlanStatusBar: PlanStatusBar | undefined;
 let turnNotifierDisposable: vscode.Disposable | undefined;
 
@@ -24,6 +26,15 @@ function getPlanCache(): PlanCache {
 		cachedPlanCache = createPlanCache();
 	}
 	return cachedPlanCache;
+}
+
+function getMmxCliCache(): MmxCliCache {
+	if (!cachedMmxCliCache) {
+		cachedMmxCliCache = createMmxCliCache({
+			globalState: cachedContext?.globalState,
+		});
+	}
+	return cachedMmxCliCache;
 }
 
 export function setCommandContext(context: vscode.ExtensionContext): void {
@@ -131,6 +142,7 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 				auth: cachedAuth,
 				usageStore: cachedUsage,
 				planCache: getPlanCache(),
+				mmxCliCache: getMmxCliCache(),
 				host: detectHost(),
 			});
 			// Fire-and-forget: ensure the cache has a fresh snapshot for

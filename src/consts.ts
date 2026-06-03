@@ -29,6 +29,9 @@ export const COMMIT_MODEL_LAST_USED_KEY = 'minimax-vscode.commitModel.lastUsed';
 /** memento key for cumulative token usage. Stored as JSON. */
 export const USAGE_STATS_KEY = 'minimax-vscode.usageStats';
 
+/** memento key for the last-known mmx-cli status. Stored as JSON. */
+export const MMX_CLI_STATUS_KEY = 'minimax-vscode.mmxCliStatus';
+
 
 // ---- Walkthrough ----
 

@@ -97,17 +97,11 @@ export function createPlanCache(): PlanCache {
 }
 
 /**
- * Build a fresh `DashboardView`. The local data fetch is synchronous
- * (in-memory + memento); the platform call is awaited and may fail.
+ * Build the local portion of the dashboard view from the usage store.
  */
-export async function buildDashboardView(
-	options: AggregatorOptions,
-): Promise<DashboardView> {
-	const { store } = options;
+function buildLocalView(store: UsageStore): DashboardView['local'] {
 	const stats = store.read();
-	const total = stats.total;
-
-	const localView: DashboardView['local'] = {
+	return {
 		stats,
 		today: store.readToday(),
 		sevenDay: store.readRange(7),
@@ -117,35 +111,51 @@ export async function buildDashboardView(
 			.sort((a, b) => b.usage.requests - a.usage.requests),
 		dailySeries: store.readDailySeries(30),
 	};
+}
 
+export function buildCachedDashboardView(options: {
+	store: UsageStore;
+	planSnapshot?: PlanSnapshot;
+	planSource: DashboardView['sources']['plan'];
+	planError?: string;
+	mmxCli?: MmxCliStatus;
+}): DashboardView {
+	const localView = buildLocalView(options.store);
+	return {
+		sources: {
+			local: localView.stats.total.requests === 0 ? 'empty' : 'ok',
+			plan: options.planSource,
+			planError: options.planError,
+		},
+		local: localView,
+		plan: options.planSnapshot?.usage,
+		mmxCli: options.mmxCli ?? {
+			install: 'unknown',
+			version: null,
+			binPath: null,
+			auth: 'unknown',
+			skill: 'unknown',
+			agentReady: false,
+		},
+	};
+}
+
+/**
+ * Build a fresh `DashboardView`. The local data fetch is synchronous
+ * (in-memory + memento); the platform call is awaited and may fail.
+ */
+export async function buildDashboardView(
+	options: AggregatorOptions,
+): Promise<DashboardView> {
+	const localView = buildLocalView(options.store);
 	const localSource: DashboardView['sources']['local'] =
-		total.requests === 0 ? 'empty' : 'ok';
+		localView.stats.total.requests === 0 ? 'empty' : 'ok';
 
 	let planSection: PlanUsage | undefined;
 	let planSource: DashboardView['sources']['plan'] = 'unsupported';
 	let planError: string | undefined;
 
-	if (options.includePlatform === false) {
-		planSource = 'unsupported';
-	} else if (!options.platform) {
-		planSource = 'unconfigured';
-	} else {
-		const result: PlanApiResult = await fetchPlanUsage(options.platform);
-		if (result.ok) {
-			planSection = result.usage;
-			planSource = 'ok';
-		} else {
-			planSource = result.reason;
-			planError = result.error;
-		}
-	}
-
-	// mmx-cli detection is independent from Token Plan quota — it talks
-	// to the local npm install, not the platform HTTP API. We probe it
-	// in parallel with the plan fetch so a slow / hung `mmx --version`
-	// call doesn't block the dashboard render. A failure here is
-	// non-fatal: the section just shows "unknown" for each field.
-	const mmxStatus: MmxCliStatus = await readMmxCliStatus().catch((): MmxCliStatus => ({
+	const mmxPromise = readMmxCliStatus().catch((): MmxCliStatus => ({
 		install: 'unknown',
 		version: null,
 		binPath: null,
@@ -153,6 +163,35 @@ export async function buildDashboardView(
 		skill: 'unknown',
 		agentReady: false,
 	}));
+
+	if (options.includePlatform === false) {
+		planSource = 'unsupported';
+		const mmxStatus: MmxCliStatus = await mmxPromise;
+		return {
+			sources: {
+				local: localSource,
+				plan: planSource,
+			},
+			local: localView,
+			mmxCli: mmxStatus,
+		};
+	}
+
+	const planPromise = options.platform
+		? fetchPlanUsage(options.platform)
+		: Promise.resolve<PlanApiResult>({ ok: false, reason: 'unconfigured' });
+
+	const [planResult, mmxStatus] = await Promise.all([planPromise, mmxPromise]);
+
+	if (!options.platform) {
+		planSource = 'unconfigured';
+	} else if (planResult.ok) {
+		planSection = planResult.usage;
+		planSource = 'ok';
+	} else {
+		planSource = planResult.reason;
+		planError = planResult.error;
+	}
 
 	const view: DashboardView = {
 		sources: {

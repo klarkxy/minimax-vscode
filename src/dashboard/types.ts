@@ -54,7 +54,7 @@ export interface DashboardView {
 	/** Best-effort status of each upstream source. */
 	sources: {
 		local: 'ok' | 'empty' | 'error';
-		plan: 'ok' | 'unconfigured' | 'error' | 'unsupported';
+		plan: 'ok' | 'loading' | 'unconfigured' | 'error' | 'unsupported';
 		planError?: string;
 	};
 	/** Local token accounting, as returned by the usage store. */

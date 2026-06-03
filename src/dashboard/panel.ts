@@ -22,8 +22,9 @@ import {
 	type DashboardLocale,
 	type DashboardMessages,
 } from './messages';
-import { buildDashboardView, type PlanCache } from './aggregator';
+import { buildCachedDashboardView, buildDashboardView, type PlanCache } from './aggregator';
 import { copyMmxInstallPrompt, type MmxCliStatus } from './mmxCli';
+import type { MmxCliCache } from './mmxCliCache';
 import type { DashboardView } from './types';
 
 export interface DashboardPanelDeps {
@@ -32,6 +33,10 @@ export interface DashboardPanelDeps {
 	usageStore: UsageStore;
 	/** Shared plan cache (status bar reads from this too). */
 	planCache: PlanCache;
+	/** Shared mmx-cli status cache. The dashboard reads it on the
+	 *  first paint so the section shows the last-known state instead
+	 *  of "unknown" while the next refresh runs. */
+	mmxCliCache: MmxCliCache;
 	/** Optional platform host override; defaults to the configured base URL. */
 	host?: 'china' | 'global';
 }
@@ -50,6 +55,7 @@ export class DashboardPanel {
 	private readonly storeSubscription: vscode.Disposable;
 	private readonly authChangeSubscription: vscode.Disposable;
 	private readonly planCacheSubscription: vscode.Disposable;
+	private readonly mmxCliCacheSubscription: vscode.Disposable;
 	private state: DashboardPanelState = { locale: 'en' };
 	private inFlight = false;
 	private readonly messageListener = (raw: vscode.WebviewMessage) => this.handleMessage(raw);
@@ -69,6 +75,11 @@ export class DashboardPanel {
 		// The shared plan cache fires on every successful fetch — keep the
 		// dashboard in sync so we don't have to schedule our own timer.
 		this.planCacheSubscription = deps.planCache.subscribe(() => {
+			void this.refresh();
+		});
+		// Same pattern for the mmx-cli status cache: when an explicit
+		// re-check produces a new snapshot, push it to the dashboard.
+		this.mmxCliCacheSubscription = deps.mmxCliCache.subscribe(() => {
 			void this.refresh();
 		});
 
@@ -112,6 +123,7 @@ export class DashboardPanel {
 		this.storeSubscription.dispose();
 		this.authChangeSubscription.dispose();
 		this.planCacheSubscription.dispose();
+		this.mmxCliCacheSubscription.dispose();
 		for (const disposable of this.disposables) {
 			disposable.dispose();
 		}
@@ -129,26 +141,46 @@ export class DashboardPanel {
 		this.inFlight = true;
 		try {
 			const apiKey = await this.deps.auth.getApiKey();
-			// Route the platform fetch through the shared plan cache so
-			// the dashboard render and the status-bar quota items see
-			// *exactly* the same response. The cache dedups concurrent
-			// calls and the 8s TTL throttles bursts.
+			const planSnapshot = this.deps.planCache.read();
+			const mmxCliSnapshot = this.deps.mmxCliCache.read();
+			const cachedView = buildCachedDashboardView({
+				store: this.deps.usageStore,
+				planSnapshot,
+				planSource: planSnapshot
+					? 'ok'
+					: apiKey
+						? 'loading'
+						: 'unconfigured',
+				mmxCli: mmxCliSnapshot?.status,
+			});
+			await this.postData(cachedView);
+
 			if (apiKey) {
 				await this.deps.planCache.refresh({
 					apiKey,
 					host: this.deps.host,
 				});
 			}
+			// Refresh the mmx-cli detection in the background. The
+			// cached view above already shows the last-known state, so
+			// the user does not see an "unknown → green" flicker on
+			// dashboard open. Failure here does NOT clear the cache —
+			// the previous snapshot is preserved.
+			const mmxPromise = this.deps.mmxCliCache.refresh().catch((error) => {
+				logger.warn('mmx-cli cache refresh failed', error);
+				return null;
+			});
 			const view = await buildDashboardView({
 				store: this.deps.usageStore,
 				platform: apiKey
 					? {
-							apiKey,
-							host: this.deps.host,
-						}
+						apiKey,
+						host: this.deps.host,
+					}
 					: null,
 			});
 			await this.postData(view);
+			await mmxPromise;
 		} catch (error) {
 			logger.warn('Dashboard refresh failed', error);
 			await this.postError(error);
@@ -762,6 +794,9 @@ footer {
 	}
 	function platformBanner(sources) {
 		if (sources.plan === 'ok') return '';
+		if (sources.plan === 'loading') {
+			return '<div class="banner">' + escapeHtml(i18n.platformLoading) + '</div>';
+		}
 		if (sources.plan === 'unconfigured') {
 			return '<div class="banner">' + escapeHtml(i18n.platformUnconfigured) + '</div>';
 		}
@@ -857,35 +892,37 @@ footer {
 		const authBadge = statusBadge(auth, authLabel, i18n.mmxAuthLoggedOut);
 		const skillBadge = statusBadge(skill, i18n.mmxSkillInstalled, i18n.mmxSkillMissing);
 
-		const stepInstall = install === 'installed';
-		const stepLogin = stepInstall && auth === 'loggedIn';
-		const stepSkill = stepInstall && skill === 'installed';
-
-		const steps = [
-			{
-				done: stepInstall,
+		// Per-step help lines — only shown for the steps that are
+		// NOT yet done, mirroring the "完成了哪个就消失" contract
+		// the user asked for. The cards above are the authoritative
+		// status; the lines below are the recipe to finish the
+		// remaining steps.
+		const pendingSteps = [];
+		if (install !== 'installed') {
+			pendingSteps.push({
+				num: pendingSteps.length + 1,
 				label: i18n.mmxInstallBtn,
-				detail: install === 'installed'
-					? (mmx.version ? (i18n.mmxVersion + ' ' + escapeHtml(mmx.version)) : 'npm install -g mmx-cli')
-					: 'npm install -g mmx-cli',
-			},
-			{
-				done: stepLogin,
+				detail: 'npm install -g mmx-cli',
+			});
+		}
+		if (install === 'installed' && auth !== 'loggedIn') {
+			pendingSteps.push({
+				num: pendingSteps.length + 1,
 				label: i18n.mmxLoginBtn,
 				detail: 'mmx auth login --api-key …',
-			},
-			{
-				done: stepSkill,
+			});
+		}
+		if (install === 'installed' && skill !== 'installed') {
+			pendingSteps.push({
+				num: pendingSteps.length + 1,
 				label: i18n.mmxInstallSkillBtn,
 				detail: 'npx skills add MiniMax-AI/cli -y -g',
-			},
-		];
-		const stepsHtml = steps.map(function (s, i) {
-			const marker = s.done ? '✓' : String(i + 1);
-			const cls = s.done ? 'mmx-step done' : 'mmx-step';
+			});
+		}
+		const stepsHtml = pendingSteps.map(function (s) {
 			return (
-				'<div class="' + cls + '">' +
-					'<span class="mmx-step-num">' + marker + '</span>' +
+				'<div class="mmx-step">' +
+					'<span class="mmx-step-num">' + s.num + '</span>' +
 					'<div class="mmx-step-body">' +
 						'<div class="mmx-step-label">' + escapeHtml(s.label) + '</div>' +
 						'<div class="mmx-step-detail">' + escapeHtml(s.detail) + '</div>' +
@@ -921,7 +958,7 @@ footer {
 				'<div class="mmx-card"><div class="mmx-card-title">mmx auth</div>' + authBadge + '</div>' +
 				'<div class="mmx-card"><div class="mmx-card-title">agent skill</div>' + skillBadge + '</div>' +
 			'</div>' +
-			'<div class="mmx-steps">' + stepsHtml + '</div>' +
+			(stepsHtml ? '<div class="mmx-steps">' + stepsHtml + '</div>' : '') +
 			readyNote +
 			noteHtml +
 			'<div class="mmx-actions">' + buttons.join('') + '</div>' +

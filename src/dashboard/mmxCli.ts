@@ -184,25 +184,108 @@ export function extractVersion(raw: string): string | null {
 }
 
 /**
- * Probe `mmx auth status` to determine whether the user has a stored
- * API key. Different mmx-cli builds report this slightly
- * differently; we treat "any line that looks like an API key id" as
- * logged in and "no key" / non-zero exit as logged out. Missing
- * binary is reported as `'notInstalled'`.
+ * Read the mmx-cli auth state.
+ *
+ * The fast path is to read `~/.mmx/config.json` directly — that's
+ * where `mmx auth login --api-key ...` writes the user's key on
+ * mmx-cli ≥ 1.0. Reading the file is O(file size) and does not
+ * touch the network, which is what we want: the dashboard opens
+ * frequently, and shelling out to `mmx auth status` makes that
+ * command also run a full quota fetch against api.minimaxi.com,
+ * blocking the render for 1-3 seconds.
+ *
+ * We only fall back to `mmx auth status` (with corrected parsing
+ * for the actual mmx ≥ 1.0 output) when the config file isn't
+ * there — which can happen if the user pointed mmx-cli at a custom
+ * config dir via env vars we don't model.
+ *
+ * Public function returns `{ state, detail }`; `detail` is a short
+ * human-readable note (which source answered), used for the
+ * dashboard's debug surface and the test suite.
  */
 export async function readMmxAuthState(
 	mmxPath: string = 'mmx',
+	home: string = os.homedir(),
+): Promise<{ state: MmxCliAuthState; detail: string | null }> {
+	const fast = await readMmxConfigAuth(home);
+	if (fast.state !== 'unknown') {
+		return fast;
+	}
+	return await readMmxAuthStateFromCli(mmxPath);
+}
+
+/**
+ * Read `~/.mmx/config.json` and return whether it has a usable
+ * API key. Returns:
+ *   - `'loggedIn'`  if the file exists and `api_key` is a non-empty string
+ *   - `'loggedOut'` if the file exists but has no `api_key`
+ *   - `'unknown'`  if the file doesn't exist or can't be parsed
+ *     (caller should fall back to shelling out to the CLI)
+ *
+ * The fast path; never makes a network call.
+ */
+export async function readMmxConfigAuth(
+	home: string = os.homedir(),
+): Promise<{ state: MmxCliAuthState; detail: string | null }> {
+	const configPath = path.join(home, '.mmx', 'config.json');
+	let raw: string;
+	try {
+		raw = await fs.readFile(configPath, 'utf8');
+	} catch {
+		// File doesn't exist (or isn't readable) — let the caller try
+		// the CLI fallback. This is the expected state on a fresh
+		// install where the user hasn't run `mmx auth login` yet.
+		return { state: 'unknown', detail: null };
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return { state: 'unknown', detail: '~/.mmx/config.json: invalid JSON' };
+	}
+	if (typeof parsed !== 'object' || parsed === null) {
+		return { state: 'unknown', detail: '~/.mmx/config.json: not an object' };
+	}
+	const apiKey = (parsed as { api_key?: unknown }).api_key;
+	if (typeof apiKey === 'string' && apiKey.trim().length > 0) {
+		return { state: 'loggedIn', detail: '~/.mmx/config.json' };
+	}
+	return { state: 'loggedOut', detail: '~/.mmx/config.json (no api_key)' };
+}
+
+/**
+ * Fallback path for `readMmxAuthState`: shell out to `mmx auth
+ * status` and parse the output. mmx-cli ≥ 1.0 prints something
+ * like:
+ *
+ *   Authentication Status:
+ *     Method: api-key
+ *     Source: config.json
+ *     Key:    sk-c...4fB4
+ *   Fetching quota snapshot...
+ *   <… big quota panel …>
+ *
+ * followed by a full quota fetch against the platform API. We
+ * only need the first few lines to decide the auth state.
+ */
+async function readMmxAuthStateFromCli(
+	mmxPath: string,
 ): Promise<{ state: MmxCliAuthState; detail: string | null }> {
 	const result = await run(mmxPath, ['auth', 'status'], { timeoutMs: 15_000 });
 	if (result.missing) {
 		return { state: 'notInstalled', detail: null };
 	}
+	const text = (result.stdout + '\n' + result.stderr).trim();
+	if (parseAuthStatusText(text) === 'loggedIn') {
+		return { state: 'loggedIn', detail: text || null };
+	}
 	if (!result.ok) {
-		const text = (result.stdout + '\n' + result.stderr).toLowerCase();
+		const lower = text.toLowerCase();
 		if (
-			text.includes('not logged in') ||
-			text.includes('no api key') ||
-			text.includes('unauthorized')
+			lower.includes('not logged in') ||
+			lower.includes('no api key') ||
+			lower.includes('unauthorized') ||
+			lower.includes('not authenticated')
 		) {
 			return {
 				state: 'loggedOut',
@@ -211,29 +294,67 @@ export async function readMmxAuthState(
 		}
 		return { state: 'loggedOut', detail: result.error };
 	}
-	const text = (result.stdout + '\n' + result.stderr).trim();
-	const lower = text.toLowerCase();
-	if (
-		lower.includes('logged in') ||
-		lower.includes('authenticated') ||
-		/\bsk-[A-Za-z0-9_-]{4,}\b/.test(text)
-	) {
-		return { state: 'loggedIn', detail: text || null };
-	}
 	return { state: 'loggedOut', detail: text || null };
 }
 
 /**
+ * Pure parser for the textual output of `mmx auth status`. Returns
+ * `'loggedIn'`, `'loggedOut'`, or `'unknown'` (caller decides the
+ * final state from the exit code and missing-binary signal). Kept
+ * as a standalone export so the regex / substring set can be
+ * unit-tested without spawning subprocesses.
+ *
+ * Recognises (as of mmx-cli 1.0.16):
+ *   - "Method: api-key" / "Method: oauth" → loggedIn
+ *   - Any token matching `sk-…` of at least 4 chars → loggedIn
+ *   - "not logged in" / "no api key" / "unauthorized" /
+ *     "not authenticated" → loggedOut
+ */
+export function parseAuthStatusText(text: string): MmxCliAuthState {
+	if (!text) return 'unknown';
+	const lower = text.toLowerCase();
+	if (lower.includes('method: api-key') || lower.includes('method: oauth')) {
+		return 'loggedIn';
+	}
+	// API keys in mmx-cli's status output are masked to `sk-c...4fB4`
+	// form — the inner `...` is not a word character, so we have to
+	// allow `.` inside the class. Without it the regex never matches
+	// a real status output and we silently mis-classify as loggedOut.
+	if (/\bsk-[A-Za-z0-9_.-]{4,}\b/.test(text)) {
+		return 'loggedIn';
+	}
+	if (
+		lower.includes('not logged in') ||
+		lower.includes('no api key') ||
+		lower.includes('unauthorized') ||
+		lower.includes('not authenticated')
+	) {
+		return 'loggedOut';
+	}
+	return 'unknown';
+}
+
+/**
  * Where the `npx skills add MiniMax-AI/cli` flow writes its files.
- * The official CLI uses the user's home directory; we look in three
- * well-known places (Claude Code, GitHub Copilot user skills, and
- * the legacy `~/.mmx/skills`). The first hit wins.
+ *
+ * The official `skills` CLI uses the user's home directory; we probe
+ * every well-known location the various agents read from. The order
+ * matters: the first hit wins. `~/.agents/skills/` is the current
+ * spec location used by Claude Code and OpenCode; `~/.claude/skills/`
+ * is the older Claude Code location; `~/.copilot/skills/` is the
+ * GitHub Copilot user-skills dir; `~/.mmx/skills/` is the legacy
+ * path the very first mmx-cli release used. We also check the bare
+ * `mmx-cli` folder under `~/.agents/skills/` because that's what
+ * the current `skills` CLI installs (it picks the slug name verbatim
+ * from the GitHub repo).
  */
 export function candidateSkillDirs(home: string = os.homedir()): string[] {
 	return [
-		path.join(home, '.claude', 'skills', 'minimax-cli'),
-		path.join(home, '.copilot', 'skills', 'minimax-cli'),
-		path.join(home, '.mmx', 'skills', 'minimax-cli'),
+		path.join(home, '.agents', 'skills', 'mmx-cli'),
+		path.join(home, '.claude', 'skills', 'mmx-cli'),
+		path.join(home, '.claude', 'skills', 'MiniMax-AI-cli'),
+		path.join(home, '.copilot', 'skills', 'mmx-cli'),
+		path.join(home, '.mmx', 'skills', 'mmx-cli'),
 	];
 }
 

@@ -2,6 +2,36 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.1.7 — mmx-cli 状态持久化、面板秒开、auth 检测更准
+
+- **mmx-cli 状态现在跨 VS Code 重启保留。** 新增 `MmxCliCache`
+  （Memento 持久化，shape 与现有的 `PlanCache` 对齐）保存最近一次
+  探测结果。面板打开的第一帧直接渲染缓存状态，后台异步重探——
+  重启后不再看到"未知 → 变绿"的闪烁。
+- **面板不再被平台请求阻塞。** `refresh()` 现在先同步画出本地计数
+  + 缓存的平台 quota 快照，再后台触发 `planCache.refresh()`，新数据
+  到达后再次重绘。新增 `plan: 'loading'` 源状态，in-flight 期间用
+  "正在加载 Token Plan 数据..." 横幅占位。
+- **mmx auth 默认不再 shell out。** 快路径直接读 `~/.mmx/config.json`
+  （0 subprocess、0 网络），既快又准：mmx ≥ 1.0 把 key 显示成
+  `sk-c…4fB4`（中间是真 `…`），并且 `mmx auth status` 每次还会顺带
+  跑一遍 quota 抓取。config 文件不存在时仍走 CLI fallback。
+- **点"重新检测"会写盘。** 走 `MmxCliCache.refresh()` 写 memento，
+  下次开面板同样秒出。
+- **mmx 步骤仅显示未完成项。** 状态卡下面那三行"完成 X"绿条现在
+  只在对应步骤未完成时才出现——三项都绿时整块折叠，只剩 3 个状态
+  卡 + "Agent 已就绪"注脚 + 2 个按钮。
+- **跨日 usage 回归测试。** `test/usage.test.ts` 新增 cross-day
+  测试：直接把昨天的 bucket 写进 memento，验证 `record()` 不会
+  覆盖昨天的数据，`readRange(7)` 也能正确合并两天。
+
+### 验证
+
+- TypeScript clean (`tsc -p ./ --noEmit`)
+- 单元测试：**99/99 pass**（原 78；mmx config auth 快路径 +13，
+  新增 `MmxCliCache` +6，跨日回归 +1，新 `platform: 'loading'`
+  plumbing 检查 +1）
+
 ## 2.1.6 — mmx-cli：只探测 + 端点对应的官方指令
 
 Dashboard 退回最小可用形态：本扩展**只**探测 mmx-cli 的三个状态

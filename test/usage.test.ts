@@ -161,3 +161,55 @@ test('todayKey() pads single-digit month/day with leading zero', () => {
 	const fixed = new Date(2026, 0, 3); // Jan 3 2026
 	assert.equal(todayKey(fixed), '2026-01-03');
 });
+
+test('cross-day record: yesterday buckets stay intact when today gets new records', async () => {
+	// Regression test for the bug where "all usage was crammed into
+	// 06-03" — i.e. the daily bucket key wasn't being recomputed per
+	// call, so a record() issued the next day would overwrite the
+	// previous day's bucket. The current implementation uses
+	// `todayKey()` (which calls `new Date()`) inside record(), so a
+	// second invocation the next day is expected to key on the new
+	// date. We can't freeze Date.now() inside record() (it always
+	// reads the live clock) so we exercise the same code path by
+	// seeding yesterday's bucket directly into the memento and then
+	// calling record() — the live-clock record() will land in
+	// today's bucket without disturbing yesterday.
+	const { store, usage } = newStore();
+	const yesterday = new Date();
+	yesterday.setDate(yesterday.getDate() - 1);
+	const yesterdayKey = todayKey(yesterday);
+	const seed = {
+		startedAt: yesterday.toISOString(),
+		updatedAt: yesterday.toISOString(),
+		total: { inputTokens: 700, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requests: 7 },
+		byModel: {},
+		daily: {
+			[yesterdayKey]: {
+				inputTokens: 700,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				requests: 7,
+			},
+		},
+	} as UsageStats;
+	await store.update('minimax-vscode.usageStats', seed);
+
+	await usage.record('MiniMax-M3', { inputTokens: 50, outputTokens: 10 });
+
+	const raw = store.get<UsageStats>('minimax-vscode.usageStats')!;
+	// Yesterday's bucket must still be there, untouched.
+	assert.ok(raw.daily[yesterdayKey], `yesterday bucket (${yesterdayKey}) should still exist`);
+	assert.equal(raw.daily[yesterdayKey]!.inputTokens, 700);
+	assert.equal(raw.daily[yesterdayKey]!.requests, 7);
+	// Today's bucket is separate.
+	assert.ok(raw.daily[todayKey()], 'today bucket should exist');
+	assert.equal(raw.daily[todayKey()]!.inputTokens, 50);
+	// readRange(7) sums both, never lets today swallow yesterday.
+	const range = usage.readRange(7);
+	assert.equal(range.inputTokens, 750);
+	assert.equal(range.requests, 8);
+	// readToday() returns only the live-clock bucket, not yesterday.
+	const today = usage.readToday();
+	assert.equal(today.inputTokens, 50);
+});

@@ -1,5 +1,44 @@
 # Changelog
 
+## 2.1.7 — mmx-cli: persistent cache, faster dashboard, correct auth detection
+
+- **mmx-cli status is now persisted across VS Code restarts.** A
+  new `MmxCliCache` (Memento-backed, mirroring the existing
+  `PlanCache` shape) stores the last-known detection result. The
+  dashboard paints the cached state on the very first frame after
+  restart and re-probes in the background, so users no longer see
+  the "unknown → green" flicker every time they open the panel.
+- **Dashboard no longer blocks on the platform fetch.** `refresh()`
+  now paints the local counters + cached plan snapshot synchronously,
+  kicks the platform refresh in the background, and re-paints when
+  the new data arrives. A new `plan: 'loading'` source state covers
+  the in-flight window with a "Loading Token Plan data..." banner.
+- **mmx auth detection no longer shells out by default.** The fast
+  path reads `~/.mmx/config.json` directly (0 subprocesses, 0
+  network), which is both faster and more accurate: mmx ≥ 1.0
+  masks the user's key as `sk-c…4fB4` (with a literal `…`), and
+  `mmx auth status` additionally runs a full quota fetch on every
+  call. The CLI fallback still runs if the config file is missing.
+- **Recheck now persists.** Clicking the "Re-check" button routes
+  through `MmxCliCache.refresh()`, which writes the new snapshot
+  to memento so the next dashboard open is also instant.
+- **mmx steps are pending-only.** The three "完成 X" green rows
+  below the status cards are now only shown for steps the user
+  hasn't completed yet — when everything is green the section
+  collapses to just the three status cards, the "Agent ready"
+  note, and the two buttons.
+- **Cross-day usage accounting regression test.** A new test in
+  `test/usage.test.ts` seeds yesterday's bucket directly into
+  the memento and confirms a `record()` issued today doesn't
+  overwrite it (and that `readRange(7)` correctly sums both).
+
+### Verification
+
+- TypeScript clean (`tsc -p ./ --noEmit`)
+- Unit tests: **99/99 pass** (was 78; +13 for the mmx config auth
+  fast path, +6 for the new `MmxCliCache`, +1 cross-day regression,
+  +1 new `platform: 'loading'` plumbing check)
+
 ## 2.1.6 — mmx-cli: detection-only, locale-aware install prompt
 
 Reverts the dashboard to the minimal possible surface: the

@@ -22,6 +22,7 @@ export interface DashboardMessages {
 	noLocalData: string;
 	platformUnavailable: string;
 	platformUnconfigured: string;
+	platformLoading: string;
 	fieldInput: string;
 	fieldOutput: string;
 	fieldCacheRead: string;
@@ -61,6 +62,10 @@ export interface DashboardMessages {
 	mmxCommandLabel: string;
 	mmxAuthLabel: string;
 	mmxSkillLabel: string;
+	/** Pending-step labels — only shown for steps that aren't done yet. */
+	mmxInstallBtn: string;
+	mmxLoginBtn: string;
+	mmxInstallSkillBtn: string;
 }
 
 const en: DashboardMessages = {
@@ -78,6 +83,7 @@ const en: DashboardMessages = {
 	noLocalData: 'No requests have been recorded yet. Send a message from Copilot Chat using a MiniMax model and the counters will fill in.',
 	platformUnavailable: 'Token Plan data is unavailable right now. The local counters above are still accurate.',
 	platformUnconfigured: 'Token Plan data is hidden because the API key is missing or invalid. Set a key from the command palette to enable it.',
+	platformLoading: 'Loading Token Plan data... The local counters above are still available while we refresh.',
 	fieldInput: 'Input',
 	fieldOutput: 'Output',
 	fieldCacheRead: 'Cache read',
@@ -122,6 +128,9 @@ const en: DashboardMessages = {
 	mmxCommandLabel: 'CLI',
 	mmxAuthLabel: 'mmx auth',
 	mmxSkillLabel: 'agent skill',
+	mmxInstallBtn: 'Install the CLI',
+	mmxLoginBtn: 'Log in',
+	mmxInstallSkillBtn: 'Install the agent skill',
 };
 
 const zh: DashboardMessages = {
@@ -139,6 +148,7 @@ const zh: DashboardMessages = {
 	noLocalData: '暂无请求记录。在 Copilot Chat 中选用 MiniMax 模型并发送消息，计数器会自动累计。',
 	platformUnavailable: 'Token Plan 数据暂时无法获取。上面的本地统计仍然准确。',
 	platformUnconfigured: 'Token Plan 数据未显示：API Key 未配置或无效。请在命令面板中设置 Key。',
+	platformLoading: '正在加载 Token Plan 数据... 本地统计仍然可用。',
 	fieldInput: '输入',
 	fieldOutput: '输出',
 	fieldCacheRead: '缓存读取',
@@ -183,6 +193,9 @@ const zh: DashboardMessages = {
 	mmxCommandLabel: '命令行',
 	mmxAuthLabel: 'mmx 登录',
 	mmxSkillLabel: 'Agent skill',
+	mmxInstallBtn: '安装命令行',
+	mmxLoginBtn: '登录',
+	mmxInstallSkillBtn: '安装 Agent skill',
 };
 
 const dictionaries: Record<DashboardLocale, DashboardMessages> = { en, zh };
