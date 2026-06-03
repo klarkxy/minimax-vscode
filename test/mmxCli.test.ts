@@ -10,14 +10,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 import {
+	buildAugmentedPathEnv,
 	candidateSkillDirs,
 	extractVersion,
 	readMmxCliStatus,
 	readMmxSkillState,
 	readMmxVersion,
+	resolveNpmBin,
+	resolveNpmEnv,
+	_resetNpmResolutionCacheForTests,
 } from '../src/dashboard/mmxCli.js';
 
 test('extractVersion: pulls X.Y.Z out of --version output', () => {
@@ -94,4 +98,69 @@ test('readMmxCliStatus: missing install + notInstalled auth in the test sandbox'
 	assert.equal(status.binPath, null);
 	assert.equal(status.auth, 'notInstalled');
 	assert.equal(status.agentReady, false);
+});
+
+// --- npm resolution fallback ------------------------------------------
+
+test('buildAugmentedPathEnv: prepends the dir and uses the platform key', () => {
+	const win32 = buildAugmentedPathEnv('C:\\fake\\npm', { platformOverride: 'win32' });
+	assert.equal(win32['Path']?.startsWith('C:\\fake\\npm;'), true);
+	assert.equal(win32['PATH'], undefined);
+
+	const posix = buildAugmentedPathEnv('/usr/local/bin', { platformOverride: 'linux' });
+	assert.equal(posix['PATH']?.startsWith('/usr/local/bin:'), true);
+	assert.equal(posix['Path'], undefined);
+});
+
+test('buildAugmentedPathEnv: no-op when the dir is already on PATH', () => {
+	const win32 = buildAugmentedPathEnv('C:\\fake\\npm', {
+		platformOverride: 'win32',
+	});
+	// Pre-existing PATH in tests is some Windows path that does NOT
+	// contain our fake dir, so this should prepend. The follow-up
+	// call should NOT prepend again.
+	buildAugmentedPathEnv('C:\\fake\\npm', { platformOverride: 'win32' });
+	const second = buildAugmentedPathEnv('C:\\fake\\npm', { platformOverride: 'win32' });
+	assert.equal(second['Path']?.startsWith('C:\\fake\\npm;C:\\fake\\npm;'), false);
+	assert.equal(second['Path'], win32['Path']);
+});
+
+test('resolveNpmBin: returns the absolute .cmd/.exe path (so execFile bypasses PATHEXT)', async () => {
+	// On a normal Node install, `where npm` (Windows) / `which npm`
+	// (POSIX) returns the absolute path to npm. execFile() on Windows
+	// does NOT do PATHEXT resolution on its own — it tries the
+	// literal filename. Without this resolution, `execFile('npm', …)`
+	// fails with ENOENT even though `npm --version` works in the
+	// user's shell. So the regression we guard here is: the resolver
+	// must return a path that ends in the platform's executable
+	// extension (`.cmd` / `.exe` on Windows, nothing on POSIX).
+	_resetNpmResolutionCacheForTests();
+	const bin = await resolveNpmBin();
+	// The CI host has Node installed; on a real dev machine this is
+	// almost always true. Skip rather than flake on a barebones box.
+	if (!bin) return;
+	if (sep === '\\') {
+		assert.ok(/\.(cmd|exe|bat)$/i.test(bin), `expected .cmd/.exe suffix, got ${bin}`);
+	} else {
+		assert.ok(!/\.(cmd|exe|bat)$/i.test(bin), `POSIX path should not have a Windows suffix, got ${bin}`);
+	}
+});
+
+test('resolveNpmEnv: env object contains the bin parent dir on the platform PATH key', async () => {
+	_resetNpmResolutionCacheForTests();
+	const result = await resolveNpmEnv();
+	if (!result) return; // node not installed in the sandbox
+	const isWin = sep === '\\';
+	const key = isWin ? 'Path' : 'PATH';
+	const sepChar = isWin ? ';' : ':';
+	const segments = (result.env[key] ?? '').split(sepChar);
+	const dirOfBin = join(result.bin, '..');
+	const dot = '.';
+	const found =
+		segments.includes(dirOfBin) ||
+		segments.some((entry) => entry === dot && dirOfBin === dot);
+	assert.ok(
+		found,
+		`expected env.${key} to contain the bin dir ${dirOfBin}, got ${result.env[key]}`,
+	);
 });

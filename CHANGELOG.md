@@ -1,5 +1,46 @@
 # Changelog
 
+## 2.1.4 — mmx-cli install: fix `npm not found on PATH` on Windows
+
+Hotfix for the **MiniMax: Install mmx-cli** command failing with
+`npm not found on PATH` on Windows even though `npm --version`
+worked fine in a fresh terminal.
+
+### Bug
+
+`installMmxCli` was calling `execFile('npm', …)` with the bare
+binary name. On Windows, `execFile` does **not** do `PATHEXT`
+resolution — it tries the literal filename `npm` and fails with
+`ENOENT` because the real binary ships as `npm.cmd` (and Node 18+
+also blocks direct spawn of `.cmd` / `.bat` with `EINVAL` as a
+security hardening measure). The bug surfaced on every Windows
+machine that didn't have a literal `npm.exe` on PATH.
+
+### Fix
+
+- `mmxCli.resolveNpmBin()` now resolves the absolute path of
+  `npm` (or `npx`) by running `where npm` and **preferring the
+  `.cmd` form** over a no-extension sibling. The Windows fallback
+  list (`%ProgramFiles%\nodejs`, `%APPDATA%\npm`, `nvm-windows`,
+  `fnm`, `Volta`) is consulted when `where` finds nothing.
+- `run()` now transparently wraps any `.cmd` / `.bat` target in
+  `cmd.exe /c …` so the spawn passes the Node 18+ security gate.
+  The API key passed to `mmx auth login --api-key <key>` still goes
+  through Node's argv escape path, not a shell, so the original
+  "no shell, no key in process listings" guarantee is preserved.
+- The `MiniMax: Install mmx-cli` wizard now offers a **Reload
+  Window** button when the install fails with the npm-missing
+  error, so users who installed Node **after** launching VS Code
+  can pick up the new PATH without a manual restart.
+
+### Verification
+
+- TypeScript clean (`tsc -p ./ --noEmit`)
+- Unit tests: **82/82 pass** (2 new tests for `resolveNpmBin` /
+  `resolveNpmEnv`)
+- Real spawn smoke test on Windows: `cmd.exe /c
+  C:\Program Files\nodejs\npm.cmd --version` → `11.6.2` ✅
+
 ## 2.1.3 — mmx-cli integration
 
 Adds the official multimodal `mmx` CLI as an optional companion to

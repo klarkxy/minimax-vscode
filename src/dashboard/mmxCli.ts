@@ -27,6 +27,38 @@ import * as vscode from 'vscode';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Fallback list of directories that may contain `npm.cmd` / `npx.cmd`
+ * on Windows. We probe these when `where npm` returns nothing.
+ *
+ * Why this exists: VS Code on Windows inherits its PATH from the
+ * `Environment` registry keys it was launched with. If the user
+ * installed Node (or `npm i -g`'d something that added a new bin
+ * dir) **after** VS Code was started, the extension process still
+ * sees the old PATH and `execFile('npm', …)` fails with
+ * `ENOENT: npm not found on PATH` even though `npm --version`
+ * works fine in any fresh terminal.
+ *
+ * We don't touch non-Windows machines (POSIX shells propagate PATH
+ * updates immediately on next exec), and the list is ordered by
+ * "most likely to be a real install" so we don't get false positives
+ * from a stale `nvm` symlink.
+ */
+const NPM_FALLBACK_DIRS_WIN32: ReadonlyArray<string> = [
+	// Default node-windows msi: %ProgramFiles%\nodejs
+	path.join(process.env['ProgramFiles'] ?? 'C:\\Program Files', 'nodejs'),
+	// Per-user npm global install: %AppData%\npm
+	path.join(process.env['APPDATA'] ?? '', 'npm'),
+	// nvm-windows default install root
+	process.env['NVM_HOME']
+		? path.join(process.env['NVM_HOME'], process.env['NVM_SYMLINK'] ?? '')
+		: '',
+	// fnm default install root (newer setups)
+	path.join(process.env['LOCALAPPDATA'] ?? '', 'fnm', 'node-versions'),
+	// Volta default install root
+	path.join(process.env['LOCALAPPDATA'] ?? '', 'Volta', 'bin'),
+].filter((dir) => dir.length > 0);
+
 /** npm package name for the CLI; pinned in docs but we just install latest. */
 const MMX_CLI_PACKAGE = 'mmx-cli';
 
@@ -84,23 +116,49 @@ interface ExecOptions {
 	timeoutMs?: number;
 	/** Inject an executable to use (mainly for tests). */
 	resolveMm?: () => Promise<string | null>;
+	/**
+	 * Extra environment variables to merge on top of the parent's env.
+	 * Used to inject a PATH that contains a freshly-resolved npm dir
+	 * when the inherited PATH is stale (e.g. the user added Node
+	 * after launching VS Code).
+	 */
+	env?: NodeJS.ProcessEnv;
 }
 
-/** Wrap `execFile` with consistent timeout + error handling. */
+/**
+ * Wrap `execFile` with consistent timeout + error handling.
+ *
+ * On Windows we have to go through `cmd.exe /c` for any `.cmd` /
+ * `.bat` target — Node 18+ blocks direct `execFile` of those
+ * extensions with `EINVAL` as a security hardening measure. POSIX
+ * uses the literal argv. The trade-off vs. `shell: true` is that
+ * the spawn argv still goes through Node's child_process escape
+ * path (no shell interpolation of user input), and the API key we
+ * pass to `mmx auth login --api-key <key>` never gets concatenated
+ * into a shell string.
+ */
 async function run(
 	file: string,
 	args: string[],
 	options: ExecOptions & { input?: string } = {},
 ): Promise<MmxCliCommandResult> {
 	const timeoutMs = options.timeoutMs ?? RUN_TIMEOUT_MS;
+	const env = options.env
+		? { ...process.env, ...options.env }
+		: process.env;
+	const isWin = process.platform === 'win32';
+	const isCmdLike = /\.(cmd|bat)$/i.test(file);
+	const finalArgs = isWin && isCmdLike ? ['/c', file, ...args] : args;
+	const finalFile = isWin && isCmdLike ? 'cmd.exe' : file;
 	try {
-		const result = await execFileAsync(file, args, {
+		const result = await execFileAsync(finalFile, finalArgs, {
 			timeout: timeoutMs,
 			maxBuffer: 4 * 1024 * 1024,
 			// Hide the API key from process listings: pass through stdin
 			// would require a PTY; `--api-key <key>` on argv is fine
 			// because mmx-cli redacts its own argv in `--help` output.
 			windowsHide: true,
+			env,
 		});
 		return {
 			ok: true,
@@ -159,6 +217,168 @@ export async function resolveMmxBin(
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * Resolve the absolute path to the `npm` (or `npx`) executable, or
+ * `null` if it's not findable. Mirrors `resolveMmxBin` but also walks
+ * the Windows-specific fallback list when `where` returns nothing.
+ *
+ * Both `npm` and `npx` resolve via the same Node install, so we share
+ * the cache between them — calling this twice is a single `where` hit
+ * followed by an in-memory lookup.
+ */
+const npmResolutionCache = new Map<string, string | null>();
+
+async function tryWhere(
+	exe: 'npm' | 'npx' | 'node',
+	options: { platformOverride?: NodeJS.Platform } = {},
+): Promise<string | null> {
+	const platform = options.platformOverride ?? process.platform;
+	try {
+		if (platform === 'win32') {
+			const result = await run('where', [exe], { timeoutMs: 5_000 });
+			if (!result.ok) return null;
+			const lines = result.stdout
+				.split(/\r?\n/)
+				.map((line) => line.trim())
+				.filter((line) => line.length > 0);
+			// Prefer the .cmd form — that's what `execFile` can actually
+			// launch. `where npm` returns BOTH `npm` (no extension, an
+			// empty stub on the Windows Node msi) and `npm.cmd` (the
+			// real launcher). The first one fails with ENOENT when
+			// execFile'd directly; .cmd works.
+			const cmdLike = lines.find((line) => line.toLowerCase().endsWith('.cmd'));
+			if (cmdLike) return cmdLike;
+			const exeLike = lines.find((line) => line.toLowerCase().endsWith('.exe'));
+			if (exeLike) return exeLike;
+			return lines[0] ?? null;
+		}
+		const result = await run('which', [exe], { timeoutMs: 5_000 });
+		if (!result.ok) return null;
+		const first = result.stdout
+			.split('\n')
+			.map((line) => line.trim())
+			.find((line) => line.length > 0);
+		return first ?? null;
+	} catch {
+		return null;
+	}
+}
+
+async function probeExeInDir(
+	dir: string,
+	exe: 'npm' | 'npx',
+	options: { platformOverride?: NodeJS.Platform } = {},
+): Promise<string | null> {
+	const platform = options.platformOverride ?? process.platform;
+	const candidates =
+		platform === 'win32'
+			? [`${exe}.cmd`, `${exe}.exe`, exe]
+			: [exe];
+	for (const candidate of candidates) {
+		const full = path.join(dir, candidate);
+		try {
+			const stat = await fs.stat(full);
+			if (stat.isFile()) {
+				return full;
+			}
+		} catch {
+			// not present in this dir, keep probing
+		}
+	}
+	return null;
+}
+
+export async function resolveNpmBin(
+	options: { platformOverride?: NodeJS.Platform; bin?: 'npm' | 'npx' } = {},
+): Promise<string | null> {
+	const bin = options.bin ?? 'npm';
+	const cacheKey = `${options.platformOverride ?? process.platform}::${bin}`;
+	const cached = npmResolutionCache.get(cacheKey);
+	if (cached !== undefined) {
+		return cached;
+	}
+	const fromWhere = await tryWhere(bin, options);
+	if (fromWhere) {
+		npmResolutionCache.set(cacheKey, fromWhere);
+		return fromWhere;
+	}
+	// Fallback walk — Windows only. On POSIX shells, `where`/`which`
+	// is the source of truth because each exec sees the current PATH.
+	if ((options.platformOverride ?? process.platform) === 'win32') {
+		// fnm puts binaries one level deeper (`installation/`).
+		for (const root of NPM_FALLBACK_DIRS_WIN32) {
+			const direct = await probeExeInDir(root, bin, options);
+			if (direct) {
+				npmResolutionCache.set(cacheKey, direct);
+				return direct;
+			}
+			// fnm: probe one level down for any node-version.
+			if (root.endsWith('fnm\\node-versions') || root.endsWith('fnm/node-versions')) {
+				try {
+					const entries = await fs.readdir(root);
+					for (const entry of entries) {
+						const installation = path.join(root, entry, 'installation');
+						const hit = await probeExeInDir(installation, bin, options);
+						if (hit) {
+							npmResolutionCache.set(cacheKey, hit);
+							return hit;
+						}
+					}
+				} catch {
+					// fnm root not present — move on
+				}
+			}
+		}
+	}
+	npmResolutionCache.set(cacheKey, null);
+	return null;
+}
+
+/** Clear the npm-path cache. Test-only; lets us re-resolve after mocking. */
+export function _resetNpmResolutionCacheForTests(): void {
+	npmResolutionCache.clear();
+}
+
+/**
+ * Build a `PATH` env object that prepends `dir` (the directory of a
+ * resolved npm binary) ahead of the inherited PATH. The result is
+ * meant to be passed as `options.env` to `run()`.
+ *
+ * On Windows the env var is named `Path` (case-insensitive, but Node
+ * normalises to `Path`); on POSIX it's `PATH`. We touch both to
+ * satisfy the strict env-passing code in `child_process` while keeping
+ * a single canonical case.
+ */
+export function buildAugmentedPathEnv(
+	dir: string,
+	options: { platformOverride?: NodeJS.Platform } = {},
+): NodeJS.ProcessEnv {
+	const platform = options.platformOverride ?? process.platform;
+	const key = platform === 'win32' ? 'Path' : 'PATH';
+	const current = process.env[key] ?? '';
+	// Skip if already present — avoids pathologically long PATH values
+	// and makes the diff in error messages obvious.
+	const segments = current.split(platform === 'win32' ? ';' : ':');
+	if (segments.includes(dir)) {
+		return { [key]: current };
+	}
+	return { [key]: dir + (platform === 'win32' ? ';' : ':') + current };
+}
+
+/**
+ * Resolve `npm` and return the env object needed to spawn it without
+ * hitting a stale `PATH` in the parent process. Returns `undefined`
+ * when npm genuinely isn't on the machine (the caller will then fall
+ * through to the missing-binary error path).
+ */
+export async function resolveNpmEnv(
+	options: { platformOverride?: NodeJS.Platform; bin?: 'npm' | 'npx' } = {},
+): Promise<{ bin: string; env: NodeJS.ProcessEnv } | null> {
+	const bin = await resolveNpmBin(options);
+	if (!bin) return null;
+	return { bin, env: buildAugmentedPathEnv(path.dirname(bin), options) };
 }
 
 /**
@@ -311,20 +531,57 @@ export async function installMmxCli(
 	options: { log?: (msg: string) => void } = {},
 ): Promise<MmxCliCommandResult & { newVersion?: string; binPath?: string }> {
 	const log = options.log ?? (() => {});
-	log('Running: npm install -g mmx-cli');
-	const result = await run('npm', ['install', '-g', MMX_CLI_PACKAGE, '--no-audit', '--no-fund'], {
-		timeoutMs: INSTALL_TIMEOUT_MS,
-	});
+	// Resolve npm *before* the install so the npm directory is in the
+	// PATH we hand to the child process. Without this, the user can
+	// hit the "npm not found on PATH" error we just fixed: npm
+	// itself is fine, but VS Code's inherited env doesn't see it.
+	const npm = await resolveNpmEnv();
+	if (!npm) {
+		return {
+			ok: false,
+			stdout: '',
+			stderr: '',
+			missing: true,
+			error:
+				'npm not found on PATH. Install Node.js (https://nodejs.org) and reload VS Code, then click "Re-check".',
+		};
+	}
+	log(`Running: ${npm.bin} install -g mmx-cli`);
+	const result = await run(
+		npm.bin,
+		['install', '-g', MMX_CLI_PACKAGE, '--no-audit', '--no-fund'],
+		{ timeoutMs: INSTALL_TIMEOUT_MS, env: npm.env },
+	);
 	if (!result.ok) {
 		return { ...result };
 	}
-	const binPath = await resolveMmxBin();
-	const newVersion = binPath ? await readMmxVersion(binPath) : null;
+	// `mmx` was just dropped into npm's bin dir; resolveMmxBin will
+	// find it there once we feed it the augmented PATH.
+	const mmx = await resolveMmxBinWithEnv(npm.env);
+	const newVersion = mmx ? await readMmxVersion(mmx) : null;
 	return {
 		...result,
 		newVersion: newVersion ?? undefined,
-		binPath: binPath ?? undefined,
+		binPath: mmx ?? undefined,
 	};
+}
+
+/**
+ * Same as `resolveMmxBin` but the `where` / `which` child process
+ * inherits an augmented PATH. Necessary on Windows when the install
+ * just dropped `mmx.cmd` into `%AppData%\npm` — that dir is in the
+ * augmented env, but not in the inherited one.
+ */
+async function resolveMmxBinWithEnv(
+	env: NodeJS.ProcessEnv,
+): Promise<string | null> {
+	const result = await run('where', ['mmx'], { timeoutMs: 5_000, env });
+	if (!result.ok) return null;
+	const first = result.stdout
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.find((line) => line.length > 0);
+	return first ?? null;
 }
 
 /**
@@ -364,10 +621,28 @@ export async function installMmxSkill(
 	options: { log?: (msg: string) => void; extensionUri?: vscode.Uri } = {},
 ): Promise<MmxCliCommandResult & { installedAt?: string; source?: 'npx' | 'bundled' }> {
 	const log = options.log ?? (() => {});
-	log('Running: npx skills add MiniMax-AI/cli -y -g');
-	const result = await run('npx', ['--yes', 'skills', 'add', MMX_SKILL_SLUG, '-y', '-g'], {
-		timeoutMs: INSTALL_TIMEOUT_MS,
-	});
+	const npx = await resolveNpmEnv({ bin: 'npx' });
+	if (!npx) {
+		// npx isn't available — skip straight to the bundled fallback.
+		log('npx not found on PATH; using bundled SKILL.md');
+		const fallback = await installBundledMmxSkill(options.extensionUri);
+		if (fallback.ok) {
+			return { ...fallback, source: 'bundled' };
+		}
+		return {
+			ok: false,
+			stdout: '',
+			stderr: '',
+			missing: true,
+			error: 'npx not found on PATH and bundled SKILL copy failed',
+		};
+	}
+	log(`Running: ${npx.bin} skills add ${MMX_SKILL_SLUG} -y -g`);
+	const result = await run(
+		npx.bin,
+		['--yes', 'skills', 'add', MMX_SKILL_SLUG, '-y', '-g'],
+		{ timeoutMs: INSTALL_TIMEOUT_MS, env: npx.env },
+	);
 	if (result.ok) {
 		return { ...result, source: 'npx' };
 	}

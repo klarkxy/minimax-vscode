@@ -195,6 +195,19 @@ async function runMmxCliInstallWizard(
 			},
 		);
 		if (!result.ok) {
+			// The most common failure is a stale PATH: VS Code was
+			// launched before npm was on it. Offer to reload the
+			// window so the new PATH takes effect.
+			if (result.missing && /npm not found/.test(result.error ?? '')) {
+				const choice = await vscode.window.showErrorMessage(
+					t('mmx.installFailed', result.error ?? 'unknown'),
+					t('mmx.reloadWindow'),
+				);
+				if (choice === t('mmx.reloadWindow')) {
+					await vscode.commands.executeCommand('workbench.action.reloadWindow');
+				}
+				return;
+			}
 			vscode.window.showErrorMessage(t('mmx.installFailed', result.error ?? 'unknown'));
 			return;
 		}

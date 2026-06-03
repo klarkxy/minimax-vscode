@@ -2,6 +2,42 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.1.4 — 修 mmx-cli 安装在 Windows 上 `npm not found on PATH` 的问题
+
+修复 **MiniMax: 安装 mmx-cli** 命令在 Windows 上报
+`npm not found on PATH` 的问题——明明 PowerShell 里 `npm --version`
+跑得好好的。
+
+### Bug
+
+原 `installMmxCli` 直接 `execFile('npm', …)`，传的是裸二进制名。
+Windows 上 `execFile` **不**走 `PATHEXT` 解析，文件名叫 `npm` 就
+按字面找，npm 真正装的是 `npm.cmd`，于是 `ENOENT`（Node 18+ 还
+会直接 `EINVAL` 拦截 `.cmd` / `.bat` 的直接 spawn，作为一项安全
+加固）。任何 PATH 上没有字面 `npm.exe` 的 Windows 机器都中招。
+
+### 修复
+
+- 新增 `mmxCli.resolveNpmBin()`：先跑 `where npm`，**优先选 `.cmd`**
+  那一行；找不到时按 Windows 常见安装位置挨个查
+  （`%ProgramFiles%\nodejs`、`%APPDATA%\npm`、nvm-windows、fnm、
+  Volta），结果带缓存。
+- `run()` 内部对任何 `.cmd` / `.bat` 目标自动包一层 `cmd.exe /c …`，
+  绕开 Node 18+ 的 `EINVAL` 拦截。传给 `mmx auth login
+  --api-key <key>` 的 API Key 仍然走 Node 的 argv 转义路径，**不**
+  经过 shell，"不在进程列表里露 Key" 的原有保证不变。
+- **MiniMax: 安装 mmx-cli** 失败时如果错误信息是 npm 缺失，多弹
+  一个 **重新加载窗口** 按钮——那些"装完 Node 之后才开 VS Code"
+  的用户点一下就能拿到新 PATH，不用手动重启。
+
+### 验证
+
+- TypeScript clean (`tsc -p ./ --noEmit`)
+- 单元测试：**82/82 pass**（新增 2 个针对 `resolveNpmBin` /
+  `resolveNpmEnv` 的测试）
+- Windows 实测：`cmd.exe /c C:\Program Files\nodejs\npm.cmd
+  --version` → `11.6.2` ✅
+
 ## 2.1.3 — 集成 mmx-cli
 
 把官方多模态命令行 `mmx` 作为 Token Plan 的可选伴生工具集成进来。
