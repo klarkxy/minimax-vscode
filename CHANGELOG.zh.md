@@ -2,6 +2,20 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.1.8 — 修复：不再硬依赖 VS Code 内置 Git 扩展
+
+- **移除对 `vscode.git` 的硬扩展依赖。** 现在即使内置 Git
+  扩展加载失败——例如远端 UI 模式未装 `git`、`git.enabled`
+  被关闭，或 Git 扩展自身无法 activate——本扩展也能正常
+  激活。修复 [#1](https://github.com/klarkxy/minimax-vscode/issues/1)。
+- **主体功能完全不受影响。** 语言模型 provider、Copilot chat、
+  面板、视觉、工具调用、mmx-cli 这些模块本来就与 Git 无关。
+- **`Generate Commit Message` 在 Git 不可用时优雅降级。**
+  `getGitApi()` 在那种场景下原本就会返回 `undefined`，本命令
+  捕获后弹中英文的 `commit.gitUnavailable` 提示并退出——
+  不会崩溃。SCM 输入框菜单项也用 `when: scmProvider == git`
+  守卫了，没 Git provider 时自动灰显。
+
 ## 2.1.7 — mmx-cli 状态持久化、面板秒开、auth 检测更准
 
 - **mmx-cli 状态现在跨 VS Code 重启保留。** 新增 `MmxCliCache`

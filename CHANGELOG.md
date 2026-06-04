@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.1.8 — fix: extension activates without the built-in Git extension
+
+- **Removes the hard `vscode.git` extension dependency.** The
+  extension no longer refuses to activate when the built-in Git
+  extension fails to load — e.g. in remote UI tunnels where `git`
+  isn't installed, `git.enabled` is off, or the Git extension
+  itself can't activate. Fixes
+  [#1](https://github.com/klarkxy/minimax-vscode/issues/1).
+- **Main functionality is unaffected.** The language-model
+  provider, Copilot chat, dashboard, vision, tools, and mmx-cli
+  panels never depended on Git in the first place.
+- **`Generate Commit Message` now degrades gracefully** when Git
+  is unavailable. `getGitApi()` already returns `undefined` in
+  that case, and the command shows the existing
+  `commit.gitUnavailable` i18n message and bails out — no crash.
+  The SCM input-box menu item is also gated on
+  `when: scmProvider == git`, so it auto-disables when there's
+  no Git provider.
+
 ## 2.1.7 — mmx-cli: persistent cache, faster dashboard, correct auth detection
 
 - **mmx-cli status is now persisted across VS Code restarts.** A
