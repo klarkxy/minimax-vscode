@@ -1,12 +1,16 @@
 # Changelog
 
-## Unreleased
+## 2.1.9 — M3 native video input + thinking on/off switch
 
-- **M3 native video input.** Aligns with the official MiniMax
-  Anthropic-API docs: M3 now accepts `type: "video"` content blocks
-  inline (MP4 / AVI / MOV / MKV) and through the Files API
-  (`mm_file://{file_id}`). Previously a video attachment was
-  silently dropped, the same failure mode that bit the early
+Aligns the Anthropic-compatible surface with the latest
+[platform.minimaxi.com docs](https://platform.minimaxi.com/docs/api-reference/text-anthropic-api).
+
+### Features
+
+- **M3 native video input.** M3 now accepts `type: "video"`
+  content blocks inline (MP4 / AVI / MOV / MKV) and through the
+  Files API (`mm_file://{file_id}`). Previously a video attachment
+  was silently dropped, the same failure mode that bit the early
   image input. The converter now warns and drops unsupported
   containers; the request layer adds a 64 MB body-size pre-flight
   check that throws a localised error before the API would 413.

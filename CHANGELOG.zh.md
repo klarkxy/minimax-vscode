@@ -2,7 +2,11 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
-## Unreleased
+## 2.1.9 — M3 原生视频输入 + 思考开关
+
+对齐官方 [platform.minimaxi.com 文档](https://platform.minimaxi.com/docs/api-reference/text-anthropic-api)。
+
+### 新增
 
 - **M3 原生视频输入。** 对齐官方 MiniMax Anthropic 兼容 API 文档：M3 现在接受内联 `type: "video"` 内容块（MP4 / AVI / MOV / MKV），以及通过 Files API 上传后用 `mm_file://{file_id}` 引用。早期版本对视频附件会**静默丢弃**——和早期图片输入 bug 同一类病，现在一并修掉。convert 层对不支持的容器会打 warning 后丢弃；request 层加了 64 MB 整请求体预检，在 API 返回 413 之前用本地化错误拦下。
 - **`minimax.thinking.enabled`（仅 M3 生效）+ 配套命令 `MiniMax: 切换 M3 思考模式`。** 官方文档只暴露二值开关 `thinking: { type: "disabled" | "adaptive" }`——没有「思考强度」「预算」「分步」一类旋钮可以转。本扩展通过两种方式提供开关：
@@ -11,7 +15,10 @@
 
   M2.x 永远 `adaptive`，因为官方说 `disabled` 对 M2 系列是 no-op，所以开关对 M2.7 / M2.7-highspeed 是 no-op。M3 把它关掉之后，`minimax.sampling` 里的 `temperature` / `topP` 终于能真正生效——`temperature=1`、禁 `top_p` 这条 Anthropic 约束只在 thinking 开启时生效。
   - **移除了 Copilot Chat 模型选择器里的每模型下拉菜单。** 早期版本照着 DeepSeek-for-Copilot 的样子用 `configurationSchema` 渲染下拉，但宿主每次重新渲染都会把 schema 的 `default` 重新应用：用户第一次点「关闭」被悄悄吞掉，第二次点就跳回「开启」。改成「设置 + 命令」组合后行为稳定。
-- **新增单测覆盖。** `test/convertVideo.test.ts` 覆盖视频转换（base64 块、MOV 容器、不支持容器丢弃、M2.x 丢弃）和 thinking 开关（M2.x 永远 adaptive、M3 默认值 + 覆盖）。`test/helpers/vscodeMock.ts` 的 vscode mock 现在也导出 `LanguageModelChatMessageRole`，让 convert 层可以端到端跑测试。
+
+### 测试
+
+- `test/convertVideo.test.ts` 覆盖视频转换（base64 块、MOV 容器、不支持容器丢弃、M2.x 丢弃）和 thinking 开关（M2.x 永远 adaptive、M3 默认值 + 覆盖）。`test/helpers/vscodeMock.ts` 的 vscode mock 现在也导出 `LanguageModelChatMessageRole`，让 convert 层可以端到端跑测试。
 
 ## 2.1.8 — 修复：不再硬依赖 VS Code 内置 Git 扩展
 
