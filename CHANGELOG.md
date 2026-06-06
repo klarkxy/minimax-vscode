@@ -1,5 +1,42 @@
 # Changelog
 
+## Unreleased
+
+- **M3 native video input.** Aligns with the official MiniMax
+  Anthropic-API docs: M3 now accepts `type: "video"` content blocks
+  inline (MP4 / AVI / MOV / MKV) and through the Files API
+  (`mm_file://{file_id}`). Previously a video attachment was
+  silently dropped, the same failure mode that bit the early
+  image input. The converter now warns and drops unsupported
+  containers; the request layer adds a 64 MB body-size pre-flight
+  check that throws a localised error before the API would 413.
+- **`minimax.thinking.enabled` (M3 only) with a dedicated
+  `MiniMax: Toggle M3 Thinking Mode` command.** MiniMax's
+  Anthropic-compatible endpoint exposes a binary
+  `thinking: { type: "disabled" | "adaptive" }` switch — there is
+  no intensity / budget / split knob to forward. The on/off switch
+  is now exposed two ways: a `minimax.thinking.enabled` boolean
+  setting (default `true`) and a command-palette entry that
+  flips it and shows a localised toast.
+  - M2.x always stays `adaptive` because the API ignores
+    `disabled` for the M2 family, so the toggle is a no-op there.
+  - Flipping M3 off also unlocks `temperature` / `topP` from
+    `minimax.sampling` (the Anthropic `temperature=1, no top_p`
+    constraint only applies while thinking is on).
+  - **Removed the Copilot Chat per-model dropdown.** An earlier
+    draft shipped a `configurationSchema` dropdown matching the
+    DeepSeek-for-Copilot pattern, but the host re-applies the
+    schema `default` on every re-render: the user's first click
+    was silently overridden, the second click flipped back to
+    "On". The setting + command pair is reliable.
+- **Test coverage for the new paths.** New unit tests in
+  `test/convertVideo.test.ts` exercise the video conversion
+  (base64 block, MOV container, unsupported drop, M2.x drop) and
+  the thinking switch (M2.x always adaptive, M3 default + override).
+  The `vscode` mock in `test/helpers/vscodeMock.ts` now also
+  exports `LanguageModelChatMessageRole` so the converter can be
+  exercised end-to-end.
+
 ## 2.1.8 — fix: extension activates without the built-in Git extension
 
 - **Removes the hard `vscode.git` extension dependency.** The

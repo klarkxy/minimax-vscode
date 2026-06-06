@@ -5,6 +5,7 @@ import { logger } from '../logger';
 import { getModels, getVisibleModels } from '../models/registry';
 import { getBaseUrl } from '../config';
 import { chooseCommitModel, generateCommitMessage } from '../git/commitMessage';
+import { toggleThinkingEnabled } from '../provider/models';
 import { createUsageStore, type UsageStore } from '../usage';
 import { DashboardPanel } from '../dashboard/panel';
 import { createPlanStatusBar, type PlanStatusBar } from '../dashboard/planStatusBar';
@@ -122,6 +123,12 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 		}),
 		vscode.commands.registerCommand('minimax.chooseCommitModel', () => {
 			void chooseCommitModel();
+		}),
+		vscode.commands.registerCommand('minimax.toggleThinking', () => {
+			// Flips the `minimax.thinking.enabled` setting and toasts
+			// the new state. M3-only — M2.x always stays adaptive and
+			// the setting is a no-op for it.
+			void toggleThinkingEnabled();
 		}),
 		vscode.commands.registerCommand('minimax.showUsage', () => {
 			void showUsage();

@@ -104,6 +104,11 @@
         "category": "MiniMax"
       },
       {
+        "command": "minimax.toggleThinking",
+        "title": "%minimax.command.toggleThinking%",
+        "category": "MiniMax"
+      },
+      {
         "command": "minimax.showUsage",
         "title": "%minimax.command.showUsage%",
         "category": "MiniMax"
@@ -186,6 +191,12 @@
           "default": 0,
           "minimum": 0,
           "markdownDescription": "Maximum number of output tokens. `0` (default) lets the model decide. Hard cap: 524288 for M2.x, 512000 for M3."
+        },
+        "minimax.thinking.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Toggle the typed `thinking` content block for **MiniMax-M3**. When `true` (default), M3 emits its reasoning trace as a `thinking` block; when `false`, the API returns the answer without a typed thinking trace. The Anthropic constraint that `temperature=1` and `top_p` is dropped only applies while thinking is on, so flipping this off also unlocks your custom `temperature` / `topP` from `minimax.sampling`. M2.x always stays on — the docs say `disabled` is a no-op for the M2 family, so this setting is ignored for M2.7 / M2.7-highspeed. Use the **MiniMax: Toggle M3 Thinking Mode** command for a one-click flip."
         },
         "minimax.debugMode": {
           "type": "string",
@@ -369,7 +380,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@vscode/vsce": "^3.9.1",
+    "@vscode/vsce": "^3.9.2",
     "ovsx": "0.10.12",
     "@types/vscode": "^1.111.0",
     "esbuild": "^0.28.0",

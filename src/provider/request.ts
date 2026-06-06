@@ -5,7 +5,7 @@ import { getApiModelId, getBaseUrl, getMaxTokens } from '../config';
 import { CONFIG_SECTION } from '../consts';
 import { t } from '../i18n';
 import { findModelById } from '../models/registry';
-import type { MiniMaxRequest, MiniMaxTool } from '../types';
+import type { ConvertedConversation, MiniMaxRequest, MiniMaxTool } from '../types';
 import { convertMessages, convertTools, countMessageChars } from './convert';
 import {
 	classifyMiniMaxRequest,
@@ -20,6 +20,7 @@ import type { ReplayMarkerMetadata } from './replay';
 import type { ConversationSegment } from './segment';
 import { collectTrailingToolResultIds, prepareRequestTools } from './tools/request';
 import { logger } from '../logger';
+import { safeStringify } from '../json';
 import { bypassVisionResolution, resolveImageMessages } from './vision/index';
 
 export interface PreparedChatRequest {
@@ -28,7 +29,13 @@ export interface PreparedChatRequest {
 	request: MiniMaxRequest;
 	modelDef: ReturnType<typeof findModelById> | undefined;
 	isThinkingModel: boolean;
-	thinkingEffort: 'adaptive';
+	/**
+	 * The thinking effort the user has asked for. `adaptive` keeps
+	 * thinking on; `disabled` (M3 only) turns it off. The
+	 * `isThinkingModel` field reflects the model's capability, not
+	 * the user's choice — they diverge when M3 is in disabled mode.
+	 */
+	thinkingEffort: 'adaptive' | 'disabled';
 	totalRequestChars: number;
 	trailingToolResultIds: string[];
 	cacheDiagnostics: CacheDiagnosticsRun;
@@ -81,10 +88,20 @@ export async function prepareChatRequest({
 				extra: userExtra ?? modelDef.extra,
 			}
 		: undefined;
-	// MiniMax does not expose a thinking-effort knob on the
-	// Anthropic-compatible endpoint; see `provider/models.ts` for
-	// the full rationale and a link to the upstream OpenAPI spec.
-	const thinkingEffort = getConfiguredThinkingEffort(options as ModelConfigurationOptions);
+	// M3 supports a binary `thinking: { type: "disabled" }` switch via
+	// the Copilot Chat picker dropdown. M2.x always stays `adaptive`
+	// because the API ignores `disabled` for the M2 family. We trust
+	// the dropdown value verbatim — see `provider/models.ts` for the
+	// full rationale and a worked example of why the earlier
+	// `minimax.thinking.enabled` write-back caused a
+	// configurationSchema refresh loop.
+	const thinkingEffort = getConfiguredThinkingEffort(modelInfo.id, options as ModelConfigurationOptions);
+	// `isThinkingModel` reflects whether the *model* is a thinking
+	// model. `thinkingEnabled` reflects whether the user has flipped
+	// the switch on. The two diverge for M3 only — when the user
+	// disables thinking, we drop the temperature=1 / no-top_p
+	// constraint and let the user's sampling overrides apply.
+	const isThinkingEnabled = thinkingEffort === 'adaptive';
 	const configuredMaxTokens = getMaxTokens();
 
 	// If the target model accepts image input natively (e.g. MiniMax-M3,
@@ -95,6 +112,7 @@ export async function prepareChatRequest({
 	// whenever the proxy is unavailable, replacing it with
 	// `[Image Description unavailable]`.
 	const supportsImages = modelDef?.capabilities.imageInput ?? false;
+	const supportsVideos = modelDef?.capabilities.videoInput ?? false;
 	const visionResolution = supportsImages
 		? bypassVisionResolution(messages)
 		: await resolveImageMessages(messages, token, getVisionModel);
@@ -104,11 +122,26 @@ export async function prepareChatRequest({
 				`${countInputImages(messages)} image part(s) will be sent as base64 directly.`,
 		);
 	}
+	if (supportsVideos) {
+		const videoCount = countInputVideos(messages);
+		if (videoCount > 0) {
+			logger.info(
+				`[MiniMax] ${modelInfo.id} supports video input natively; ` +
+					`${videoCount} video part(s) will be sent as base64 directly.`,
+			);
+		}
+	}
 	const resolvedMessages = visionResolution.messages;
 	const converted = convertMessages(resolvedMessages, modelInfo.id);
 	const tools = prepareRequestTools(modelDef?.capabilities.toolCalling, options);
 
 	const totalRequestChars = countMessageChars(converted);
+
+	// Per the MiniMax Anthropic-API docs, the whole request body is
+	// capped at 64 MB. Inline (base64/url) image+video data dominates
+	// the count; we check the total bytes against the cap so we throw
+	// a friendly error before the API returns 413.
+	enforceRequestBodySizeLimit(converted, modelInfo.id);
 
 	// Clamp user-configured maxTokens to the model's hard cap so we never
 	// send a value the API rejects with HTTP 400 (e.g. M3 caps at 512_000,
@@ -127,10 +160,15 @@ export async function prepareChatRequest({
 		buildThinkingPayload(modelDef, thinkingEffort),
 		// Anthropic requires `temperature=1` whenever thinking is enabled
 		// and forbids `top_p` in the same request. MiniMax inherits this
-		// constraint for its `thinking: { type: "adaptive" }` mode, so
-		// we force temperature=1 for any thinking-capable model and
-		// drop top_p (the SDK never sends it from the call above).
-		modelDef?.capabilities.thinking ? 1 : undefined,
+		// constraint for its `thinking: { type: "adaptive" }` mode.
+		//
+		// When the user has flipped `minimax.thinking.enabled` to
+		// `false` (M3 only — M2.x always stays adaptive), we drop the
+		// forced temperature=1 so the user's per-model `temperature`
+		// override (configured via `minimax.sampling`) finally takes
+		// effect. `undefined` here is the signal for
+		// `applyPerModelSampling` to forward the configured temperature.
+		modelDef?.capabilities.thinking && isThinkingEnabled ? 1 : undefined,
 		undefined,
 		enrichedModelDef,
 	);
@@ -264,13 +302,18 @@ function readUserExtra(modelId: string): Record<string, unknown> | undefined {
  */
 function buildThinkingPayload(
 	modelDef: ReturnType<typeof findModelById> | undefined,
-	_effort: 'adaptive',
-): { type: 'adaptive' } | undefined {
+	effort: 'adaptive' | 'disabled',
+): { type: 'adaptive' } | { type: 'disabled' } | undefined {
 	if (!modelDef?.capabilities.thinking) {
 		return undefined;
 	}
+	// M3 honours both `adaptive` and `disabled` (the docs explicitly
+	// say M3 thinking can be turned off). M2.x does not — even if we
+	// send `disabled`, the gateway keeps thinking on; emitting
+	// `disabled` would be a no-op so we still emit `adaptive` here for
+	// the typed field to keep the body shape predictable.
 	if (modelDef.thinking.supportsAdaptive) {
-		return { type: 'adaptive' };
+		return { type: effort };
 	}
 	// M2.x series: the gateway has no typed `thinking` field, so we
 	// omit the block entirely. The reasoning text still arrives
@@ -302,4 +345,132 @@ function countInputImages(
 		}
 	}
 	return count;
+}
+
+/**
+ * Count the number of video data parts. Mirrors `countInputImages` for
+ * the M3-native video path.
+ */
+function countInputVideos(
+	messages: readonly vscode.LanguageModelChatRequestMessage[],
+): number {
+	let count = 0;
+	for (const message of messages) {
+		for (const part of message.content) {
+			if (
+				part instanceof vscode.LanguageModelDataPart &&
+				part.mimeType.startsWith('video/')
+			) {
+				count += 1;
+			}
+		}
+	}
+	return count;
+}
+
+/**
+ * Estimate the byte size of inline (base64/url) content blocks in a
+ * converted conversation. `mm_file://` references contribute 0 bytes —
+ * only the small `file_id` is sent, the actual file is fetched server-side.
+ *
+ * Base64 expands 3 bytes into 4 chars, so we divide by 4 × 3/4 = 3 to
+ * get the original byte length. URL sources are passed through as-is
+ * (the API will decode them).
+ */
+function estimateRequestBodyBytes(
+	converted: ConvertedConversation,
+): number {
+	let bytes = 0;
+	const sys = converted.systemPrompt;
+	if (typeof sys === 'string') {
+		bytes += Buffer.byteLength(sys, 'utf8');
+	}
+	for (const message of converted.messages) {
+		if (typeof message.content === 'string') {
+			bytes += Buffer.byteLength(message.content, 'utf8');
+			continue;
+		}
+		for (const block of message.content) {
+			switch (block.type) {
+				case 'text':
+					bytes += Buffer.byteLength(block.text, 'utf8');
+					break;
+				case 'image':
+					if (block.source.type === 'base64') {
+						bytes += Math.floor((block.source.data.length * 3) / 4);
+					} else {
+						bytes += Buffer.byteLength(block.source.url, 'utf8');
+					}
+					break;
+				case 'video':
+					if (block.source.type === 'mm_file') break;
+					if (block.source.type === 'base64') {
+						bytes += Math.floor((block.source.data.length * 3) / 4);
+					} else {
+						bytes += Buffer.byteLength(block.source.url, 'utf8');
+					}
+					break;
+				case 'tool_use':
+					bytes += Buffer.byteLength(safeStringify({
+						id: block.id,
+						name: block.name,
+						input: block.input,
+					}), 'utf8');
+					break;
+				case 'tool_result':
+					bytes += Buffer.byteLength(block.tool_use_id, 'utf8');
+					if (typeof block.content === 'string') {
+						bytes += Buffer.byteLength(block.content, 'utf8');
+					} else {
+						for (const inner of block.content) {
+							if (inner.type === 'text') {
+								bytes += Buffer.byteLength(inner.text, 'utf8');
+							}
+						}
+					}
+					break;
+				case 'thinking':
+					bytes += Buffer.byteLength(block.thinking, 'utf8');
+					break;
+			}
+		}
+	}
+	return bytes;
+}
+
+/**
+ * Throw a friendly i18n error when the inline content of a request would
+ * blow the documented 64 MB cap. We only count the request *body* (no
+ * URL/method/headers), so the real cap is a little higher; this is a
+ * pre-flight check to surface oversized chats before the API bounces
+ * them with HTTP 413.
+ */
+function enforceRequestBodySizeLimit(
+	converted: ConvertedConversation,
+	modelId: string,
+): void {
+	const bytes = estimateRequestBodyBytes(converted);
+	if (bytes <= MAX_REQUEST_BODY_BYTES_FOR_MODEL(modelId)) {
+		return;
+	}
+	const mb = (bytes / 1024 / 1024).toFixed(1);
+	throw new Error(
+		t(
+			'request.bodyTooLarge',
+			modelId,
+			mb,
+			Math.floor(MAX_REQUEST_BODY_BYTES_FOR_MODEL(modelId) / 1024 / 1024),
+		),
+	);
+}
+
+/**
+ * Per-model request-body caps from the MiniMax Anthropic-API docs. M3 is
+ * the only model in the picker that accepts inline media at all, so we
+ * only need a 64 MB entry; the M2.x branch is here for callers that
+ * still point at historical models via `modelIdOverrides`.
+ */
+function MAX_REQUEST_BODY_BYTES_FOR_MODEL(modelId: string): number {
+	if (modelId === 'MiniMax-M3') return 64 * 1024 * 1024;
+	return 32 * 1024 * 1024;
 }

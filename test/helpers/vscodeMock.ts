@@ -119,6 +119,17 @@ export class Disposable {
 	}
 }
 
+/**
+ * Minimal `ThemeIcon` mock. Production code constructs
+ * `new vscode.ThemeIcon('lightbulb')` etc. to attach a status icon to
+ * a model picker row. Tests only assert that *some* icon is present
+ * for the "thinking off" case and `undefined` for the default case,
+ * so the class itself doesn't need to carry real SVG data.
+ */
+export class ThemeIcon {
+	constructor(public id: string) {}
+}
+
 // `vscode.Uri` in production is both a class and a namespace with
 // `parse`/`file` helpers. We expose it as a callable function (the
 // `parse` binding) that also carries the `parse` / `file` static
@@ -226,6 +237,19 @@ export const commands = {
 	executeCommand: () => Promise.resolve(),
 };
 
+/**
+ * `ConfigurationTarget` enum mirrored from vscode. Values are the
+ * stable ones from the VS Code 1.x API:
+ *   - 1 = Global
+ *   - 2 = Workspace
+ *   - 3 = WorkspaceFolder
+ */
+export const ConfigurationTarget = {
+	Global: 1,
+	Workspace: 2,
+	WorkspaceFolder: 3,
+} as const;
+
 export const env = {
 	language: 'en',
 	languages: ['en'],
@@ -240,5 +264,19 @@ export const env = {
 };
 
 export const Event = EventEmitter;
+
+/**
+ * Role enum mirrored from vscode's `LanguageModelChatMessageRole`.
+ * The values have been stable since 1.84:
+ *   - 1 = User
+ *   - 2 = Assistant
+ *   - 3 = System (not surfaced in @types/vscode; used in production
+ *     by the converter via the raw numeric value)
+ */
+export const LanguageModelChatMessageRole = {
+	User: 1,
+	Assistant: 2,
+	System: 3,
+} as const;
 
 export { makeUri, type UriLike };

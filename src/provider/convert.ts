@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { safeStringify } from '../json';
 import { logger } from '../logger';
 import type {
+	ConvertedConversation,
 	MiniMaxContentBlock,
 	MiniMaxMessage,
 	MiniMaxThinkingBlock,
@@ -17,6 +18,30 @@ const SUPPORTED_IMAGE_MIME_TYPES = new Set([
 	'image/webp',
 ]);
 
+// Per the official MiniMax Anthropic-API docs, M3 accepts MP4 / AVI /
+// MOV / MKV. The MIME strings below are the canonical IANA types;
+// some hosts report MOV as `video/quicktime` (we accept both).
+const SUPPORTED_VIDEO_MIME_TYPES = new Set([
+	'video/mp4',
+	'video/avi',
+	'video/quicktime',
+	'video/x-matroska',
+	'video/mkv',
+]);
+
+/**
+ * M3 request-body limits documented at
+ * https://platform.minimaxi.com/docs/api-reference/text-anthropic-api
+ *   - inline image: ≤ 10 MB
+ *   - inline video (base64/url): ≤ 50 MB
+ *   - whole request body: ≤ 64 MB
+ * Files-API uploads (`mm_file://`) are exempt from the 50 MB cap (up to 512 MB),
+ * so we only check the limits on base64/url sources.
+ */
+const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_INLINE_VIDEO_BYTES = 50 * 1024 * 1024;
+const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024;
+
 /**
  * VS Code's stable typings only expose `User` and `Assistant` roles. The
  * `System` role is part of the public `vscode.LanguageModelChatMessageRole`
@@ -27,11 +52,6 @@ const SYSTEM_ROLE_VALUE = 3 as const;
 
 function isSystemRole(role: vscode.LanguageModelChatMessageRole): boolean {
 	return (role as unknown as number) === SYSTEM_ROLE_VALUE;
-}
-
-export interface ConvertedConversation {
-	messages: MiniMaxMessage[];
-	systemPrompt?: string;
 }
 
 export interface ConvertMessagesOptions {
@@ -62,6 +82,7 @@ export function convertMessages(
 ): ConvertedConversation {
 	const modelDef = findModelById(modelId);
 	const supportsImages = modelDef?.capabilities.imageInput ?? false;
+	const supportsVideos = modelDef?.capabilities.videoInput ?? false;
 	const result: MiniMaxMessage[] = [];
 	const systemParts: string[] = [];
 
@@ -84,7 +105,7 @@ export function convertMessages(
 		}
 
 		// User role.
-		const converted = convertUserMessage(message, supportsImages);
+		const converted = convertUserMessage(message, supportsImages, supportsVideos);
 		if (converted) {
 			result.push(converted);
 		}
@@ -99,6 +120,7 @@ export function convertMessages(
 function convertAssistantMessage(
 	message: vscode.LanguageModelChatRequestMessage,
 	supportsImages: boolean,
+	_supportsVideos: boolean = false,
 ): MiniMaxMessage | undefined {
 	const blocks: MiniMaxContentBlock[] = [];
 	let textBuf = '';
@@ -189,6 +211,7 @@ function convertAssistantMessage(
 function convertUserMessage(
 	message: vscode.LanguageModelChatRequestMessage,
 	supportsImages: boolean,
+	supportsVideos: boolean = false,
 ): MiniMaxMessage | undefined {
 	const blocks: MiniMaxContentBlock[] = [];
 	let textBuf = '';
@@ -202,6 +225,17 @@ function convertUserMessage(
 			if (supportsImages && SUPPORTED_IMAGE_MIME_TYPES.has(mime)) {
 				blocks.push(buildImageBlock(part));
 				hasNonText = true;
+			} else if (supportsVideos && SUPPORTED_VIDEO_MIME_TYPES.has(mime)) {
+				blocks.push(buildVideoBlock(part));
+				hasNonText = true;
+			} else if (supportsVideos && mime.startsWith('video/')) {
+				// M3 multimodal model receiving a video part in an
+				// unrecognised container. Warn so the user knows we
+				// dropped it (matches the image-MIME diagnostic above).
+				logger.warn(
+					`[MiniMax] Dropping video attachment with unsupported MIME type "${mime}". ` +
+						`Supported types: ${[...SUPPORTED_VIDEO_MIME_TYPES].join(', ')}.`,
+				);
 			} else if (mime.startsWith('image/')) {
 				// Image with an unsupported MIME on a multimodal model, or
 				// a non-multimodal model that should already have had the
@@ -219,8 +253,13 @@ function convertUserMessage(
 				// the vision pipeline (provider/vision) to have already
 				// replaced it with a text description. Skip silently.
 				continue;
+			} else if (mime.startsWith('video/')) {
+				// Non-multimodal model receiving a video — same logic as
+				// the image fallback: the vision pipeline should have
+				// handled it, and we silently drop here for safety.
+				continue;
 			}
-			// Non-image data parts are ignored.
+			// Non-image / non-video data parts are ignored.
 		} else if (part instanceof vscode.LanguageModelToolResultPart) {
 			// Tool result carried on a user message — synthesise a
 			// tool_result content block. (The provider layer also breaks
@@ -277,6 +316,53 @@ function buildImageBlock(part: vscode.LanguageModelDataPart): MiniMaxContentBloc
 	// data URIs in image source.url.
 	return {
 		type: 'image',
+		source: {
+			type: 'url',
+			url: `data:${part.mimeType};base64,${Buffer.from(part.data).toString('base64')}`,
+		},
+	};
+}
+
+/**
+ * Build a video block. M3 only.
+ *
+ * The block takes one of three forms (per the MiniMax Anthropic-API docs):
+ *   1. `base64` — inline upload of a small file (≤ 50 MB)
+ *   2. `url`    — publicly hosted video URL (≤ 50 MB)
+ *   3. `mm_file`— Files-API reference for large files (≤ 512 MB). The
+ *                VS Code `LanguageModelDataPart` surface doesn't expose
+ *                `mm_file://` directly, but we keep the variant for
+ *                callers (tests, future tooling) that build a video
+ *                block by hand.
+ *
+ * `mm_file://` URLs in a `data`-URI text aren't supported here; the
+ * converter only ever sees raw `Uint8Array` blobs. If the host ever
+ * exposes an `mm_file://` reference (e.g. through a data-part metadata
+ * convention) we can plumb it through; for now callers that need it
+ * can construct the block themselves and feed it via the request layer.
+ */
+function buildVideoBlock(part: vscode.LanguageModelDataPart): MiniMaxContentBlock {
+	// Inline base64 is the cheapest path; the API accepts the four
+	// canonical container MIME types directly. Anything else falls
+	// through to a `data:` URL — still inline, still subject to the
+	// 50 MB cap, but kept as a last-resort shape for unusual hosts.
+	if (
+		part.mimeType === 'video/mp4' ||
+		part.mimeType === 'video/avi' ||
+		part.mimeType === 'video/quicktime' ||
+		part.mimeType === 'video/x-matroska'
+	) {
+		return {
+			type: 'video',
+			source: {
+				type: 'base64',
+				media_type: part.mimeType,
+				data: Buffer.from(part.data).toString('base64'),
+			},
+		};
+	}
+	return {
+		type: 'video',
 		source: {
 			type: 'url',
 			url: `data:${part.mimeType};base64,${Buffer.from(part.data).toString('base64')}`,
@@ -358,6 +444,18 @@ export function countMessageChars(conversation: ConvertedConversation): number {
 					total += block.text.length;
 					break;
 				case 'image':
+					if (block.source.type === 'base64') {
+						total += block.source.data.length;
+					} else {
+						total += block.source.url.length;
+					}
+					break;
+				case 'video':
+					// `mm_file` references don't bloat the request body;
+					// only the small `file_id` is sent. Skip them.
+					if (block.source.type === 'mm_file') {
+						break;
+					}
 					if (block.source.type === 'base64') {
 						total += block.source.data.length;
 					} else {

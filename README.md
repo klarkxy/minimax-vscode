@@ -68,7 +68,7 @@ API key.
 
 | Model | Context | Effective input | Output | Image input | Notes |
 | --- | ---: | ---: | ---: | --- | --- |
-| MiniMax M3 | 1,000,000 | 512,000 | 512,000 | ✅ (native) | Current top-tier coding model |
+| MiniMax M3 | 1,000,000 | 512,000 | 512,000 | ✅ (native) | Current top-tier coding model; native video input (MP4 / AVI / MOV / MKV) |
 | MiniMax M2.7 | 204,800 | 196,608 | 131,072 | ✅ (via vision proxy) | Self-iterating, ~60 TPS |
 | MiniMax M2.7-highspeed | 204,800 | 196,608 | 131,072 | ✅ (via vision proxy) | Same quality, ~100 TPS |
 
@@ -132,6 +132,7 @@ API key.
 | **MiniMax: Set Vision Proxy Model** | Pick a non-MiniMax model for image captions |
 | **MiniMax: Generate Commit Message** | Fill the SCM input box with a Conventional-Commits-style draft of the staged diff |
 | **MiniMax: Set Commit Model** | Switch the model used by **Generate Commit Message** |
+| **MiniMax: Toggle M3 Thinking Mode** | Flip the `minimax.thinking.enabled` setting (M3 only). M2.x always stays on. |
 | **MiniMax: Switch to Global API (`minimax.io/anthropic`)** | Switch to the international Anthropic endpoint |
 | **MiniMax: Switch to Chinese API (`minimaxi.com/anthropic`)** | Switch to the China Anthropic endpoint |
 | **MiniMax: Show Logs** | Focus the MiniMax output channel |
@@ -187,11 +188,37 @@ reasoning.
 
 MiniMax's Anthropic-compatible endpoint exposes a binary
 `thinking: { type: "disabled" | "adaptive" }` toggle. There is no
-user-facing effort knob, so the extension always sends `adaptive`
-for thinking-capable models (M3) and skips the field for M2.x
-(their reasoning surfaces as `<think>…</think>` inside the text
-content). Forcing `temperature: 1` and dropping `top_p` whenever
-thinking is on is the Anthropic constraint, not our choice.
+user-facing effort knob — no `budget_tokens`, no `reasoning_effort`,
+no `reasoning_split`. The on/off switch is exposed two ways for
+**MiniMax-M3**:
+
+- **`minimax.thinking.enabled`** boolean setting (default `true`).
+- **MiniMax: Toggle M3 Thinking Mode** command — flips the setting
+  and shows a localised toast so the new state is unambiguous.
+
+M2.x always stays `adaptive` — the docs say the gateway ignores
+`disabled` for the M2 family, so the toggle is a no-op for M2.7 /
+M2.7-highspeed.
+
+Forcing `temperature: 1` and dropping `top_p` whenever thinking is
+on is the Anthropic constraint, not our choice. The M3-only escape
+hatch: flip the toggle off, and your custom `temperature` / `topP`
+from `minimax.sampling` finally apply. M2.x reasoning still surfaces
+as `<think>…</think>` inside the text content rather than a typed
+`thinking` block.
+
+## Video input (M3)
+
+M3 accepts video parts natively on the Anthropic-compatible surface.
+The supported containers are **MP4**, **AVI**, **MOV (QuickTime)**
+and **MKV**. Inline base64 uploads are capped at **50 MB**; videos
+larger than that should be uploaded via the official Files API and
+referenced as `mm_file://{file_id}` (Files API cap: 512 MB). The
+whole request body is capped at **64 MB**; the extension throws a
+localised error before the API would return 413.
+
+M2.x silently drops video attachments (with a log warning) — they
+have no `videoInput` capability.
 
 ## Usage dashboard
 

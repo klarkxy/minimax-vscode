@@ -22,6 +22,13 @@ const zh: Translations = {
 	'model.M3.detail': '原生多模态、1M 上下文 Frontier Coding 模型',
 	'model.M2.7.detail': '开启模型的自我迭代（输出速度约 60 TPS）',
 	'model.M2.7-highspeed.detail': 'M2.7 极速版：效果不变，更快更敏捷（输出速度约 100 TPS）',
+	// Thinking mode — toggle / status labels
+	'thinking.on': '开启',
+	'thinking.off': '关闭',
+	'thinking.on.desc': '模型输出 typed thinking 推理轨迹（默认）。temperature 强制为 1、禁 top_p。',
+	'thinking.off.desc': '关闭 typed thinking 内容块（仅 M3 受控）。temperature / topP 可用用户设置的采样值。',
+	'thinking.toggledOn': 'M3 思考模式已开启（`minimax.thinking.enabled = true`）',
+	'thinking.toggledOff': 'M3 思考模式已关闭（`minimax.thinking.enabled = false`）',
 
 	// API Key
 	'auth.apiKeyRequiredDetail': '请先配置 API Key',
@@ -47,6 +54,8 @@ const zh: Translations = {
 		'MiniMax 单次 tools 请求最多支持 {0} 个 functions，当前请求包含 {1} 个。请先用 VS Code 的 Configure Tools 关闭不常用的工具。',
 	'request.preflightRoundLimitExceeded':
 		'实验性稳定工具列表设置已尝试 {0} 轮，仍无法得到稳定的已启用工具列表。请关闭该实验性设置，或先用 VS Code 的 Configure Tools 关闭不常用的工具。',
+	'request.bodyTooLarge':
+		'估算请求体 {0} MB，已超过 {1} 官方上限 {2} MB。请减小附件 / 上下文长度；大视频可走 Files API 上传后用 mm_file:// 引用。',
 	'notice.toolDrift':
 		'⚠️ 工具列表不稳定，缓存命中率可能下降。',
 
@@ -139,6 +148,15 @@ const en: Translations = {
 	'model.M3.detail': 'Native multimodal, 1M context frontier coding model',
 	'model.M2.7.detail': 'Self-iterating model (~60 TPS)',
 	'model.M2.7-highspeed.detail': 'M2.7 high-speed: same quality, faster',
+	// Thinking mode — toggle / status labels
+	'thinking.on': 'On',
+	'thinking.off': 'Off',
+	'thinking.on.desc':
+		'Model emits a typed thinking block (default). Forces temperature=1, drops top_p per Anthropic constraint.',
+	'thinking.off.desc':
+		'Turns off the typed thinking block (M3 only — M2.x ignores this). User sampling temperature/topP take effect.',
+	'thinking.toggledOn': 'M3 thinking mode: ON (`minimax.thinking.enabled = true`)',
+	'thinking.toggledOff': 'M3 thinking mode: OFF (`minimax.thinking.enabled = false`)',
 
 	// API Key
 	'auth.apiKeyRequiredDetail': 'Set an API key first',
@@ -166,6 +184,8 @@ const en: Translations = {
 		'MiniMax supports at most {0} functions per tools request, but {1} were provided. Disable unused tools via VS Code Configure Tools.',
 	'request.preflightRoundLimitExceeded':
 		'The experimental stabilize-tool-list setting has hit the {0}-round limit without a stable enabled tool list. Disable the experimental setting or trim tools via VS Code Configure Tools.',
+	'request.bodyTooLarge':
+		'Estimated request body is {0} MB, over the {2} MB limit for {1}. Trim attachments / context, or upload large videos via the Files API and reference them as mm_file://.',
 	'notice.toolDrift':
 		'⚠️ Tool list is unstable, cache hit rate may drop.',
 

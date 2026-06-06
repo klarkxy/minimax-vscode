@@ -40,7 +40,7 @@ API Key 就能直接用。
 
 | 模型 | 上下文 | 实际输入上限 | 输出上限 | 图片输入 | 说明 |
 | --- | ---: | ---: | ---: | --- | --- |
-| MiniMax M3 | 1,000,000 | 512,000 | 512,000 | ✅ 原生 | 当前主力编程模型 |
+| MiniMax M3 | 1,000,000 | 512,000 | 512,000 | ✅ 原生 | 当前主力编程模型；原生视频输入（MP4 / AVI / MOV / MKV） |
 | MiniMax M2.7 | 204,800 | 196,608 | 131,072 | ✅ 视觉代理 | 自我迭代模型，约 60 TPS |
 | MiniMax M2.7-highspeed | 204,800 | 196,608 | 131,072 | ✅ 视觉代理 | 效果不变，约 100 TPS |
 
@@ -96,6 +96,7 @@ API Key 就能直接用。
 | **MiniMax: Set Vision Proxy Model** | 选择用于图片描述的非 MiniMax 模型 |
 | **MiniMax: Generate Commit Message** | 按暂存区 diff 自动生成 Conventional Commits 风格的提交信息 |
 | **MiniMax: Set Commit Model** | 切换 **Generate Commit Message** 使用的模型 |
+| **MiniMax: 切换 M3 思考模式** | 翻转 `minimax.thinking.enabled` 设置（仅 M3）。M2.x 永远保持开启。 |
 | **MiniMax: Switch to Global API (`minimax.io/anthropic`)** | 切换到国际版 Anthropic 端点 |
 | **MiniMax: Switch to Chinese API (`minimaxi.com/anthropic`)** | 切换到国内版 Anthropic 端点 |
 | **MiniMax: Show Logs** | 聚焦 MiniMax 输出通道 |
@@ -137,7 +138,20 @@ API Key 就能直接用。
 ## 思考模式
 
 MiniMax 的 Anthropic 兼容端点只接受一个二值开关
-`thinking: { type: "disabled" | "adaptive" }`——**没有**任何「思考强度」旋钮。本扩展对支持 thinking 的模型永远发 `adaptive`，M2.x 系列不发送该字段（它们的推理过程以 `<think>…</think>` 形式直接出现在 `text` 内容块里）。`thinking` 开启时强制 `temperature: 1` 并去掉 `top_p` 是 Anthropic 协议本身的约束，不是我们加的限制。
+`thinking: { type: "disabled" | "adaptive" }`——**没有**任何「思考强度」旋钮（`budget_tokens` / `reasoning_effort` / `reasoning_split` 全部不支持）。本扩展为 **MiniMax-M3** 暴露了两种开关途径：
+
+- **`minimax.thinking.enabled`** boolean 设置（默认 `true`）。
+- **MiniMax: 切换 M3 思考模式** 命令——一键翻转设置并弹本地化提示，新状态一目了然。
+
+M2.x 永远 `adaptive`——官方文档明确说 `disabled` 对 M2 系列是 no-op，所以开关对 M2.7 / M2.7-highspeed 是 no-op。
+
+`thinking` 开启时强制 `temperature: 1` 并去掉 `top_p` 是 Anthropic 协议本身的约束。M3 专属的解锁方法：关掉开关，`minimax.sampling` 里的 `temperature` / `topP` 就会真正生效。M2.x 的推理过程仍以 `<think>…</think>` 形式出现在 `text` 内容块里，而不是 typed `thinking` block。
+
+## 视频输入（M3 专属）
+
+M3 在 Anthropic 兼容端点上原生支持视频内容块。支持的容器为 **MP4 / AVI / MOV(QuickTime) / MKV**。直接内联 base64 上限 **50 MB**；更大的视频请走官方 Files API 上传后用 `mm_file://{file_id}` 引用（Files API 上限 512 MB）。整请求体上限 **64 MB**，扩展会在 API 返回 413 之前用本地化错误拦下。
+
+M2.x 没有 `videoInput` 能力，视频附件会被静默丢弃（带 warning 日志）。
 
 ## 用量面板
 

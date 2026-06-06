@@ -22,6 +22,23 @@ export type MiniMaxImageBlock = {
 		| { type: 'url'; url: string };
 };
 
+/**
+ * Video block. M3 only (M2.x silently drops the part with a warning).
+ * The `source` mirrors `MiniMaxImageBlock` plus a third form
+ * (`mm_file`) for Files-API references, per the MiniMax docs:
+ *   - `base64` for inline uploads ≤ 50 MB
+ *   - `url` for hosted videos (must be ≤ 50 MB by default)
+ *   - `mm_file` for files uploaded via the Files API (≤ 512 MB)
+ *     — the request body stays small, the API streams the file by id.
+ */
+export type MiniMaxVideoBlock = {
+	type: 'video';
+	source:
+		| { type: 'base64'; media_type: 'video/mp4' | 'video/avi' | 'video/quicktime' | 'video/x-matroska'; data: string }
+		| { type: 'url'; url: string }
+		| { type: 'mm_file'; file_id: string };
+};
+
 export type MiniMaxToolUseBlock = {
 	type: 'tool_use';
 	id: string;
@@ -45,6 +62,7 @@ export type MiniMaxThinkingBlock = {
 export type MiniMaxContentBlock =
 	| MiniMaxTextBlock
 	| MiniMaxImageBlock
+	| MiniMaxVideoBlock
 	| MiniMaxToolUseBlock
 	| MiniMaxToolResultBlock
 	| MiniMaxThinkingBlock;
@@ -62,6 +80,17 @@ export interface MiniMaxAssistantMessage {
 }
 
 export type MiniMaxMessage = MiniMaxUserMessage | MiniMaxAssistantMessage;
+
+/**
+ * Result of `convertMessages`: an Anthropic-style `messages` array
+ * plus the extracted `system` prompt. Lives in `types.ts` so
+ * downstream callers (request layer, debug dumper) can import it
+ * without dragging in the converter's `vscode` dependencies.
+ */
+export interface ConvertedConversation {
+	messages: MiniMaxMessage[];
+	systemPrompt?: string;
+}
 
 // ---- Tools ----
 
