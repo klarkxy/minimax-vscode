@@ -65,6 +65,35 @@ export function getMaxTokens(): number | undefined {
 	return value > 0 ? value : undefined;
 }
 
+/**
+ * Whether the user has lifted MiniMax-M3 from the safe 512K default
+ * to the official 1M context window via `minimax.enableM31MContext`.
+ *
+ * Default is `false`. The toggle is wired through the
+ * `minimax.toggleM31MContext` command (see `runtime/commands.ts`),
+ * which pops a modal warning about the 2× billing rate and the need
+ * for sales-granted >512K access before flipping the setting. Going
+ * through the command (rather than editing `settings.json` directly)
+ * is what makes the warning visible to the user.
+ */
+export function isM31MContextEnabled(): boolean {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	return config.get<boolean>('enableM31MContext', false);
+}
+
+/**
+ * Target context window for MiniMax-M3 in the picker. Returns the
+ * 1M cap when `minimax.enableM31MContext` is on, otherwise the
+ * safe 512K default. The picker indicator is rendered against this
+ * number, so changing this is what makes the "上下文窗口: N / M"
+ * label update live (the provider listens to
+ * `onDidChangeConfiguration` on this setting and fires
+ * `onDidChangeLanguageModelChatInformation`).
+ */
+export function getM3ContextWindow(): number {
+	return isM31MContextEnabled() ? 1_000_000 : 512_000;
+}
+
 export function getStabilizeToolListEnabled(): boolean {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 	return config.get<boolean>('experimental.stabilizeToolList', false);

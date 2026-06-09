@@ -160,14 +160,21 @@ export async function generateCommitMessage(
 	}
 }
 
-/** Read the configured commit model from settings, falling back to M2.7. */
+/** Read the configured commit model from settings, falling back to M3.
+ *
+ * M3 is the default because M3 and M2.7 now share the same per-token
+ * price (see `src/models/registry.ts` PRICING_CNY / PRICING_USD),
+ * so M3's frontier-coding quality is the obvious choice for a
+ * commit-message draft. Users who want a faster draft can still
+ * pick `MiniMax-M2.7-highspeed` from the picker.
+ */
 export function resolveCommitModelId(): string {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 	const raw = config.get<string>('commitModel');
 	if (typeof raw === 'string' && raw.trim().length > 0) {
 		return raw.trim();
 	}
-	return 'MiniMax-M2.7';
+	return 'MiniMax-M3';
 }
 
 /** Optional context for the picker. `skipPicker` re-uses the last chosen model. */
@@ -316,13 +323,15 @@ async function callCommitModel(
 	return { text: postProcess(result.text), usage: result.usage };
 }
 
-function clampMaxTokens(modelMax: number): number {
-	// We pass 0 (i.e. "let the model decide") for commit generation
-	// so the response can grow as long as the body needs. The
-	// `client.completeChat` will translate 0 → no explicit cap on the
-	// request body so the upstream API picks its own output budget.
-	const value = Math.max(modelMax ?? 0, 0);
-	return value > 0 ? Math.min(value, 1024) : 0;
+function clampMaxTokens(_modelMax: number): number {
+	// We pass 0 (i.e. "let the model decide") for commit generation so
+	// the response can grow as long as the body needs. The
+	// `client.completeChat` translates 0 → no explicit cap on the
+	// request body, leaving the upstream API to pick its own output
+	// budget. The MiniMax docs do not publish a per-model `max_tokens`
+	// ceiling for commit-sized generations, so we don't clamp
+	// client-side.
+	return 0;
 }
 
 function buildCommitSystemPrompt(_context: ScmContext): string {

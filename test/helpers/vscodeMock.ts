@@ -162,8 +162,13 @@ export const workspace = {
 			if (key === 'enabled') {
 				return true as unknown as T;
 			}
+			// `commitModel` is intentionally unset here so the
+			// `resolveCommitModelId` unit tests can exercise the M3
+			// fallback path. Tests that need a specific override should
+			// stub `vscode.workspace.getConfiguration` locally rather
+			// than relying on a value baked into this shared mock.
 			if (key === 'commitModel') {
-				return 'MiniMax-M2.7' as unknown as T;
+				return defaultValue;
 			}
 			return defaultValue;
 		},

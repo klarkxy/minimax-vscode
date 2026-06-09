@@ -104,8 +104,9 @@
         "category": "MiniMax"
       },
       {
-        "command": "minimax.toggleThinking",
-        "title": "%minimax.command.toggleThinking%",
+
+        "command": "minimax.toggleM31MContext",
+        "title": "%minimax.command.toggleM31MContext%",
         "category": "MiniMax"
       },
       {
@@ -182,15 +183,21 @@
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed"
           ],
-          "default": "MiniMax-M2.7",
+          "default": "MiniMax-M3",
           "scope": "application",
-          "markdownDescription": "Model used by **MiniMax: Generate Commit Message**. Defaults to `MiniMax-M2.7` for a fast, deterministic draft. Switch to `MiniMax-M3` when you need deeper reasoning on a complex refactor or migration."
+          "markdownDescription": "Model used by **MiniMax: Generate Commit Message**. Defaults to `MiniMax-M3` — M3 and M2.7 now share the same per-token price (input ¥2.10/M, output ¥8.40/M on the China endpoint), so M3's frontier-coding quality is the obvious choice. Switch to `MiniMax-M2.7-highspeed` if you want a faster draft."
         },
         "minimax.maxTokens": {
           "type": "number",
           "default": 0,
           "minimum": 0,
-          "markdownDescription": "Maximum number of output tokens. `0` (default) lets the model decide. Hard cap: 524288 for M2.x, 512000 for M3."
+          "markdownDescription": "Maximum number of output tokens. `0` (default) lets the model decide; the upstream API is responsible for any per-model ceiling. Set a positive integer to cap the output yourself; the value is sent verbatim and any 4xx from the upstream is surfaced as-is."
+        },
+        "minimax.enableM31MContext": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "Lift the **MiniMax-M3** context window advertised in the model picker from the safe default of 512,000 to the official 1,000,000-token cap. **Off by default.** Enabling this unlocks the >512K input tier only if your MiniMax account has been granted access; otherwise the upstream API will return HTTP 400 for requests above 512K, and the >512K tier is billed at **2× the per-token rate** of the standard tier (see the [pricing page](https://platform.minimaxi.com/docs/guides/pricing-paygo)). Prefer the **MiniMax: Toggle M3 1M Context** command — it surfaces the warnings inline before flipping the switch."
         },
         "minimax.thinking.enabled": {
           "type": "boolean",

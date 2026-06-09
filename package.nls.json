@@ -9,7 +9,7 @@
 	"minimax.command.showPricing": "Show Pricing",
 	"minimax.command.generateCommitMessage": "Generate Commit Message",
 	"minimax.command.chooseCommitModel": "Set Commit Model",
-	"minimax.command.toggleThinking": "Toggle M3 Thinking Mode",
+	"minimax.command.toggleM31MContext": "Toggle M3 1M Context (Advanced)",
 	"minimax.command.showUsage": "Show Usage",
 	"minimax.command.resetUsage": "Reset Usage",
 	"minimax.command.showProviderStatus": "Show Provider Status",

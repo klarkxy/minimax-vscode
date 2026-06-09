@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { getM3ContextWindow } from '../config';
 import { MINIMAX_TOOLS_LIMIT } from '../consts';
 import type { ModelDefinition, ModelPricing } from '../types';
 
@@ -110,10 +111,24 @@ export function pickPricingTable(baseUrl: string): Record<PricingKey, ModelPrici
  * `minimax.visibleModels` once the registration is reinstated upstream.
  *
  * Note on M3: the official spec is 1M context, but the >512K input tier
- * is currently 限时限量供应 and the API rejects requests with
- * `max_tokens > 512_000`. We therefore advertise 1M as the headline
- * figure (so VS Code shows the model's true ambition) but cap effective
- * input and output at 512K until the rollout completes.
+ * is still in limited rollout per the [pricing page][pp] footnote. We
+ * therefore report 512K as the *effective* cap in the model picker (see
+ * the M3 entry below) so VS Code's "上下文窗口" indicator shows the
+ * number a normal user can actually push to. Users who have been granted
+ * access to the >512K tier can lift it via the
+ * `minimax.enableM31MContext` setting — the only way to flip that
+ * setting is the **MiniMax: Toggle M3 1M Context** command, which pops
+ * a modal warning about the 2× billing rate before changing it. Going
+ * through the command (rather than editing `settings.json` directly)
+ * is what makes the warning visible to the user.
+ *
+ * [pp]: https://platform.minimaxi.com/docs/guides/pricing-paygo
+ *
+ * Note on M2.7: the official spec is 204,800 context. We do not split
+ * it into input vs. output caps because the docs do not publish such a
+ * split either. Earlier versions hardcoded `maxInputTokens: 196_608`
+ * and `maxOutputTokens: 131_072`; those numbers came from us, not
+ * MiniMax, and have been removed.
  */
 type ModelTemplate = Omit<ModelDefinition, 'pricing'> & { pricingKey: PricingKey };
 
@@ -125,6 +140,19 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		version: '3',
 		detail: 'Native multimodal frontier coding model (1M context, 512K effective)',
 		contextLength: 1_000_000,
+		// VS Code renders the model's `maxInputTokens` as the denominator
+		// in its "上下文窗口: N / M" indicator inside the chat UI. The
+		// official M3 spec is 1M, but the >512K input tier is still in
+		// limited rollout and most users will get a 400 if they try to
+		// push past 512K. Reporting `1_000_000` here would make the UI
+		// say "1M" while in practice requests above 512K fail — that's
+		// the kind of mismatch we want to avoid.
+		//
+		// We therefore report 512K as the effective cap. Users who have
+		// been granted access to the >512K tier can lift this via the
+		// `minimax.maxContextTokens` setting; the chat info emitter
+		// rebuilds the picker entry when that setting changes, so the
+		// UI updates live without an editor reload.
 		maxInputTokens: 512_000,
 		maxOutputTokens: 512_000,
 		capabilities: {
@@ -146,8 +174,8 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		version: '2.7',
 		detail: 'Self-iterating coding model (~60 TPS)',
 		contextLength: 204_800,
-		maxInputTokens: 196_608,
-		maxOutputTokens: 131_072,
+		maxInputTokens: 204_800,
+		maxOutputTokens: 204_800,
 		capabilities: {
 			toolCalling: MINIMAX_TOOLS_LIMIT,
 			imageInput: false,
@@ -166,8 +194,8 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		version: '2.7-highspeed',
 		detail: 'M2.7 high-speed: same quality, faster (~100 TPS)',
 		contextLength: 204_800,
-		maxInputTokens: 196_608,
-		maxOutputTokens: 131_072,
+		maxInputTokens: 204_800,
+		maxOutputTokens: 204_800,
 		capabilities: {
 			toolCalling: MINIMAX_TOOLS_LIMIT,
 			imageInput: false,
@@ -205,8 +233,24 @@ function readConfiguredBaseUrl(): string {
  */
 export function getModels(baseUrl: string = readConfiguredBaseUrl()): ModelDefinition[] {
 	const table = pickPricingTable(baseUrl);
+	// M3's effective cap is either the safe 512K default or the official
+	// 1M cap, depending on `minimax.enableM31MContext`. The boolean is
+	// flipped via the `minimax.toggleM31MContext` command (which pops
+	// a modal warning about the 2× billing rate and the need for
+	// sales-granted >512K access). When the toggle is on we lift M3's
+	// `maxInputTokens` / `maxOutputTokens` to 1M so the VS Code
+	// "上下文窗口" indicator reflects what the user is opting into.
+	const m3Window = getM3ContextWindow();
 	return MODEL_TEMPLATES.map((t) => {
 		const { pricingKey, ...rest } = t;
+		if (t.id === 'MiniMax-M3' && m3Window !== t.maxInputTokens) {
+			return {
+				...rest,
+				maxInputTokens: m3Window,
+				maxOutputTokens: m3Window,
+				pricing: table[pricingKey],
+			};
+		}
 		return { ...rest, pricing: table[pricingKey] };
 	});
 }

@@ -247,8 +247,8 @@ test('focusScmView: executes the SCM view command', () => {
 // resolveCommitModelId / isKnownCommitModelId
 // ---------------------------------------------------------------------
 
-test('resolveCommitModelId: defaults to MiniMax-M2.7 when unset', () => {
-	assert.equal(resolveCommitModelId(), 'MiniMax-M2.7');
+test('resolveCommitModelId: defaults to MiniMax-M3 when unset', () => {
+	assert.equal(resolveCommitModelId(), 'MiniMax-M3');
 });
 
 test('isKnownCommitModelId: accepts registered models only', () => {
@@ -261,10 +261,10 @@ test('isKnownCommitModelId: accepts registered models only', () => {
 
 test('pickCommitModelId: returns the picked model id', async () => {
 	const result = await pickCommitModelId();
-	assert.equal(result, 'MiniMax-M2.7');
+	assert.equal(result, 'MiniMax-M3');
 	assert.equal(mockState.quickPicks.length, 1);
 	const [items] = mockState.quickPicks[0] as Array<{ id: string; detail?: string }>;
-	assert.equal(items.id, 'MiniMax-M2.7');
+	assert.equal(items.id, 'MiniMax-M3');
 	assert.match(items.detail ?? '', /Default/);
 });
 

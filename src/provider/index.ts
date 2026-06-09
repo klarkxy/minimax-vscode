@@ -66,12 +66,31 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 		context.subscriptions.push(
 			this.onDidChangeLanguageModelChatInformationEmitter,
 			vscode.workspace.onDidChangeConfiguration((e) => {
+				// The thinking on/off switch is a per-model dropdown
+				// rendered from `configurationSchema` (see
+				// `provider/models.ts`). Copilot Chat owns that
+				// dropdown's state, so the provider does **not**
+				// need to listen to it here — the user picks
+				// `开启 / 关闭` in the picker and the next chat
+				// request carries the choice through
+				// `options.modelConfiguration[THINKING_ENABLED_KEY]`.
+				// This mirrors the `deepseek-v4-for-copilot`
+				// `reasoningEffort` wiring, which is also dropdown-
+				// only with no companion command or setting.
+				//
+				// `minimax.enableM31MContext` is watched for the
+				// same reason: it controls M3's effective context
+				// window in the picker, so the "上下文窗口" indicator
+				// has to update live without an editor reload. The
+				// boolean is flipped via the `minimax.toggleM31MContext`
+				// command (which pops a modal warning first).
 				if (
 					e.affectsConfiguration('minimax.apiKey') ||
 					e.affectsConfiguration('minimax.visibleModels') ||
 					e.affectsConfiguration('minimax.apiBaseUrl') ||
 					e.affectsConfiguration('minimax.debugMode') ||
-					e.affectsConfiguration('minimax.modelIdOverrides')
+					e.affectsConfiguration('minimax.modelIdOverrides') ||
+					e.affectsConfiguration('minimax.enableM31MContext')
 				) {
 					this.onDidChangeLanguageModelChatInformationEmitter.fire();
 				}

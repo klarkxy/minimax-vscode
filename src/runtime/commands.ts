@@ -5,7 +5,7 @@ import { logger } from '../logger';
 import { getModels, getVisibleModels } from '../models/registry';
 import { getBaseUrl } from '../config';
 import { chooseCommitModel, generateCommitMessage } from '../git/commitMessage';
-import { toggleThinkingEnabled } from '../provider/models';
+import { toggleM31MContextEnabled } from '../provider/models';
 import { createUsageStore, type UsageStore } from '../usage';
 import { DashboardPanel } from '../dashboard/panel';
 import { createPlanStatusBar, type PlanStatusBar } from '../dashboard/planStatusBar';
@@ -124,11 +124,12 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('minimax.chooseCommitModel', () => {
 			void chooseCommitModel();
 		}),
-		vscode.commands.registerCommand('minimax.toggleThinking', () => {
-			// Flips the `minimax.thinking.enabled` setting and toasts
-			// the new state. M3-only — M2.x always stays adaptive and
-			// the setting is a no-op for it.
-			void toggleThinkingEnabled();
+		vscode.commands.registerCommand('minimax.toggleM31MContext', () => {
+			// Lifts the M3 picker entry from the safe 512K default to
+			// the official 1M cap. The command pops a modal warning
+			// about the 2× billing rate and the need for sales-granted
+			// >512K access before flipping on; off is unconditional.
+			void toggleM31MContextEnabled();
 		}),
 		vscode.commands.registerCommand('minimax.showUsage', () => {
 			void showUsage();

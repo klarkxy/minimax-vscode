@@ -8,7 +8,6 @@
 增加 **MiniMax M3 / M2.7** 模型供应方的 VS Code 扩展。用 [Token Plan](https://platform.minimax.io/user-center/payment/token-plan)
 API Key 就能直接用。
 
-> 架构借鉴自 [`deepseek-v4-for-copilot`](https://github.com/Vizards/deepseek-v4-for-copilot)（MIT 协议），并针对 MiniMax Anthropic 兼容 API 进行了适配。
 
 ## 能做什么
 
@@ -38,13 +37,27 @@ API Key 就能直接用。
 
 ## 模型
 
-| 模型 | 上下文 | 实际输入上限 | 输出上限 | 图片输入 | 说明 |
-| --- | ---: | ---: | ---: | --- | --- |
-| MiniMax M3 | 1,000,000 | 512,000 | 512,000 | ✅ 原生 | 当前主力编程模型；原生视频输入（MP4 / AVI / MOV / MKV） |
-| MiniMax M2.7 | 204,800 | 196,608 | 131,072 | ✅ 视觉代理 | 自我迭代模型，约 60 TPS |
-| MiniMax M2.7-highspeed | 204,800 | 196,608 | 131,072 | ✅ 视觉代理 | 效果不变，约 100 TPS |
+| 模型 | 上下文（规格 / 实际） | 图片输入 | 说明 |
+| --- | ---: | --- | --- |
+| MiniMax M3 | 1,000,000 / 512,000 | ✅ 原生 | 当前主力编程模型；原生视频输入（MP4 / AVI / MOV / MKV）。实际窗口为 512K，因为 >512K 输入层仍在限量供应中。 |
+| MiniMax M2.7 | 204,800 | ✅ 视觉代理 | 自我迭代模型，约 60 TPS |
+| MiniMax M2.7-highspeed | 204,800 | ✅ 视觉代理 | 效果不变，约 100 TPS |
 
-> **M3 1M 上下文说明**：官方规格是 1M，但 >512K 输入层级目前限量供应，且 API 会拒绝 `max_tokens > 512_000` 的请求。实际可用输入上限锁定 512K，等官方全量开放后自动放宽。
+> "上下文"列第一个数是 MiniMax 官方文档
+> [支持模型](https://platform.minimaxi.com/docs/guides/text-generation#%E6%94%AF%E6%8C%81%E6%A8%A1%E5%9E%8B)
+> 的规格值；第二个数（如果有）是扩展在 Copilot 模型选择器里
+> 报告的**实际**窗口。两个数不一致时，UI 指示器按"实际"那
+> 个渲染——这样 VS Code 的"上下文窗口: N / M"指示器跟用户
+> 真实能塞进去的量保持一致。>512K 输入层限量供应的原因见
+> [定价页脚注](https://platform.minimaxi.com/docs/guides/pricing-paygo)。
+>
+> 已经获得 >512K 访问权限的用户可以通过 **MiniMax: 切换 M3 1M 上下文**
+> 命令把 `minimax.enableM31MContext` 翻成 `true`——命令会先弹模态警告
+> 说明 2 倍计费、需要销售开通 >512K 等事项，然后才改设置。设置一改，
+> picker 的窗口指示器会跟着刷新（不需要重启编辑器）。
+>
+> 想限制单次请求的输出时，设 `minimax.maxTokens`。请求层不再做客户端截断，
+> 上游 4xx 会原样冒泡。
 >
 > **历史模型**：M2.5 / M2.1 / M2 已被 MiniMax 官方下线，本扩展不再收录。要用的话自行通过 `minimax.modelIdOverrides` + `minimax.visibleModels` 加回来。
 
@@ -59,13 +72,30 @@ API Key 就能直接用。
 
 | 模型 | 输入 | 输出 | 缓存读取 | 缓存写入 |
 | --- | ---: | ---: | ---: | ---: |
-| MiniMax M3 (≤512K 输入) | 4.20 | 16.80 | 0.84 | — |
-| MiniMax M3 (>512K 输入，限量) | 8.40 | 33.60 | 1.68 | — |
+| MiniMax M3 (≤512K 输入) | 2.10 | 8.40 | 0.42 | — |
+| MiniMax M3 (>512K 输入，限量) | 4.20 | 16.80 | 0.84 | — |
 | MiniMax M2.7 | 2.10 | 8.40 | 0.42 | 2.625 |
 | MiniMax M2.7-highspeed | 4.20 | 16.80 | 0.42 | 2.625 |
 
-> M3 目前 7 天限时五折：输入 ¥2.10 / 输出 ¥8.40 / 缓存读取 ¥0.42。
-> Token Plan 订阅另计。
+> M3 已转为永久五折（之前是 7 天限时活动，现已升为常设优惠）。
+> Token Plan 订阅另计，详见下方 [Token Plan 订阅](#token-plan-订阅) 章节。
+
+## Token Plan 订阅
+
+Token Plan 订阅 Key 的价格（与上方按量计费分开计费）。一把订阅 Key
+通过统一的用量进度条覆盖语言模型以外的语音 / 视频 / 音乐 / 图像
+端点。完整说明见
+[Token Plan 概要](https://platform.minimaxi.com/docs/token-plan/intro)。
+
+| 套餐 | 价格 | 适合场景 | 额度窗口 | Agent 用量 |
+| --- | ---: | --- | --- | ---: |
+| 轻量版 | ¥49 / 月 | 轻量个人开发与日常试用 | 5 小时固定窗口 + 周窗口 | 3-4 个 |
+| 高频版 | ¥119 / 月 | 高频编程 Agent 与多模态调用 | 5 小时固定窗口 + 周窗口 | 4-5 个 |
+| 重度版 | ¥469 / 月 | 重度 Agent 工作流与更长时间使用 | 5 小时固定窗口 + 周窗口 | 6-7 个 |
+
+> 套餐内 Token Plan 用量按对应按量计费价格扣减额度。额度耗尽后可：
+> 由已购积分自动补足、把订阅 Key 换成按量计费 API Key、或等待额度
+> 窗口重置（未用完的额度不结转到下一周期）。
 
 ## 配置项
 
@@ -73,8 +103,9 @@ API Key 就能直接用。
 | --- | --- | --- |
 | `minimax.apiBaseUrl` | `https://api.minimaxi.com/anthropic` | Anthropic 兼容 base URL。国际用户改用 `https://api.minimax.io/anthropic`。SDK 自动追加 `/v1/messages`。激活时若用户尚未配置，会按 VS Code 显示语言自动选择。 |
 | `minimax.visibleModels` | _全部 M 系列_ | 限制模型选择器中出现的模型。 |
-| `minimax.maxTokens` | `0` | 输出 token 上限，`0` 表示由模型自行决定。硬上限：M2.7 系列 131072，M3 是 512000。 |
-| `minimax.commitModel` | `MiniMax-M2.7` | **MiniMax: Generate Commit Message** 使用的模型。 |
+| `minimax.maxTokens` | `0` | 输出 token 上限，`0` 表示由模型自行决定。设正整数自行截断；请求层不再做客户端截断，上游 4xx 会原样冒泡。 |
+| `minimax.enableM31MContext` | `false` | 把 **MiniMax-M3** 的 picker 窗口从安全默认值 512K 抬升到官方规格 1M。**默认关闭**。开启的前提是账号已通过销售开通 >512K 输入层，且 >512K 部分按 **2 倍费率** 计费（见[定价页](https://platform.minimaxi.com/docs/guides/pricing-paygo)）。建议用 **MiniMax: 切换 M3 1M 上下文** 命令——开之前会弹模态警告。 |
+| `minimax.commitModel` | `MiniMax-M3` | **MiniMax: Generate Commit Message** 使用的模型。M3 和 M2.7 现在每 token 价格一致，所以默认走 M3 的前沿编码质量；想要更快草稿就改用 `MiniMax-M2.7-highspeed`。 |
 | `minimax.sampling` | `{}` | 按模型设置 `temperature` / `topP` / `topK` / `frequencyPenalty`。详见[按模型调参](#按模型调参)。 |
 | `minimax.experimental.modelDefPresets` | `{}` | 按模型往请求体里塞额外字段的逃生口。详见[按模型调参](#按模型调参)。 |
 | `minimax.debugMode` | `minimal` | `minimal` / `metadata` / `verbose`（verbose 把每次请求 dump 到磁盘）。 |
@@ -97,6 +128,7 @@ API Key 就能直接用。
 | **MiniMax: Generate Commit Message** | 按暂存区 diff 自动生成 Conventional Commits 风格的提交信息 |
 | **MiniMax: Set Commit Model** | 切换 **Generate Commit Message** 使用的模型 |
 | **MiniMax: 切换 M3 思考模式** | 翻转 `minimax.thinking.enabled` 设置（仅 M3）。M2.x 永远保持开启。 |
+| **MiniMax: 切换 M3 1M 上下文** | 把 M3 的 picker 窗口从安全默认值 512K 抬升到官方规格 1M。开启前会弹模态警告，说明 2 倍计费、需要销售开通 >512K 等事项；关闭则无确认。 |
 | **MiniMax: Switch to Global API (`minimax.io/anthropic`)** | 切换到国际版 Anthropic 端点 |
 | **MiniMax: Switch to Chinese API (`minimaxi.com/anthropic`)** | 切换到国内版 Anthropic 端点 |
 | **MiniMax: Show Logs** | 聚焦 MiniMax 输出通道 |
@@ -128,12 +160,14 @@ API Key 就能直接用。
 运行 **MiniMax: Generate Commit Message**（也在 SCM 输入框右上角的 **⋯** 菜单里）即可让 MiniMax 按暂存区内容起草提交信息。行为如下：
 
 - 通过 VS Code 自带的 Git 扩展读取**已暂存**的改动；暂存区为空时退到工作区的未暂存改动。
-- diff 上限 32 KB，文件列表最多 80 条，确保在 M2.7 的 200K 上下文里仍有余量。
+- diff 上限 32 KB，文件列表最多 80 条，确保在 M2.7 / M3 的上下文里仍有余量。
 - 输入框里已有草稿时，会把它当作「待润色」输入让模型优化，**不**会另起炉灶。
 - 输出按 Conventional Commits 风格：`<type>(<scope>)<!>: <subject>`，可附带换行 + `- ` 项目符号的 body。`type` 只能从 `feat` / `fix` / `refactor` / `perf` / `docs` / `test` / `build` / `ci` / `chore` / `style` / `revert` 里选。
-- 请求使用 `temperature: 0.2` 保证稳定可复现；`max_tokens` 锁定 256，避免 512K 模型的输出预算一下被烧光。
+- 请求使用 `temperature: 0.2` 保证稳定可复现；`max_tokens` 锁定 256，避免 M3 的输出预算一下被烧光。
 
-模型由 `minimax.commitModel` 决定（默认 `MiniMax-M2.7`）。diff 涉及复杂迁移或重构时，手动切到 `MiniMax-M3` 推理更稳。
+模型由 `minimax.commitModel` 决定（默认 `MiniMax-M3`）。M3 和 M2.7 现在每 token
+价格一致，所以默认走 M3 的前沿编码质量；想要更快草稿就改用
+`MiniMax-M2.7-highspeed`。
 
 ## 思考模式
 
@@ -201,7 +235,6 @@ API Key 调用图像 / 视频 / 音乐 / 语音 / 视觉理解 / 网络检索。
 手动把 Token Plan Key 填进去（或直接自己到终端跑这三条命令）。装完后
 点"重新检测"，状态徽标会变绿。
 
-##
 ## 端点自动选择
 
 激活时如果 `minimax.apiBaseUrl` 仍是默认值，扩展会按 VS Code 显示语言自动选择端点：

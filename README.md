@@ -10,10 +10,6 @@ language model provider. It registers **MiniMax M3**, **M2.7** and
 [Token Plan](https://platform.minimax.io/user-center/payment/token-plan)
 API key.
 
-> Architecture ported from
-> [`deepseek-v4-for-copilot`](https://github.com/Vizards/deepseek-v4-for-copilot)
-> (MIT) and adapted to the MiniMax Anthropic-compatible API.
-
 ## Features
 
 - **M3, M2.7 and M2.7-highspeed** show up in the Copilot model picker.
@@ -66,15 +62,34 @@ API key.
 
 ## Models
 
-| Model | Context | Effective input | Output | Image input | Notes |
-| --- | ---: | ---: | ---: | --- | --- |
-| MiniMax M3 | 1,000,000 | 512,000 | 512,000 | ✅ (native) | Current top-tier coding model; native video input (MP4 / AVI / MOV / MKV) |
-| MiniMax M2.7 | 204,800 | 196,608 | 131,072 | ✅ (via vision proxy) | Self-iterating, ~60 TPS |
-| MiniMax M2.7-highspeed | 204,800 | 196,608 | 131,072 | ✅ (via vision proxy) | Same quality, ~100 TPS |
+| Model | Context (spec / effective) | Image input | Notes |
+| --- | ---: | --- | --- |
+| MiniMax M3 | 1,000,000 / 512,000 | ✅ (native) | Current top-tier coding model; native video input (MP4 / AVI / MOV / MKV). Effective cap is 512K because the >512K input tier is still in limited rollout. |
+| MiniMax M2.7 | 204,800 | ✅ (via vision proxy) | Self-iterating, ~60 TPS |
+| MiniMax M2.7-highspeed | 204,800 | ✅ (via vision proxy) | Same quality, ~100 TPS |
 
-> **M3 1M context note:** the >512K input tier is in limited rollout
-> and the API rejects requests with `max_tokens > 512_000`. The
-> effective input is capped at 512K until the rollout completes.
+> The first number in the **Context** column is the official spec
+> from the
+> [Supported models](https://platform.minimaxi.com/docs/guides/text-generation#%E6%94%AF%E6%8C%81%E6%A8%A1%E5%9E%8B)
+> page; the second (when shown) is what the Copilot model picker
+> reports as the effective cap. We display the effective cap as the
+> smaller of the two so VS Code's
+> "上下文窗口: N / M" indicator stays honest about what a normal
+> user can actually push to — see the
+> [pricing-page footnote](https://platform.minimaxi.com/docs/guides/pricing-paygo)
+> for why the >512K tier is in limited rollout.
+>
+> Users who have been granted access to the >512K tier can flip
+> `minimax.enableM31MContext: true` via the **MiniMax: Toggle M3 1M
+> Context** command — the command pops a modal warning about the 2×
+> billing rate and the need for sales-granted >512K access before
+> changing the setting. The chat info emitter rebuilds the picker
+> entry on setting change so the indicator updates without an
+> editor reload.
+>
+> Set `minimax.maxTokens` if you want to cap the output of an
+> individual request. The request layer no longer clamps
+> `max_tokens` client-side; any 4xx from the upstream is surfaced as-is.
 >
 > **Historical models:** M2.5 / M2.1 / M2 are no longer recommended
 > by MiniMax and are not shipped. Power users can re-add them via
@@ -93,15 +108,38 @@ API key.
 
 | Model | Input | Output | Cache read | Cache write |
 | --- | ---: | ---: | ---: | ---: |
-| MiniMax M3 (≤512K input) | $0.60 | $2.40 | $0.12 | — |
-| MiniMax M3 (>512K input, limited) | $1.20 | $4.80 | $0.24 | — |
+| MiniMax M3 (≤512K input) | $0.30 | $1.20 | $0.06 | — |
+| MiniMax M3 (>512K input, limited) | $0.60 | $2.40 | $0.12 | — |
 | MiniMax M2.7 | $0.30 | $1.20 | $0.06 | $0.375 |
 | MiniMax M2.7-highspeed | $0.60 | $2.40 | $0.06 | $0.375 |
 
-> The M3 >512K input tier is in limited rollout and the API rejects
-> requests with `max_tokens > 512_000`. The effective input is capped
-> at 512K until the rollout completes. Token Plan subscription is
-> billed separately.
+> M3 is permanently 50% off on both input tiers (the previous 7-day
+> promo is now permanent). The >512K input tier is in limited rollout
+> and the API rejects requests with `max_tokens > 512_000`, so the
+> effective input is capped at 512K until the rollout completes.
+> Token Plan subscription is billed separately — see the
+> [Token Plan](#token-plan) section below.
+
+## Token Plan
+
+Subscription pricing for the Token Plan API key (separate from the
+pay-as-you-go rates above). One Subscription Key covers language
+models plus speech / video / music / image endpoints through a shared
+usage bar. See
+[Token Plan Overview](https://platform.minimax.io/docs/token-plan/intro)
+for full details.
+
+| Tier | Price | Best for | Quota windows | Agent usage |
+| --- | ---: | --- | --- | ---: |
+| Starter | $20 / month | Personal projects and prototyping | 5-hour rolling + weekly | 3-4 agents |
+| Pro | $50 / month | Daily coding with agents and multimodal work | 5-hour rolling + weekly | 4-5 agents |
+| Max | $120 / month | Heavy Agent workflows and extended sessions | 5-hour rolling + weekly | 6-7 agents |
+
+> Token Plan usage deducts from the included quota according to each
+> endpoint's pay-as-you-go price. When the quota is exhausted you can
+> let purchased Credits cover the overrun, swap the Subscription Key
+> for a pay-as-you-go API Key, or wait for the next window reset
+> (unused quota does not carry over).
 
 ## Configuration
 
@@ -109,8 +147,9 @@ API key.
 | --- | --- | --- |
 | `minimax.apiBaseUrl` | `https://api.minimaxi.com/anthropic` | Anthropic-compatible base URL. Use `https://api.minimax.io/anthropic` for international users. The SDK appends `/v1/messages`. Auto-picked on first activation when unset. |
 | `minimax.visibleModels` | _all M-series_ | Restrict which models appear in the picker. |
-| `minimax.maxTokens` | `0` | Output cap. `0` lets the model decide. Hard cap: 131072 for M2.7, 512000 for M3. |
-| `minimax.commitModel` | `MiniMax-M2.7` | Model used by **MiniMax: Generate Commit Message**. |
+| `minimax.maxTokens` | `0` | Output cap. `0` lets the model decide. Set a positive integer to cap the output yourself; the request layer no longer clamps it client-side, and any 4xx from the upstream is surfaced as-is. |
+| `minimax.enableM31MContext` | `false` | Lift the **MiniMax-M3** picker entry from the safe 512K default to the official 1M cap. **Off by default.** Enabling this only works if your MiniMax account has been granted access to the >512K tier, and the >512K tier is billed at **2× the per-token rate** (see the [pricing page](https://platform.minimaxi.com/docs/guides/pricing-paygo)). Prefer the **MiniMax: Toggle M3 1M Context** command — it pops a modal warning before flipping the switch. |
+| `minimax.commitModel` | `MiniMax-M3` | Model used by **MiniMax: Generate Commit Message**. M3 and M2.7 now share the same per-token price, so M3's frontier-coding quality is the obvious default; switch to `MiniMax-M2.7-highspeed` for a faster draft. |
 | `minimax.sampling` | `{}` | Per-model `temperature` / `topP` / `topK` / `frequencyPenalty` overrides. See [Per-model sampling](#per-model-sampling). |
 | `minimax.experimental.modelDefPresets` | `{}` | Per-model escape hatch for request body fields. See [Per-model sampling](#per-model-sampling). |
 | `minimax.debugMode` | `minimal` | `minimal` / `metadata` / `verbose` (verbose dumps every request to disk). |
@@ -133,6 +172,7 @@ API key.
 | **MiniMax: Generate Commit Message** | Fill the SCM input box with a Conventional-Commits-style draft of the staged diff |
 | **MiniMax: Set Commit Model** | Switch the model used by **Generate Commit Message** |
 | **MiniMax: Toggle M3 Thinking Mode** | Flip the `minimax.thinking.enabled` setting (M3 only). M2.x always stays on. |
+| **MiniMax: Toggle M3 1M Context** | Lift M3's picker entry from the safe 512K default to the official 1M cap. Pops a modal warning about the 2× billing rate and the need for sales-granted >512K access before flipping on; off is unconditional. |
 | **MiniMax: Switch to Global API (`minimax.io/anthropic`)** | Switch to the international Anthropic endpoint |
 | **MiniMax: Switch to Chinese API (`minimaxi.com/anthropic`)** | Switch to the China Anthropic endpoint |
 | **MiniMax: Show Logs** | Focus the MiniMax output channel |
@@ -181,8 +221,10 @@ box with a draft. The generator:
   draft.
 
 The model is selected by `minimax.commitModel` (default
-`MiniMax-M2.7`). Switch to `MiniMax-M3` when the diff needs deeper
-reasoning.
+`MiniMax-M3`). M3 and M2.7 now share the same per-token price on both
+billing sites, so the frontier-coding quality is the obvious default.
+Switch to `MiniMax-M2.7-highspeed` if you prefer a faster draft over
+deeper reasoning.
 
 ## Thinking mode
 

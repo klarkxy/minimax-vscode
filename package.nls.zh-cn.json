@@ -9,7 +9,7 @@
 	"minimax.command.showPricing": "显示价格表",
 	"minimax.command.generateCommitMessage": "生成提交信息",
 	"minimax.command.chooseCommitModel": "设置提交信息模型",
-	"minimax.command.toggleThinking": "切换 M3 思考模式",
+	"minimax.command.toggleM31MContext": "切换 M3 1M 上下文（高级）",
 	"minimax.command.showUsage": "查看用量",
 	"minimax.command.resetUsage": "清空用量",
 	"minimax.command.showProviderStatus": "查看扩展状态",

@@ -90,16 +90,16 @@ export async function prepareChatRequest({
 		: undefined;
 	// M3 supports a binary `thinking: { type: "disabled" }` switch via
 	// the Copilot Chat picker dropdown. M2.x always stays `adaptive`
-	// because the API ignores `disabled` for the M2 family. We trust
-	// the dropdown value verbatim — see `provider/models.ts` for the
-	// full rationale and a worked example of why the earlier
-	// `minimax.thinking.enabled` write-back caused a
-	// configurationSchema refresh loop.
+	// because the API ignores `disabled` for the M2 family. The
+	// dropdown is the single source of truth — see
+	// `provider/models.ts` for how the choice is read out of
+	// `options.modelConfiguration[THINKING_ENABLED_KEY]`.
 	const thinkingEffort = getConfiguredThinkingEffort(modelInfo.id, options as ModelConfigurationOptions);
 	// `isThinkingModel` reflects whether the *model* is a thinking
-	// model. `thinkingEnabled` reflects whether the user has flipped
-	// the switch on. The two diverge for M3 only — when the user
-	// disables thinking, we drop the temperature=1 / no-top_p
+	// model. `isThinkingEnabled` reflects whether the user has the
+	// switch on (i.e. the dropdown returned `开启` / `adaptive`).
+	// The two diverge for M3 only — when the user picks `关闭`,
+	// we drop the temperature=1 / no-top_p
 	// constraint and let the user's sampling overrides apply.
 	const isThinkingEnabled = thinkingEffort === 'adaptive';
 	const configuredMaxTokens = getMaxTokens();
@@ -143,13 +143,18 @@ export async function prepareChatRequest({
 	// a friendly error before the API returns 413.
 	enforceRequestBodySizeLimit(converted, modelInfo.id);
 
-	// Clamp user-configured maxTokens to the model's hard cap so we never
-	// send a value the API rejects with HTTP 400 (e.g. M3 caps at 512_000,
-	// not 524_288). User-set 0 means "let the model decide".
-	const effectiveMaxTokens =
-		configuredMaxTokens !== undefined && modelDef
-			? Math.min(configuredMaxTokens, modelDef.maxOutputTokens)
-			: (configuredMaxTokens ?? modelDef?.maxOutputTokens ?? 16_384);
+	// Resolve the `max_tokens` value to send on the request.
+	//
+	// The MiniMax Anthropic-compatible surface does not publish per-model
+	// `max_tokens` ceilings in its docs, so we deliberately do not clamp
+	// to `modelDef.maxOutputTokens` here — doing so used to silently cap
+	// requests at numbers we'd invented (512K for M3, 128K for M2.7) that
+	// contradicted the docs. If the upstream rejects a too-large value
+	// with HTTP 400, the error surfaces verbatim so the user can react.
+	//
+	// `0` here means "let the model decide": the `MiniMaxClient` will
+	// translate it into "no explicit cap on the request body".
+	const effectiveMaxTokens = configuredMaxTokens ?? 0;
 
 	const request = client.buildRequest(
 		getApiModelId(modelInfo.id),
@@ -162,11 +167,11 @@ export async function prepareChatRequest({
 		// and forbids `top_p` in the same request. MiniMax inherits this
 		// constraint for its `thinking: { type: "adaptive" }` mode.
 		//
-		// When the user has flipped `minimax.thinking.enabled` to
-		// `false` (M3 only — M2.x always stays adaptive), we drop the
-		// forced temperature=1 so the user's per-model `temperature`
-		// override (configured via `minimax.sampling`) finally takes
-		// effect. `undefined` here is the signal for
+		// When the user picks `关闭` in the picker (M3 only — M2.x
+		// always stays adaptive), we drop the forced temperature=1
+		// so the user's per-model `temperature` override
+		// (configured via `minimax.sampling`) finally takes effect.
+		// `undefined` here is the signal for
 		// `applyPerModelSampling` to forward the configured temperature.
 		modelDef?.capabilities.thinking && isThinkingEnabled ? 1 : undefined,
 		undefined,

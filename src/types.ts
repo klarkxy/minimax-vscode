@@ -192,11 +192,30 @@ export interface ModelDefinition {
 	family: string;
 	version: string;
 	detail: string;
-	/** Advertised context length (used for VS Code display). */
+	/**
+	 * Advertised context length. This is the only number MiniMax
+	 * publishes on its model overview page; we don't try to split it
+	 * into separate "input" / "output" caps because the docs don't
+	 * publish those splits either.
+	 */
 	contextLength: number;
-	/** Effective input cap the provider enforces in practice. */
+	/**
+	 * Display hint for VS Code's model picker, copied from
+	 * `contextLength`. Kept as a separate field because
+	 * `vscode.LanguageModelChatInformation` requires both
+	 * `maxInputTokens` and `maxOutputTokens` on the chat info object.
+	 *
+	 * We deliberately do NOT treat this as a provider-enforced cap.
+	 * `provider/request.ts` passes the user-configured value (or 0 for
+	 * "let the model decide") straight to the API, and any 400 from the
+	 * upstream is surfaced as-is. The official Anthropic-compatible
+	 * surface does not publish per-model `max_tokens` ceilings — we
+	 * previously hardcoded 512K for M3 and 128K for M2.7, but those
+	 * numbers came from us, not MiniMax, and ended up contradicting the
+	 * docs.
+	 */
 	maxInputTokens: number;
-	/** Output cap enforced by the API. */
+	/** Display hint for VS Code's model picker. Same caveat as above. */
 	maxOutputTokens: number;
 	capabilities: {
 		toolCalling: boolean | number;

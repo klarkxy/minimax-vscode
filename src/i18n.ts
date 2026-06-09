@@ -22,13 +22,22 @@ const zh: Translations = {
 	'model.M3.detail': '原生多模态、1M 上下文 Frontier Coding 模型',
 	'model.M2.7.detail': '开启模型的自我迭代（输出速度约 60 TPS）',
 	'model.M2.7-highspeed.detail': 'M2.7 极速版：效果不变，更快更敏捷（输出速度约 100 TPS）',
-	// Thinking mode — toggle / status labels
+	// Thinking mode — dropdown labels (rendered in Copilot Chat model picker)
 	'thinking.on': '开启',
 	'thinking.off': '关闭',
 	'thinking.on.desc': '模型输出 typed thinking 推理轨迹（默认）。temperature 强制为 1、禁 top_p。',
 	'thinking.off.desc': '关闭 typed thinking 内容块（仅 M3 受控）。temperature / topP 可用用户设置的采样值。',
-	'thinking.toggledOn': 'M3 思考模式已开启（`minimax.thinking.enabled = true`）',
-	'thinking.toggledOff': 'M3 思考模式已关闭（`minimax.thinking.enabled = false`）',
+
+	// M3 1M context — toggle / warning copy
+	'm31m.toggledOn': 'M3 上下文已开启至 1M（`minimax.enableM31MContext = true`）——超过 512K 的请求按 2 倍费率计费。',
+	'm31m.toggledOff': 'M3 上下文已恢复为安全默认值 512K（`minimax.enableM31MContext = false`）。',
+	'm31m.warning.title': '开启 M3 1M 上下文窗口',
+	'm31m.warning.body':
+		'将把模型选择器中 **MiniMax-M3** 的上下文窗口从安全默认值 512K 抬升至官方规格 1,000,000。\n\n请确认以下条件均已满足：\n• 你的 MiniMax 账号已通过销售开通了 **>512K 输入层**——未开通时 API 会直接返回 HTTP 400。\n• 你清楚 >512K 部分按 **2 倍费率** 计费（官方定价页 ¥4.20/M 输入、¥16.80/M 输出，是 512K 以内档位的两倍）。\n• Token Plan 套餐内额度也按 2 倍价格扣减。\n\n若不确定，可以先保持关闭；后续随时可调。',
+	'm31m.warning.confirm': '我已了解，启用 1M',
+	'm31m.warning.cancel': '取消',
+	'm31m.error.alreadyOn': 'M3 已经处于 1M 上下文模式。',
+	'm31m.error.alreadyOff': 'M3 已经处于默认 512K 上下文模式。',
 
 	// API Key
 	'auth.apiKeyRequiredDetail': '请先配置 API Key',
@@ -109,7 +118,7 @@ const zh: Translations = {
 	'commit.gitUnavailable': 'VS Code 内置 Git 扩展不可用或被禁用。请在扩展侧边栏启用内置 Git，或检查 `git.enabled` 是否为 true。',
 	'commit.noRepository': '当前工作区没有可用的 Git 仓库。',
 	'commit.noChanges': '暂存区与工作区都没有改动，无需生成提交信息。',
-	'commit.modelUnknown': 'commitModel 配置项指向了未注册的模型 "{0}"，请在设置里改成 M2.7 或 M3。',
+	'commit.modelUnknown': 'commitModel 配置项指向了未注册的模型 "{0}"，请在设置里改成 M3、M2.7 或 M2.7-highspeed。',
 	'commit.generating': '正在用 {0} 生成提交信息。',
 	'commit.progressReading': '读取暂存区改动。',
 	'commit.emptyResult': '模型没有返回任何内容，请重试。',
@@ -130,6 +139,7 @@ const zh: Translations = {
 	'usage.modelEmpty': '暂无模型分项用量。',
 	'status.title': 'MiniMax 状态',
 	'status.active': '扩展已激活：{0}（{1}）',
+	'status.thinking': '思考模式',
 	'status.inactive': '扩展已停用。',
 	'status.apiKeySet': 'API Key 已配置。',
 	'status.apiKeyMissing': '未配置 API Key。运行 "MiniMax: Set API Key"。',
@@ -155,8 +165,17 @@ const en: Translations = {
 		'Model emits a typed thinking block (default). Forces temperature=1, drops top_p per Anthropic constraint.',
 	'thinking.off.desc':
 		'Turns off the typed thinking block (M3 only — M2.x ignores this). User sampling temperature/topP take effect.',
-	'thinking.toggledOn': 'M3 thinking mode: ON (`minimax.thinking.enabled = true`)',
-	'thinking.toggledOff': 'M3 thinking mode: OFF (`minimax.thinking.enabled = false`)',
+
+	// M3 1M context — toggle / warning copy
+	'm31m.toggledOn': 'M3 context window lifted to 1M (`minimax.enableM31MContext = true`) — requests above 512K are billed at 2× the per-token rate.',
+	'm31m.toggledOff': 'M3 context window restored to the safe 512K default (`minimax.enableM31MContext = false`).',
+	'm31m.warning.title': 'Lift MiniMax-M3 context window to 1M',
+	'm31m.warning.body':
+		'This raises the **MiniMax-M3** entry in the model picker from the safe 512K default up to the official 1,000,000-token cap.\n\nMake sure all of the following apply:\n• Your MiniMax account has been granted the **>512K input tier** by sales — without it the upstream API will return HTTP 400 for requests above 512K.\n• You understand that the >512K portion is billed at **2× the per-token rate** (see the [pricing page](https://platform.minimaxi.com/docs/guides/pricing-paygo)).\n• Token Plan quota also deducts at the 2× rate.\n\nIf unsure, leave it off — you can flip it on later at any time.',
+	'm31m.warning.confirm': 'I understand, enable 1M',
+	'm31m.warning.cancel': 'Cancel',
+	'm31m.error.alreadyOn': 'M3 is already in 1M context mode.',
+	'm31m.error.alreadyOff': 'M3 is already in the default 512K context mode.',
 
 	// API Key
 	'auth.apiKeyRequiredDetail': 'Set an API key first',
@@ -240,7 +259,7 @@ const en: Translations = {
 	'commit.gitUnavailable': 'VS Code built-in Git extension is unavailable or disabled. Enable the built-in Git extension in the Extensions view or set `git.enabled` to true.',
 	'commit.noRepository': 'No Git repository is open in the current workspace.',
 	'commit.noChanges': 'No staged or working-tree changes — nothing to commit.',
-	'commit.modelUnknown': 'commitModel points to an unregistered model "{0}". Use M2.7 or M3 in settings.',
+	'commit.modelUnknown': 'commitModel points to an unregistered model "{0}". Use M3, M2.7, or M2.7-highspeed in settings.',
 	'commit.generating': 'Generating commit message with {0}…',
 	'commit.progressReading': 'Reading staged changes…',
 	'commit.emptyResult': 'The model returned an empty result. Please try again.',
@@ -261,6 +280,7 @@ const en: Translations = {
 	'usage.modelEmpty': 'No per-model usage recorded yet.',
 	'status.title': 'MiniMax status',
 	'status.active': 'Extension active: {0} ({1})',
+	'status.thinking': 'Thinking Mode',
 	'status.inactive': 'Extension is deactivated.',
 	'status.apiKeySet': 'API key configured.',
 	'status.apiKeyMissing': 'No API key. Run "MiniMax: Set API Key".',

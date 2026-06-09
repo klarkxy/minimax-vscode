@@ -1,5 +1,5 @@
-// Unit tests for the M3-native video path in src/provider/convert.ts and
-// the M3 thinking switch in src/provider/models.ts.
+// Unit tests for the M3-native video path in src/provider/convert.ts
+// and the M3 thinking switch in src/provider/models.ts.
 //
 // Run via `npm run test:unit`. The vscode namespace is swapped for the
 // in-process mock via esbuild's `alias` option.
@@ -9,7 +9,12 @@ import assert from 'node:assert/strict';
 import { LanguageModelDataPart, LanguageModelTextPart, LanguageModelChatMessageRole, workspace } from './helpers/vscodeMock.js';
 
 import { convertMessages } from '../src/provider/convert.js';
-import { getConfiguredThinkingEffort, toChatInfo, type ModelConfigurationOptions } from '../src/provider/models.js';
+import {
+	THINKING_ENABLED_KEY,
+	getConfiguredThinkingEffort,
+	toChatInfo,
+	type ModelConfigurationOptions,
+} from '../src/provider/models.js';
 import { findModelById } from '../src/models/registry.js';
 
 function userMessage(parts: unknown[]) {
@@ -76,70 +81,80 @@ test('convertMessages: M3 user video alongside text preserves both blocks', () =
 	assert.equal(content[1].type, 'video');
 });
 
-test('getConfiguredThinkingEffort: M2.x is always adaptive', () => {
-	assert.equal(getConfiguredThinkingEffort('MiniMax-M2.7'), 'adaptive');
-	assert.equal(getConfiguredThinkingEffort('MiniMax-M2.7-highspeed'), 'adaptive');
+// ---- Thinking switch ----
+
+test('getConfiguredThinkingEffort: M2.x is always adaptive (dropdown ignored)', () => {
+	const opts: ModelConfigurationOptions = {
+		modelConfiguration: { [THINKING_ENABLED_KEY]: 'false' },
+	} as unknown as ModelConfigurationOptions;
+	assert.equal(getConfiguredThinkingEffort('MiniMax-M2.7', opts), 'adaptive');
+	assert.equal(getConfiguredThinkingEffort('MiniMax-M2.7-highspeed', opts), 'adaptive');
 });
 
-test('getConfiguredThinkingEffort: M3 default is adaptive (thinking on)', () => {
-	// The vscodeMock returns `true` for `enabled`; for `thinking.enabled`
-	// (a different key) it returns the supplied default, which is `true`.
-	// But `getConfiguredThinkingEffort` no longer falls back to that
-	// setting at request time — it only trusts the dropdown or the
-	// upstream default.
-	assert.equal(getConfiguredThinkingEffort('MiniMax-M3'), 'adaptive');
-});
-
-test('toChatInfo: M3 has no configurationSchema (dropdown removed)', () => {
-	// The per-model dropdown was removed because the host re-applies
-	// the schema `default` on every re-render, silently overriding
-	// the user's first click. The on/off switch now lives in the
-	// `minimax.thinking.enabled` setting (toggleable via the
-	// `minimax.toggleThinking` command).
+test('toChatInfo: M3 exposes a thinking on/off configurationSchema dropdown', () => {
+	// The on/off switch now lives in the per-model configurationSchema,
+	// matching the deepseek-v4-for-copilot pattern. The schema's only
+	// property is the thinkingEnabled string enum (true / false), and
+	// the default is "true" (thinking on).
 	const m = findModelById('MiniMax-M3')!;
 	const info = toChatInfo(m, true);
+	const schema = (info as unknown as {
+		configurationSchema?: {
+			properties?: Record<string, { enum?: string[]; default?: string }>;
+		};
+	}).configurationSchema;
+	assert.ok(schema, 'M3 should advertise a configurationSchema');
+	const prop = schema?.properties?.[THINKING_ENABLED_KEY];
+	assert.ok(prop, 'configurationSchema should declare the thinkingEnabled property');
+	assert.deepEqual(prop?.enum, ['true', 'false']);
+	assert.equal(prop?.default, 'true');
+});
+
+test('toChatInfo: M2.x does not advertise a configurationSchema', () => {
+	// M2.x always stays adaptive; no dropdown is rendered.
+	const flash = findModelById('MiniMax-M2.7')!;
+	const hs = findModelById('MiniMax-M2.7-highspeed')!;
 	assert.equal(
-		(info as unknown as Record<string, unknown>).configurationSchema,
+		(flash && (toChatInfo(flash, true) as unknown as { configurationSchema?: unknown }).configurationSchema),
+		undefined,
+	);
+	assert.equal(
+		(hs && (toChatInfo(hs, true) as unknown as { configurationSchema?: unknown }).configurationSchema),
 		undefined,
 	);
 });
 
-test('getConfiguredThinkingEffort: M2.x always adaptive regardless of setting', () => {
-	const original = workspace.getConfiguration;
-	try {
-		(workspace as unknown as { getConfiguration: typeof original }).getConfiguration =
-			(_section: string) => ({
-				get: <T>(key: string, defaultValue?: T): T | undefined => {
-					if (key === 'thinking.enabled') return false as unknown as T;
-					return defaultValue;
-				},
-			});
-		assert.equal(getConfiguredThinkingEffort('MiniMax-M2.7'), 'adaptive');
-		assert.equal(getConfiguredThinkingEffort('MiniMax-M2.7-highspeed'), 'adaptive');
-	} finally {
-		(workspace as unknown as { getConfiguration: typeof original }).getConfiguration = original;
-	}
+test('getConfiguredThinkingEffort: M3 follows modelConfiguration "false" → disabled', () => {
+	const opts = {
+		modelConfiguration: { [THINKING_ENABLED_KEY]: 'false' },
+	} as unknown as ModelConfigurationOptions;
+	assert.equal(getConfiguredThinkingEffort('MiniMax-M3', opts), 'disabled');
 });
 
-test('getConfiguredThinkingEffort: M3 follows minimax.thinking.enabled', () => {
-	const original = workspace.getConfiguration;
-	try {
-		(workspace as unknown as { getConfiguration: typeof original }).getConfiguration =
-			(_section: string) => ({
-				get: <T>(key: string, defaultValue?: T): T | undefined => {
-					if (key === 'thinking.enabled') return false as unknown as T;
-					return defaultValue;
-				},
-			});
-		assert.equal(getConfiguredThinkingEffort('MiniMax-M3'), 'disabled');
-	} finally {
-		(workspace as unknown as { getConfiguration: typeof original }).getConfiguration = original;
-	}
+test('getConfiguredThinkingEffort: M3 follows modelConfiguration "true" → adaptive', () => {
+	const opts = {
+		modelConfiguration: { [THINKING_ENABLED_KEY]: 'true' },
+	} as unknown as ModelConfigurationOptions;
+	assert.equal(getConfiguredThinkingEffort('MiniMax-M3', opts), 'adaptive');
 });
 
-test('getConfiguredThinkingEffort: M3 default is adaptive (thinking on)', () => {
-	// vscodeMock returns the supplied default for unknown keys, which
-	// is `true` for `thinking.enabled` (matches the package.json
-	// default). The picker dropdown is no longer consulted.
+test('getConfiguredThinkingEffort: M3 also reads from the legacy `configuration` key', () => {
+	// Copilot Chat used to pass user selection under the generic
+	// `configuration` key on older hosts. We accept both.
+	const opts = {
+		configuration: { [THINKING_ENABLED_KEY]: 'false' },
+	} as unknown as ModelConfigurationOptions;
+	assert.equal(getConfiguredThinkingEffort('MiniMax-M3', opts), 'disabled');
+});
+
+test('getConfiguredThinkingEffort: M3 default is adaptive (no dropdown)', () => {
+	// The dropdown is the single source of truth — no
+	// `modelConfiguration[THINKING_ENABLED_KEY]` is delivered on the
+	// request (host forgot to wire it up, or the user opened the
+	// picker for the first time before changing anything). We
+	// default to `adaptive` so M3 keeps emitting the typed
+	// `thinking` block the user expects. This mirrors the
+	// `deepseek-v4-for-copilot` `reasoningEffort` default, which is
+	// also a per-render schema default and not a separate setting.
 	assert.equal(getConfiguredThinkingEffort('MiniMax-M3'), 'adaptive');
 });
