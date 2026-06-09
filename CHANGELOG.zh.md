@@ -2,6 +2,17 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.2.0 — README 重排与配置统一
+
+### 文档
+
+- 重排版 README 增强可读性：新增命令参考表、按模型分节、定价可视化、思考模式描述。
+- 厘清 M3 上下文处理说明，重写"高级设置"入门文案，统一中英文命令名。
+
+### 修复
+
+- `minimax.experimental.modelDefPresets` 的 `tools` 键现在真正与主工具列表合并（之前被保留键守卫静默忽略）。
+
 ## 2.1.9 — M3 原生视频输入 + 思考开关
 
 对齐官方 [platform.minimaxi.com 文档](https://platform.minimaxi.com/docs/api-reference/text-anthropic-api)。

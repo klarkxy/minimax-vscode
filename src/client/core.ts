@@ -236,7 +236,9 @@ function applyExtraParams(
 			continue;
 		}
 		// Don't let `extra` clobber the Anthropic-required / constrained
-		// fields we always set ourselves.
+		// fields we always set ourselves. `tools` is intentionally NOT
+		// in this list — extra.tools is **concatenated** with the main
+		// tool list (see the branch below) rather than replacing it.
 		if (
 			key === 'model' ||
 			key === 'messages' ||
@@ -244,7 +246,6 @@ function applyExtraParams(
 			key === 'max_tokens' ||
 			key === 'system' ||
 			key === 'thinking' ||
-			key === 'tools' ||
 			key === 'temperature' ||
 			key === 'top_p' ||
 			key === 'top_k' ||
@@ -252,8 +253,8 @@ function applyExtraParams(
 		) {
 			continue;
 		}
-		// `tools` from extra is concatenated with our tools list rather
-		// than replacing it (matches upstream behaviour).
+		// `tools` from extra is concatenated with our existing tools
+		// list rather than replacing it (matches upstream behaviour).
 		if (key === 'tools' && Array.isArray(value)) {
 			const existing = Array.isArray(params.tools) ? params.tools : [];
 			params.tools = [...existing, ...(value as unknown[])];

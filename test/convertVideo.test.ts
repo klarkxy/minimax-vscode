@@ -147,14 +147,9 @@ test('getConfiguredThinkingEffort: M3 also reads from the legacy `configuration`
 	assert.equal(getConfiguredThinkingEffort('MiniMax-M3', opts), 'disabled');
 });
 
-test('getConfiguredThinkingEffort: M3 default is adaptive (no dropdown)', () => {
-	// The dropdown is the single source of truth — no
-	// `modelConfiguration[THINKING_ENABLED_KEY]` is delivered on the
-	// request (host forgot to wire it up, or the user opened the
-	// picker for the first time before changing anything). We
-	// default to `adaptive` so M3 keeps emitting the typed
-	// `thinking` block the user expects. This mirrors the
-	// `deepseek-v4-for-copilot` `reasoningEffort` default, which is
-	// also a per-render schema default and not a separate setting.
+test('getConfiguredThinkingEffort: M3 default is adaptive (no dropdown, no setting)', () => {
+	// With no `modelConfiguration[THINKING_ENABLED_KEY]` delivered and
+	// no setting fallback, we always default to `'adaptive'` so M3
+	// keeps emitting the typed `thinking` block the user expects.
 	assert.equal(getConfiguredThinkingEffort('MiniMax-M3'), 'adaptive');
 });

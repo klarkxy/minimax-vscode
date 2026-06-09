@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.0 — README restyling & config unification
+
+### Documentation
+
+- Restyled README for scannable presentation: command reference table,
+  per-model settings section, pricing visual, thinking-mode description.
+- Clarified M3 context handling caveats, reworked "advanced settings"
+  walkthrough copy, and unified all command names across en/zh.
+
+### Fixes
+
+- `minimax.experimental.modelDefPresets` `tools` key now actually merges
+  with the main tool list (was silently ignored by the reserved-key guard).
+
 ## 2.1.9 — M3 native video input + thinking on/off switch
 
 Aligns the Anthropic-compatible surface with the latest

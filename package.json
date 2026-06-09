@@ -199,12 +199,6 @@
           "scope": "application",
           "markdownDescription": "Lift the **MiniMax-M3** context window advertised in the model picker from the safe default of 512,000 to the official 1,000,000-token cap. **Off by default.** Enabling this unlocks the >512K input tier only if your MiniMax account has been granted access; otherwise the upstream API will return HTTP 400 for requests above 512K, and the >512K tier is billed at **2× the per-token rate** of the standard tier (see the [pricing page](https://platform.minimaxi.com/docs/guides/pricing-paygo)). Prefer the **MiniMax: Toggle M3 1M Context** command — it surfaces the warnings inline before flipping the switch."
         },
-        "minimax.thinking.enabled": {
-          "type": "boolean",
-          "default": true,
-          "scope": "application",
-          "markdownDescription": "Toggle the typed `thinking` content block for **MiniMax-M3**. When `true` (default), M3 emits its reasoning trace as a `thinking` block; when `false`, the API returns the answer without a typed thinking trace. The Anthropic constraint that `temperature=1` and `top_p` is dropped only applies while thinking is on, so flipping this off also unlocks your custom `temperature` / `topP` from `minimax.sampling`. M2.x always stays on — the docs say `disabled` is a no-op for the M2 family, so this setting is ignored for M2.7 / M2.7-highspeed. Use the **MiniMax: Toggle M3 Thinking Mode** command for a one-click flip."
-        },
         "minimax.debugMode": {
           "type": "string",
           "default": "minimal",

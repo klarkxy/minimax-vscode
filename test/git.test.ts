@@ -5,8 +5,15 @@
 
 import { test, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 import { mockState, makeUri, type UriLike } from './helpers/vscodeMock.js';
+
+const execFileAsync = promisify(execFile);
 import {
 	buildScmContext,
 	focusScmView,
@@ -166,32 +173,44 @@ test('buildScmContext: preserves a pre-existing input box message', async () => 
 	assert.equal(ctx.existingMessage, 'feat: in progress');
 });
 
-test('buildScmContext: falls back to git CLI when state.diff is empty', async (t) => {
+test('buildScmContext: falls back to git CLI when state.diff is empty', async () => {
 	// In modern VS Code the Git extension's typed `state.diff` shape is
 	// usually empty, so we must shell out to `git diff --staged` to get
-	// the real diff. The current workspace IS a git repo, so this
-	// exercises the happy path: a real diff makes it into the prompt.
-	const repo = makeRepo(process.cwd(), {
-		state: {
-			indexChanges: [{ resourceUri: makeUri(`${process.cwd()}/fake.ts`) }],
-			workingTreeChanges: [],
-			refs: [],
-		},
-	});
-	// Strip any diff field on state so extractDiff() returns '' and the
-	// CLI fallback kicks in.
-	const repoAny = repo as unknown as { state: Record<string, unknown> };
-	repoAny.state = { ...repoAny.state };
-	delete repoAny.state.diff;
+	// the real diff. We build a throwaway git repo in the OS temp dir
+	// so the test does not depend on the host workspace's state — a
+	// real staged diff is created, then the CLI fallback is exercised.
+	const repoRoot = await mkdtemp(join(tmpdir(), 'minimax-scm-test-'));
+	const stagedFile = join(repoRoot, 'fake.ts');
+	try {
+		await execFileAsync('git', ['init', '-q', repoRoot]);
+		await execFileAsync('git', ['-C', repoRoot, 'config', 'user.email', 'test@example.com']);
+		await execFileAsync('git', ['-C', repoRoot, 'config', 'user.name', 'Test User']);
+		await writeFile(stagedFile, 'export const answer = 42;\n');
+		await execFileAsync('git', ['-C', repoRoot, 'add', 'fake.ts']);
 
-	const ctx = await buildScmContext(
-		repo as unknown as Parameters<typeof buildScmContext>[0],
-	);
-	assert.ok(typeof ctx.stagedDiff === 'string');
-	assert.match(ctx.stagedDiff, /Staged files/);
-	// Real git diff landed in the prompt via the CLI fallback.
-	assert.match(ctx.stagedDiff, /Diff \(truncated to 32KB\)/);
-	void t;
+		const repo = makeRepo(repoRoot, {
+			state: {
+				indexChanges: [{ resourceUri: makeUri(stagedFile) }],
+				workingTreeChanges: [],
+				refs: [],
+			},
+		});
+		// Strip any diff field on state so extractDiff() returns '' and
+		// the CLI fallback kicks in.
+		const repoAny = repo as unknown as { state: Record<string, unknown> };
+		repoAny.state = { ...repoAny.state };
+		delete repoAny.state.diff;
+
+		const ctx = await buildScmContext(
+			repo as unknown as Parameters<typeof buildScmContext>[0],
+		);
+		assert.ok(typeof ctx.stagedDiff === 'string');
+		assert.match(ctx.stagedDiff, /Staged files/);
+		// Real git diff landed in the prompt via the CLI fallback.
+		assert.match(ctx.stagedDiff, /Diff \(truncated to 32KB\)/);
+	} finally {
+		await rm(repoRoot, { recursive: true, force: true });
+	}
 });
 
 test('buildScmContext: emits a no-diff prompt when repo is invalid', async () => {

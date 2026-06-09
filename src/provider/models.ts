@@ -149,11 +149,9 @@ function buildThinkingEnabledSchema(): vscode.LanguageModelConfigurationSchema {
  *      M2.x thinking cannot be turned off — sending `disabled` is
  *      a no-op — so we ignore the user's selection for that family.
  *   2. Otherwise read the per-call `modelConfiguration[thinkingEnabled]`
- *      the Copilot Chat picker supplies. The dropdown is the only
- *      UI; absent the field (e.g. a misbehaving host that skipped
- *      the schema write-back) we fall back to `'adaptive'` so the
- *      model keeps emitting the typed `thinking` block the user
- *      expects by default.
+ *      the Copilot Chat picker supplies. The dropdown is the single
+ *      source of truth; absent the field (e.g. a misbehaving host
+ *      that skipped the schema write-back) we default to `'adaptive'`.
  */
 export function getConfiguredThinkingEffort(
 	modelId: string,
