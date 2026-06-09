@@ -1,103 +1,139 @@
-# MiniMax Copilot
+<p align="center">
+  <img src="icon/icon.png" alt="MiniMax Copilot" width="120">
+</p>
 
-<!-- marketplace-readme:remove-start -->
-> 🇨🇳 简体中文 | [🇬🇧 English documentation](./README.md)
-<!-- marketplace-readme:remove-end -->
+<h1 align="center">MiniMax Copilot</h1>
 
-为 [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat)
-增加 **MiniMax M3 / M2.7** 模型供应方的 VS Code 扩展。用 [Token Plan](https://platform.minimax.io/user-center/payment/token-plan)
-API Key 就能直接用。
+<p align="center">
+  <!-- marketplace-readme:remove-start -->
+  <a href="https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode-copilot"><img src="https://img.shields.io/badge/VS%20Code%20Marketplace-Install-007ACC?logo=visualstudiocode&logoColor=white&style=for-the-badge" alt="从 VS Code 市场安装"></a>
+  <br/>
+  <!-- marketplace-readme:remove-end -->
+</p>
 
+<p align="center">
+  <a href="./README.md">English</a>
+  ·
+  <a href="./README.zh.md"><b>简体中文</b></a>
+</p>
 
-## 能做什么
+<p align="center">
+  在 Copilot Chat 模型选择器里直接选 <b>MiniMax M3 / M2.7</b>——其余 Copilot 已经提供的一切都不变。
+</p>
 
-- **M3 / M2.7 / M2.7-highspeed** 出现在 Copilot 模型选择器里，每个模型都显示上下文、输出上限和价格。
-- **M3 原生多模态**（图片直传）；M2.x 系列走视觉代理 fallback，所以图片附件在所有模型上都能用。
-- **工具调用**，可选实验性 `stabilizeToolList` 开关，稳住上游 prompt cache。
-- **Git commit message 生成**，挂在 SCM 输入框上。默认 Conventional Commits + gitmoji 风格，会把已有草稿当作「待润色」输入。
-- **按模型微调采样参数**（`temperature` / `topK` 等），不用改代码。
-- **累计用量统计**（输入 / 输出 / 缓存读取 token 跨会话累加），有专门的状态命令查看。
-- **用量面板**：状态栏入口加 `MiniMax: 打开用量面板` 命令，能看今日 / 近 7 日 / 近 30 日 token、30 日柱状图、按模型拆分，以及平台 `coding_plan/remains` 给的 5h 重置 / 周限额 / 套餐到期。未配 API Key 时降级为只显示本地数据。面板底部有一个 **mmx-cli** 板块，仅显示官方 [`mmx`](https://github.com/MiniMax-AI/cli) 多模态命令行的探测状态——装包、登录、装 SKILL 全部交由用户（或用户的 AI Agent）自己完成。
-- **诊断能力**：每个请求自动分类、缓存命中统计；verbose 模式下把完整请求 dump 到磁盘。
-- **双语 UI**（英文 + 简体中文），跟随 VS Code 显示语言自动切换。
+## 为什么需要这个扩展？
 
-## 环境要求
+喜欢 MiniMax 的性价比，但又不想放弃 GitHub Copilot 的 Agent 模式、工具调用、精致的 UI？这个扩展把 **MiniMax M3 / M2.7** 接到 Copilot Chat 的模型选择器里——同时支持**视觉**、**思考模式**、**用量面板**，使用你自己的 Token Plan API Key。
 
-- VS Code 1.111.0+
-- MiniMax [Token Plan](https://platform.minimax.io/user-center/payment/token-plan) 订阅与 API Key
-- 需要 VS Code Insiders 才能通过 proposed `languageModelThinkingPart` API 渲染思考折叠块
-- 提交信息生成依赖 VS Code 自带的 Git 扩展，请保持启用
+- **不替换 Copilot，只是给它加血。** 没有新的侧边栏、没有要学的聊天界面——只是模型选择器里多了几行。
+- **Agent 模式、工具调用、MCP 全部继续能用。** Copilot 整条流水线原样跑在 MiniMax 上。
+- **BYOK，直接付给 MiniMax。** Token Plan Key 自己拿，账单、限速都是自己的。Key 存在 OS 钥匙串里，不落盘。
+- **双语 UI**，跟着 VS Code 显示语言自动切换。
+
+## 功能
+
+### 模型选择器里的 M3 / M2.7 / M2.7-highspeed
+
+三款模型与 GPT、Claude 等一起出现在 Copilot Chat 的模型选择器里。每一行的 tooltip 都带上下文窗口、输出上限、每百万 token 的价格。M3 原生支持图片 + 视频输入；M2.x 走透明的视觉代理，所以图片附件在所有模型上都能用。
+
+### M3 原生视频输入
+
+M3 接受内联 `type: "video"` 内容块（MP4 / AVI / MOV / MKV），以及通过 Files API 上传后用 `mm_file://{file_id}` 引用。请求层在请求体超过官方 64 MB 上限时，会用本地化错误拦下——你永远不会看到含糊的 HTTP 413。
+
+### 思考模式开关
+
+MiniMax 的 Anthropic 兼容端点只暴露二值开关 `thinking: { type: "disabled" | "adaptive" }`——没有任何「思考强度」旋钮。**MiniMax: 切换 M3 思考模式** 命令可以翻转 M3 的开关（M2.x 永远保持 adaptive，因为官方文档明确说 `disabled` 对 M2 系列是 no-op）。M3 关掉之后，`minimax.sampling` 里的 `temperature` / `topP` 才能真正生效。
+
+### Git 提交信息生成
+
+用暂存区 diff 自动起草 Conventional Commits + gitmoji 风格的提交信息。已有草稿会当作「待润色」输入让模型优化——不会另起炉灶。
+
+### 累计用量追踪
+
+按模型统计输入 / 输出 / 缓存读取的累计 token 数（跨会话累加），配 **MiniMax: Show Usage** 状态命令快速查看。
+
+### 用量面板
+
+一键 Webview 面板，显示今日 / 近 7 日 / 近 30 日的 token、30 日柱状图、按模型拆分，以及平台 `coding_plan/remains` 给的 5h 重置 / 周限额 / 套餐到期（需配 API Key）。面板底部有一个 **mmx-cli** 板块，仅显示官方 [`mmx`](https://github.com/MiniMax-AI/cli) 多模态命令行的探测状态——装包、登录、装 SKILL 全部交由用户（或用户的 AI Agent）自己完成。
+
+### 按模型微调采样参数
+
+按模型设置 `temperature` / `topK` 等，不用改代码。详见[设置项](#设置项)。
+
+### 诊断能力
+
+每个请求自动分类、缓存命中统计；verbose 模式下把完整请求 dump 到磁盘。
 
 ## 快速开始
 
-1. 在 [Account / Token Plan](https://platform.minimax.io/user-center/payment/token-plan) 拿到 Token Plan API Key。
-2. 在命令面板运行 **MiniMax: Set API Key**。
-3. 在 Copilot 模型选择器里选一个模型。想比价可以跑 **MiniMax: Show Pricing**。
-4. 直接在 Copilot Chat 里跟模型对话，或者在 SCM 输入框里用 **MiniMax: Generate Commit Message**。
+### 环境要求
+
+- **VS Code 1.111.0+**
+- 安装并登录 **GitHub Copilot Chat**（本扩展以模型供应方身份注册）
+- 一份 MiniMax [Token Plan](https://platform.minimax.io/user-center/payment/token-plan) 订阅 + API Key
+- **VS Code Insiders** 才能用 proposed `languageModelThinkingPart` API 渲染思考折叠块
+- 提交信息生成依赖 VS Code 自带的 Git 扩展，请保持启用
+
+### 安装
+
+1. 从 [VS Code 市场](https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode-copilot) 安装（或 `npm run package` 从源码打 `.vsix`）。
+2. 在命令面板运行 **MiniMax: Set API Key**，粘贴 Token Plan Key。
+3. 打开 Copilot Chat，点模型选择器，选 **MiniMax M3**（或 M2.7 / M2.7-highspeed）。想比价可以跑 **MiniMax: Show Pricing**。
+4. 直接在 Copilot Chat 里跟模型对话，或在 SCM 输入框里跑 **MiniMax: Generate Commit Message** 自动起草提交信息。
+
+### 端点自动选择
+
+激活时如果 `minimax.apiBaseUrl` 仍是默认值，扩展会按 VS Code 显示语言自动选择端点：
+
+- `zh*`（含 `zh-cn` / `zh-tw` / `zh-hk` / `zh-sg` 等）→ 国内端点 `https://api.minimaxi.com/anthropic`。
+- 其他语言 → 国际端点 `https://api.minimax.io/anthropic`。
+
+手动改过 `minimax.apiBaseUrl` 或跑过 **MiniMax: Switch to Global/Chinese API** 之后，自动选择就**不再生效**。
 
 ## 模型
 
 | 模型 | 上下文（规格 / 实际） | 图片输入 | 说明 |
 | --- | ---: | --- | --- |
-| MiniMax M3 | 1,000,000 / 512,000 | ✅ 原生 | 当前主力编程模型；原生视频输入（MP4 / AVI / MOV / MKV）。实际窗口为 512K，因为 >512K 输入层仍在限量供应中。 |
-| MiniMax M2.7 | 204,800 | ✅ 视觉代理 | 自我迭代模型，约 60 TPS |
-| MiniMax M2.7-highspeed | 204,800 | ✅ 视觉代理 | 效果不变，约 100 TPS |
+| **MiniMax M3** | 1,000,000 / 512,000 | ✅ 原生 | 当前主力编程模型；原生视频输入（MP4 / AVI / MOV / MKV）。实际窗口为 512K，因为 >512K 输入层仍在限量供应中。 |
+| **MiniMax M2.7** | 204,800 | ✅ 视觉代理 | 自我迭代模型，约 60 TPS |
+| **MiniMax M2.7-highspeed** | 204,800 | ✅ 视觉代理 | 效果不变，约 100 TPS |
 
-> "上下文"列第一个数是 MiniMax 官方文档
-> [支持模型](https://platform.minimaxi.com/docs/guides/text-generation#%E6%94%AF%E6%8C%81%E6%A8%A1%E5%9E%8B)
-> 的规格值；第二个数（如果有）是扩展在 Copilot 模型选择器里
-> 报告的**实际**窗口。两个数不一致时，UI 指示器按"实际"那
-> 个渲染——这样 VS Code 的"上下文窗口: N / M"指示器跟用户
-> 真实能塞进去的量保持一致。>512K 输入层限量供应的原因见
-> [定价页脚注](https://platform.minimaxi.com/docs/guides/pricing-paygo)。
->
-> 已经获得 >512K 访问权限的用户可以通过 **MiniMax: 切换 M3 1M 上下文**
-> 命令把 `minimax.enableM31MContext` 翻成 `true`——命令会先弹模态警告
-> 说明 2 倍计费、需要销售开通 >512K 等事项，然后才改设置。设置一改，
-> picker 的窗口指示器会跟着刷新（不需要重启编辑器）。
->
-> 想限制单次请求的输出时，设 `minimax.maxTokens`。请求层不再做客户端截断，
-> 上游 4xx 会原样冒泡。
->
-> **历史模型**：M2.5 / M2.1 / M2 已被 MiniMax 官方下线，本扩展不再收录。要用的话自行通过 `minimax.modelIdOverrides` + `minimax.visibleModels` 加回来。
+"上下文"列第一个数是 MiniMax 官方文档 [支持模型](https://platform.minimaxi.com/docs/guides/text-generation) 的规格值；第二个数（如果有）是扩展在 Copilot 模型选择器里报告的**实际**窗口。两个数不一致时，UI 指示器按"实际"那个渲染——这样 VS Code 的"上下文窗口: N / M"指示器跟用户真实能塞进去的量保持一致。>512K 输入层限量供应的原因见 [定价页脚注](https://platform.minimaxi.com/docs/guides/pricing-paygo)。
 
-## 价格（每百万 token，人民币）
+已经获得 >512K 访问权限的用户可以通过 **MiniMax: 切换 M3 1M 上下文** 命令把 `minimax.enableM31MContext` 翻成 `true`——命令会先弹模态警告说明 2 倍计费、需要销售开通 >512K 等事项，然后才改设置。设置一改，picker 的窗口指示器会跟着刷新（不需要重启编辑器）。
 
-> 以下为国内站
-> [platform.minimaxi.com](https://platform.minimaxi.com/docs/guides/pricing-paygo)
-> （`https://api.minimaxi.com/anthropic`）的人民币报价。国际站
-> [platform.minimax.io](https://platform.minimax.io/docs/guides/pricing-paygo)
-> 按美元结算，费率不同，参见 [`README.md`](./README.md)。模型选择器 tooltip
-> 和 **MiniMax: Show Pricing** 会按当前 `minimax.apiBaseUrl` 自动渲染对应的价格表。
+**历史模型**：M2.5 / M2.1 / M2 已被 MiniMax 官方下线，本扩展不再收录。要用的话自行通过 `minimax.modelIdOverrides` + `minimax.visibleModels` 加回来。
+
+## 价格
+
+国内端点（`api.minimaxi.com`，人民币结算）和国际端点（`api.minimax.io`，美元结算）的费率不同。模型选择器 tooltip 和 **MiniMax: Show Pricing** 会按当前 `minimax.apiBaseUrl` 自动渲染对应的价格表。
+
+### 按量计费（LLM，每百万 token）
+
+> 国内表为 **CNY**，国际表为 **USD**。官方定价页覆盖所有模态；这里只列本扩展实际用到的 LLM 部分。
 
 | 模型 | 输入 | 输出 | 缓存读取 | 缓存写入 |
 | --- | ---: | ---: | ---: | ---: |
-| MiniMax M3 (≤512K 输入) | 2.10 | 8.40 | 0.42 | — |
-| MiniMax M3 (>512K 输入，限量) | 4.20 | 16.80 | 0.84 | — |
-| MiniMax M2.7 | 2.10 | 8.40 | 0.42 | 2.625 |
-| MiniMax M2.7-highspeed | 4.20 | 16.80 | 0.42 | 2.625 |
+| **MiniMax M3 (≤512K 输入)** | $0.30 / ¥2.10 | $1.20 / ¥8.40 | $0.06 / ¥0.42 | — |
+| **MiniMax M3 (>512K 输入，限量)** | $0.60 / ¥4.20 | $2.40 / ¥16.80 | $0.12 / ¥0.84 | — |
+| **MiniMax M2.7** | $0.30 / ¥2.10 | $1.20 / ¥8.40 | $0.06 / ¥0.42 | $0.375 / ¥2.625 |
+| **MiniMax M2.7-highspeed** | $0.60 / ¥4.20 | $2.40 / ¥16.80 | $0.06 / ¥0.42 | $0.375 / ¥2.625 |
 
-> M3 已转为永久五折（之前是 7 天限时活动，现已升为常设优惠）。
-> Token Plan 订阅另计，详见下方 [Token Plan 订阅](#token-plan-订阅) 章节。
+M3 在所有输入层永久五折。>512K 输入层仍在限量供应，最新状态见 [定价页脚注](https://platform.minimaxi.com/docs/guides/pricing-paygo)。Token Plan 订阅另计，详见下方。
 
-## Token Plan 订阅
+### Token Plan 订阅
 
-Token Plan 订阅 Key 的价格（与上方按量计费分开计费）。一把订阅 Key
-通过统一的用量进度条覆盖语言模型以外的语音 / 视频 / 音乐 / 图像
-端点。完整说明见
-[Token Plan 概要](https://platform.minimaxi.com/docs/token-plan/intro)。
+Token Plan 订阅 Key 的价格（与上方按量计费分开计费）。一把订阅 Key 通过统一的用量进度条覆盖语言模型以外的语音 / 视频 / 音乐 / 图像端点。
 
 | 套餐 | 价格 | 适合场景 | 额度窗口 | Agent 用量 |
 | --- | ---: | --- | --- | ---: |
-| 轻量版 | ¥49 / 月 | 轻量个人开发与日常试用 | 5 小时固定窗口 + 周窗口 | 3-4 个 |
-| 高频版 | ¥119 / 月 | 高频编程 Agent 与多模态调用 | 5 小时固定窗口 + 周窗口 | 4-5 个 |
-| 重度版 | ¥469 / 月 | 重度 Agent 工作流与更长时间使用 | 5 小时固定窗口 + 周窗口 | 6-7 个 |
+| Starter / 轻量版 | $20 / ¥49 每月 | Personal projects and prototyping | 5 小时滚动 + 周窗口 | 3-4 个 |
+| Pro / 高频版 | $50 / ¥119 每月 | Daily coding with agents and multimodal work | 5 小时滚动 + 周窗口 | 4-5 个 |
+| Max / 重度版 | $120 / ¥469 每月 | Heavy Agent workflows and extended sessions | 5 小时滚动 + 周窗口 | 6-7 个 |
 
-> 套餐内 Token Plan 用量按对应按量计费价格扣减额度。额度耗尽后可：
-> 由已购积分自动补足、把订阅 Key 换成按量计费 API Key、或等待额度
-> 窗口重置（未用完的额度不结转到下一周期）。
+套餐内 Token Plan 用量按对应按量计费价格扣减额度。额度耗尽后可：由已购积分自动补足、把订阅 Key 换成按量计费 API Key、或等待额度窗口重置（未用完的额度不结转到下一周期）。
 
-## 配置项
+## 设置项
 
 | 设置项 | 默认值 | 用途 |
 | --- | --- | --- |
@@ -165,14 +201,11 @@ Token Plan 订阅 Key 的价格（与上方按量计费分开计费）。一把�
 - 输出按 Conventional Commits 风格：`<type>(<scope>)<!>: <subject>`，可附带换行 + `- ` 项目符号的 body。`type` 只能从 `feat` / `fix` / `refactor` / `perf` / `docs` / `test` / `build` / `ci` / `chore` / `style` / `revert` 里选。
 - 请求使用 `temperature: 0.2` 保证稳定可复现；`max_tokens` 锁定 256，避免 M3 的输出预算一下被烧光。
 
-模型由 `minimax.commitModel` 决定（默认 `MiniMax-M3`）。M3 和 M2.7 现在每 token
-价格一致，所以默认走 M3 的前沿编码质量；想要更快草稿就改用
-`MiniMax-M2.7-highspeed`。
+模型由 `minimax.commitModel` 决定（默认 `MiniMax-M3`）。M3 和 M2.7 现在每 token 价格一致，所以默认走 M3 的前沿编码质量；想要更快草稿就改用 `MiniMax-M2.7-highspeed`。
 
 ## 思考模式
 
-MiniMax 的 Anthropic 兼容端点只接受一个二值开关
-`thinking: { type: "disabled" | "adaptive" }`——**没有**任何「思考强度」旋钮（`budget_tokens` / `reasoning_effort` / `reasoning_split` 全部不支持）。本扩展为 **MiniMax-M3** 暴露了两种开关途径：
+MiniMax 的 Anthropic 兼容端点只接受一个二值开关 `thinking: { type: "disabled" | "adaptive" }`——**没有**任何「思考强度」旋钮（`budget_tokens` / `reasoning_effort` / `reasoning_split` 全部不支持）。本扩展为 **MiniMax-M3** 暴露了两种开关途径：
 
 - **`minimax.thinking.enabled`** boolean 设置（默认 `true`）。
 - **MiniMax: 切换 M3 思考模式** 命令——一键翻转设置并弹本地化提示，新状态一目了然。
@@ -191,58 +224,22 @@ M2.x 没有 `videoInput` 能力，视频附件会被静默丢弃（带 warning �
 
 点击 VS Code 底部状态栏的 `$(graph) MiniMax …` 按钮，或在命令面板运行 **MiniMax: 打开用量面板**，即可在侧边栏打开一个 Webview 面板，数据来自两个源头：
 
-- **本地 token 统计**：扩展发起的每一次请求都会写入持久化计数器，仪表盘按时间窗口聚合：今日 / 近 7 日 / 近 30 日三组卡片，分别列出输入、缓存读取、缓存写入、输出、请求数；下方是一张 30 日柱状图和按模型拆分的明细表。计数器是**实时**的：每次新的 chat 请求结束后，仪表盘自动重渲染，不需要手动刷新。
-- **平台 Token Plan**：配置了 API Key 时，仪表盘额外调用 `GET /v1/api/openplatform/coding_plan/remains`，展示 5 小时重置窗口、周限额、各模型额度表以及套餐到期日。调用失败（401 / 网络异常 / 响应格式异常）会显示一个黄色提示条，但**不会**影响上方本地数据的准确性。Host（`minimaxi.com` vs `minimax.io`）按 `minimax.apiBaseUrl` 自动选择。
+- **本地 token 统计**：扩展发起的每一次请求都会写入持久化计数器，仪表盘按时间窗口聚合：今日 / 近 7 日 / 近 30 日三组卡片，分别列出输入、缓存读取、缓存写入、输出、请求数；下方是一张 30 日柱状图和按模型拆分的明细表。
+- **平台 Token Plan**：配置了 API Key 时，仪表盘额外调用 `GET /v1/api/openplatform/coding_plan/remains`，展示 5 小时重置窗口、周限额、各模型额度表以及套餐到期日。
 
-面板里有 **清空计数器** 按钮，弹确认框后清空本地 Memento；平台侧数据没法在扩展里清零。
+日常 token 计数器的右边还有两个状态栏项，不用打开 Dashboard 就能一眼看到额度：`$(bolt) 5h 73%`（5 小时窗口的剩余百分比）和 `$(calendar) Week 11%`（周限额的剩余百分比）。颜色直接走 `statusBarItem.remoteBackground` / `warningBackground` / `errorBackground` 这三个主题 token。未配置 API Key 时两项都是灰色破折号，hover 提示运行 **MiniMax: Set API Key**。
 
-### 状态栏额度项
+## mmx-cli（多模态伴生 CLI）
 
-日常 token 计数器的右边还有两个状态栏项，不用打开 Dashboard 就能一眼看到额度：
+Dashboard 底部有一个板块，仅负责**显示**官方 [`mmx`](https://github.com/MiniMax-AI/cli) 命令行的探测状态。装好之后，Agent（Copilot Chat、Claude Code、Cursor …）就能用**同一把** Token Plan API Key 调用图像 / 视频 / 音乐 / 语音 / 视觉理解 / 网络检索。
 
-- `$(bolt) 5h 73%` — 5 小时窗口的**剩余**百分比
-- `$(calendar) Week 11%` — 周限额的**剩余**百分比
-
-颜色直接走 `statusBarItem.remoteBackground` / `warningBackground` /
-`errorBackground` 这三个主题 token（剩余多则绿、少则红），亮色 / 暗色主题
-都跟得上。hover 显示 `X / Y · 重置 Hh Mm` 的简短摘要，跟 Dashboard 里
-的卡片一致；点击直接打开 Dashboard。未配置 API Key 时两项都是灰色
-破折号，hover 提示运行 **MiniMax: Set API Key**。
-
-这两项和 Dashboard **共享**同一个 in-process plan cache（`fetchPlanUsage`
-本身的 8 秒 TTL 仍然生效），所以打开 Dashboard 或让状态栏自动刷新都不会
-产生额外的 HTTP 请求。
-# mmx-cli（多模态伴生 CLI）
-
-Dashboard 底部有一个板块，仅负责**显示**官方
-[`mmx`](https://github.com/MiniMax-AI/cli) 命令行的探测状态。装好之后，
-Agent（Copilot Chat、Claude Code、Cursor …）就能用**同一把** Token Plan
-API Key 调用图像 / 视频 / 音乐 / 语音 / 视觉理解 / 网络检索。
-
-扩展**只**检测下面三件事，**不**会替你执行任何装包 / 登录 / 装 SKILL
-的命令：
+扩展**只**检测下面三件事，**不**会替你执行任何装包 / 登录 / 装 SKILL 的命令：
 
 - **可执行文件** 在 PATH 上（`mmx --version`）
 - **`mmx auth`** 已登录（`mmx auth status`）
-- **Agent SKILL** 已安装（在 `~/.claude/skills/minimax-cli/`、
-  `~/.copilot/skills/minimax-cli/` 或 `~/.mmx/skills/minimax-cli/`
-  任意一个下面能找到 `SKILL.md`）
+- **Agent SKILL** 已安装（在 `~/.claude/skills/minimax-cli/`、`~/.copilot/skills/minimax-cli/` 或 `~/.mmx/skills/minimax-cli/` 任意一个下面能找到 `SKILL.md`）
 
-底部"复制官方安装指令"按钮（或命令面板的 `MiniMax: 复制 mmx-cli 官方安装指令`）
-把 [官方入门文档](https://platform.minimaxi.com/docs/token-plan/minimax-cli)
-原版三步指令复制到剪贴板，**语言随端点配置自动选择**（`minimaxi.com` →
-简体中文，否则 → English）。prompt 里只含 `sk-xxxxx` 占位符，请粘贴前
-手动把 Token Plan Key 填进去（或直接自己到终端跑这三条命令）。装完后
-点"重新检测"，状态徽标会变绿。
-
-## 端点自动选择
-
-激活时如果 `minimax.apiBaseUrl` 仍是默认值，扩展会按 VS Code 显示语言自动选择端点：
-
-- `zh*`（含 `zh-cn` / `zh-tw` / `zh-hk` / `zh-sg` 等）→ 国内端点 `https://api.minimaxi.com/anthropic`。
-- 其他语言 → 国际端点 `https://api.minimax.io/anthropic`。
-
-手动改过 `minimax.apiBaseUrl` 或跑过 **MiniMax: Switch to Global/Chinese API** 之后，自动选择就**不再生效**。
+底部"复制官方安装指令"按钮（或命令面板的 `MiniMax: 复制 mmx-cli 官方安装指令`）把 [官方入门文档](https://platform.minimaxi.com/docs/token-plan/minimax-cli) 原版三步指令复制到剪贴板，**语言随端点配置自动选择**（`minimaxi.com` → 简体中文，否则 → English）。prompt 里只含 `sk-xxxxx` 占位符，请粘贴前手动把 Token Plan Key 填进去。装完后点"重新检测"，状态徽标会变绿。
 
 ## 故障排查
 
@@ -250,6 +247,7 @@ API Key 调用图像 / 视频 / 音乐 / 语音 / 视觉理解 / 网络检索。
 - **网关返回 HTTP 404**：确认 `minimax.apiBaseUrl` 指向 MiniMax 的 Anthropic 兼容地址（`api.minimaxi.com/anthropic` 或 `api.minimax.io/anthropic`），不是走 OpenAI 协议的第三方代理。
 - **提示「未配置 API Key」**：跑 **MiniMax: Set API Key**；Key 存在 SecretStorage 里，不在 `settings.json`。
 - **生成的 commit message 是空的**：diff 可能超过 32 KB。跑 **MiniMax: Show Logs** 看生成器实际拿到了什么。
+- **M3 picker 切到 1M 后还是显示 512K**：chat-info emitter 监听设置变化后会重建 picker 条目，但部分 Copilot Chat 版本会缓存到下一次消息。切一次模型，新窗口值就会生效。
 
 ## 许可证
 
