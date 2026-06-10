@@ -2,12 +2,31 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
-## 2.2.0 — README 重排与配置统一
+## 2.2.0 — README 重排、配置统一、用量看板接入 Claude Code JSONL
 
 ### 文档
 
 - 重排版 README 增强可读性：新增命令参考表、按模型分节、定价可视化、思考模式描述。
 - 厘清 M3 上下文处理说明，重写"高级设置"入门文案，统一中英文命令名。
+
+### 新增
+
+- **用量看板：Claude Code JSONL 接入。** 用量看板现在和**本扩展自己的 token 统计**一起，**额外显示 Claude Code CLI 和 Claude Code VSCode 扩展**产生的 token 用量。之前这两个客户端的 API 请求直接打到服务端，绕过了本扩展的网络层，看板自然抓不到——这次给补上。
+  - **后台轮询器读 `~/.claude/projects/**/*.jsonl`**，默认 30 秒扫一遍日志目录，解析每条 `type: "assistant"` 行的 `message.usage`，把每模型 / 每日 / 每月累计写进一个独立的 Memento store（新模块 `src/dashboard/claudeCodeIngest.ts`）。游标状态同样存进 memento——重启从上次字节继续，**绝不重读历史数据**。1000 项 uuid LRU 防止 Claude Code 写到一半时被重复计数。文件被截断 / 轮转时游标自动归零。
+  - **用量看板新增「Claude Code 用量」section。** 紧挨在「本地 token 统计」卡片下方，左侧加了一道**强调色边**便于一眼区分。展示今日 / 近 7 日 / 近 30 日卡片、按模型拆分表、近 30 日柱状图、最近同步时间、解析后的日志路径、追踪的文件数、以及解析失败的行数。订阅 ingester 的 store，每次轮询拿到新数据就重新渲染。
+  - **三个新设置（都在原 `minimax.*` 命名空间下）**：
+    - `minimax.dashboard.includeClaudeCode`（boolean，默认 `true`）—— 总开关。关掉后，看板**保留 section**，显示「在设置中已关闭」的提示横幅加「打开设置」按钮。
+    - `minimax.claudeCode.logPath`（string，默认 `~/.claude/projects`）—— Claude Code 写 JSONL 会话日志的根目录。支持 `~` 展开（POSIX 和 Windows 都生效）。
+    - `minimax.claudeCode.pollIntervalMs`（integer，默认 `30000`，夹在 `[5000, 600000]` 之间）—— 扫描间隔。
+  - **两个新命令：** `MiniMax: 重新扫描 Claude Code 日志` 和 `MiniMax: 打开 Claude Code 日志目录`。看板的 section 上也有一个「立即重新扫描」按钮，底层调用同一个 handler。
+  - **`MiniMax: 查看用量` 命令扩展。** Markdown 报告底部现在多了一节清晰的「## Claude Code（独立数据源）」，包含今日合计、按模型拆分、以及解析后的日志路径。和本地 store 的数据**完全独立、视觉上分开**。
+  - **独立生命周期。** Ingester 在 `runtime/lifecycle.ts` 的 provider 注册之后构造并启动。运行时改任意一个 Claude Code 设置都会把现有 ingester 拆掉、下一个 tick 重建，秒级生效。
+
+### 迁移
+
+- 新增的两个 Memento key（`minimax-vscode.claudeCodeUsageStats`、`minimax-vscode.claudeCodeIngestCursor`）都是**纯增量**的。原有的 `USAGE_STATS_KEY` 数据完全不受影响。
+- **不需要数据回填**——首次运行时游标是空的，第一次轮询从字节 0 开始读全量。
+- 卸载扩展后这两个新 key 是惰性的，会被 VS Code 定期回收。
 
 ### 修复
 

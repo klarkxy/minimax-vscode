@@ -66,6 +66,21 @@ export interface DashboardMessages {
 	mmxInstallBtn: string;
 	mmxLoginBtn: string;
 	mmxInstallSkillBtn: string;
+	// ---- Claude Code (JSONL log ingest) ----
+	claudeCodeSectionTitle: string;
+	claudeCodeSubtitle: string;
+	claudeCodeEmpty: string;
+	claudeCodeDisabled: string;
+	claudeCodeErrorBanner: string;
+	claudeCodeLastSync: string;
+	claudeCodeRecheckBtn: string;
+	claudeCodeOpenFolderBtn: string;
+	claudeCodeOpenSettingsBtn: string;
+	claudeCodeLogPath: string;
+	claudeCodeFilesTracked: string;
+	claudeCodeParseErrors: string;
+	claudeCodeNeverSynced: string;
+	claudeCodeNoData: string;
 }
 
 const en: DashboardMessages = {
@@ -131,6 +146,22 @@ const en: DashboardMessages = {
 	mmxInstallBtn: 'Install the CLI',
 	mmxLoginBtn: 'Log in',
 	mmxInstallSkillBtn: 'Install the agent skill',
+
+	// Claude Code
+	claudeCodeSectionTitle: 'Claude Code usage',
+	claudeCodeSubtitle: 'Tokens consumed by the Claude Code CLI and the Claude Code VSCode extension, parsed from their local JSONL session logs. Not from the MiniMax API.',
+	claudeCodeEmpty: 'No Claude Code JSONL logs were found in the configured directory. Run the Claude Code CLI or the Claude Code VSCode extension to generate some, or check the path in Settings.',
+	claudeCodeDisabled: 'Claude Code log ingestion is disabled in Settings. Enable "MiniMax › Dashboard › Include Claude Code" to track tokens from the Claude Code CLI and the Claude Code VSCode extension here.',
+	claudeCodeErrorBanner: 'Claude Code log ingestion failed. The local counters above are still accurate.',
+	claudeCodeLastSync: 'Last sync',
+	claudeCodeRecheckBtn: 'Re-scan now',
+	claudeCodeOpenFolderBtn: 'Open log folder',
+	claudeCodeOpenSettingsBtn: 'Open Settings',
+	claudeCodeLogPath: 'Log path',
+	claudeCodeFilesTracked: 'Tracking {0} file(s)',
+	claudeCodeParseErrors: '{0} unparseable line(s) skipped',
+	claudeCodeNeverSynced: 'never',
+	claudeCodeNoData: 'No Claude Code usage recorded yet.',
 };
 
 const zh: DashboardMessages = {
@@ -196,6 +227,22 @@ const zh: DashboardMessages = {
 	mmxInstallBtn: '安装命令行',
 	mmxLoginBtn: '登录',
 	mmxInstallSkillBtn: '安装 Agent skill',
+
+	// Claude Code
+	claudeCodeSectionTitle: 'Claude Code 用量',
+	claudeCodeSubtitle: '来自 Claude Code CLI 与 Claude Code VSCode 扩展的 token 用量，解析自它们本地的 JSONL 会话日志，并非来自 MiniMax API。',
+	claudeCodeEmpty: '在配置的目录中没有找到 Claude Code JSONL 日志。请运行 Claude Code CLI 或 Claude Code VSCode 扩展产生一些会话，或在设置中检查日志路径。',
+	claudeCodeDisabled: 'Claude Code 日志读取在设置中已关闭。请在「MiniMax › 用量看板 › 包含 Claude Code」中启用，即可在此处跟踪 Claude Code CLI 与 Claude Code VSCode 扩展产生的 token 用量。',
+	claudeCodeErrorBanner: 'Claude Code 日志解析失败。上面的本地统计仍然准确。',
+	claudeCodeLastSync: '最近同步',
+	claudeCodeRecheckBtn: '立即重新扫描',
+	claudeCodeOpenFolderBtn: '打开日志目录',
+	claudeCodeOpenSettingsBtn: '打开设置',
+	claudeCodeLogPath: '日志路径',
+	claudeCodeFilesTracked: '正在追踪 {0} 个文件',
+	claudeCodeParseErrors: '已跳过 {0} 行无法解析的内容',
+	claudeCodeNeverSynced: '尚未同步',
+	claudeCodeNoData: '暂无 Claude Code 用量记录。',
 };
 
 const dictionaries: Record<DashboardLocale, DashboardMessages> = { en, zh };

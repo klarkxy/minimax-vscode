@@ -133,6 +133,16 @@
         "command": "minimax.installMmxCli",
         "title": "%minimax.command.installMmxCli%",
         "category": "MiniMax"
+      },
+      {
+        "command": "minimax.refreshClaudeCodeIngest",
+        "title": "%minimax.command.refreshClaudeCodeIngest%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.openClaudeCodeLogFolder",
+        "title": "%minimax.command.openClaudeCodeLogFolder%",
+        "category": "MiniMax"
       }
     ],
     "menus": {
@@ -283,6 +293,26 @@
             },
             "additionalProperties": false
           }
+        },
+        "minimax.dashboard.includeClaudeCode": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Include token usage from the Claude Code CLI and the Claude Code VSCode extension in the **Usage Dashboard**. Reads the same `~/.claude/projects/**/*.jsonl` files those tools write. The cursor is persisted across restarts; disabling and re-enabling does not re-read everything. **On by default.**"
+        },
+        "minimax.claudeCode.logPath": {
+          "type": "string",
+          "default": "~/.claude/projects",
+          "scope": "application",
+          "markdownDescription": "Absolute path to the directory containing Claude Code JSONL session logs. Defaults to `~/.claude/projects` (the same path Claude Code writes to on all platforms). The leading `~` is expanded to the user's home directory."
+        },
+        "minimax.claudeCode.pollIntervalMs": {
+          "type": "integer",
+          "default": 30000,
+          "minimum": 5000,
+          "maximum": 600000,
+          "scope": "application",
+          "markdownDescription": "How often the dashboard's Claude Code ingester scans the log directory for new lines, in milliseconds. Default `30000` (30 s). Minimum `5000` (5 s); the lower the value, the more frequently the extension reads from disk."
         },
         "minimax.experimental.modelDefPresets": {
           "type": "object",

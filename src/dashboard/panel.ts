@@ -25,6 +25,7 @@ import {
 import { buildCachedDashboardView, buildDashboardView, type PlanCache } from './aggregator';
 import { copyMmxInstallPrompt, type MmxCliStatus } from './mmxCli';
 import type { MmxCliCache } from './mmxCliCache';
+import type { ClaudeCodeIngestHandle } from './claudeCodeIngest';
 import type { DashboardView } from './types';
 
 export interface DashboardPanelDeps {
@@ -37,6 +38,12 @@ export interface DashboardPanelDeps {
 	 *  first paint so the section shows the last-known state instead
 	 *  of "unknown" while the next refresh runs. */
 	mmxCliCache: MmxCliCache;
+	/** Optional Claude Code JSONL ingester. When present, the
+	 *  dashboard subscribes to its store and renders the "Claude Code
+	 *  usage" section. When absent (e.g. extension loaded before the
+	 *  ingester's `activate()` call), the section is rendered as a
+	 *  thin "disabled" placeholder. */
+	claudeCodeIngest?: ClaudeCodeIngestHandle;
 	/** Optional platform host override; defaults to the configured base URL. */
 	host?: 'china' | 'global';
 }
@@ -56,6 +63,7 @@ export class DashboardPanel {
 	private readonly authChangeSubscription: vscode.Disposable;
 	private readonly planCacheSubscription: vscode.Disposable;
 	private readonly mmxCliCacheSubscription: vscode.Disposable;
+	private readonly claudeCodeSubscription: vscode.Disposable | undefined;
 	private state: DashboardPanelState = { locale: 'en' };
 	private inFlight = false;
 	private readonly messageListener = (raw: vscode.WebviewMessage) => this.handleMessage(raw);
@@ -80,6 +88,12 @@ export class DashboardPanel {
 		// Same pattern for the mmx-cli status cache: when an explicit
 		// re-check produces a new snapshot, push it to the dashboard.
 		this.mmxCliCacheSubscription = deps.mmxCliCache.subscribe(() => {
+			void this.refresh();
+		});
+		// The Claude Code ingester emits no-arg events on every poll that
+		// lands new data; re-rendering on every event keeps the "last
+		// sync" timestamp and per-model table fresh.
+		this.claudeCodeSubscription = deps.claudeCodeIngest?.subscribe(() => {
 			void this.refresh();
 		});
 
@@ -124,6 +138,7 @@ export class DashboardPanel {
 		this.authChangeSubscription.dispose();
 		this.planCacheSubscription.dispose();
 		this.mmxCliCacheSubscription.dispose();
+		this.claudeCodeSubscription?.dispose();
 		for (const disposable of this.disposables) {
 			disposable.dispose();
 		}
@@ -152,6 +167,7 @@ export class DashboardPanel {
 						? 'loading'
 						: 'unconfigured',
 				mmxCli: mmxCliSnapshot?.status,
+				claudeCodeIngest: this.deps.claudeCodeIngest,
 			});
 			await this.postData(cachedView);
 
@@ -192,6 +208,7 @@ export class DashboardPanel {
 				// does NOT re-fetch on its own.
 				planSnapshot: refreshedPlanSnapshot,
 				mmxCliStatus: refreshedMmxCliSnapshot?.status,
+				claudeCodeIngest: this.deps.claudeCodeIngest,
 			});
 			await this.postData(view);
 			await mmxPromise;
@@ -273,6 +290,22 @@ export class DashboardPanel {
 				await this.refresh();
 				return;
 			}
+			case 'claudeCodeRescan': {
+				await this.deps.claudeCodeIngest?.refresh();
+				await this.refresh();
+				return;
+			}
+			case 'claudeCodeOpenFolder': {
+				await vscode.commands.executeCommand('minimax.openClaudeCodeLogFolder');
+				return;
+			}
+			case 'claudeCodeOpenSettings': {
+				await vscode.commands.executeCommand(
+					'workbench.action.openSettings',
+					'minimax.dashboard.includeClaudeCode',
+				);
+				return;
+			}
 		}
 	}
 
@@ -340,6 +373,11 @@ section {
 	border-radius: 10px;
 	padding: 18px 20px;
 	margin-bottom: 20px;
+}
+section[data-source="claudeCode"] {
+	/* Visual distinction from the local (extension) section: a left
+	   accent strip so the user can tell at a glance which is which. */
+	border-left: 3px solid var(--accent);
 }
 section h2 {
 	margin: 0 0 14px;
@@ -829,7 +867,7 @@ footer {
 		return '';
 	}
 	function localSection(local) {
-		const header = '<section><h2>' + escapeHtml(i18n.localSectionTitle) + '</h2>' +
+		const header = '<section data-source="local"><h2>' + escapeHtml(i18n.localSectionTitle) + '</h2>' +
 			'<div class="grid grid-3">' +
 				localCard(i18n.windowToday, local.today) +
 				localCard(i18n.window7d, local.sevenDay) +
@@ -838,6 +876,73 @@ footer {
 		const chart = chartSection(local.dailySeries);
 		const models = modelTable(local.perModel);
 		return header + chart + models;
+	}
+	function claudeCodeSection(view) {
+		// Three layouts:
+		//   - 'disabled'      → thin banner with an "Open Settings" CTA.
+		//   - 'empty'         → friendly empty state with an
+		//                       "Open log folder" CTA in case the path
+		//                       is wrong.
+		//   - everything else → full section (header, status row, 3
+		//                       window cards, error banner when last
+		//                       poll failed, action row, daily chart,
+		//                       per-model table).
+		if (!view) {
+			return (
+				'<section data-source="claudeCode"><h2>' + escapeHtml(i18n.claudeCodeSectionTitle) + '</h2>' +
+				'<div class="banner">' + escapeHtml(i18n.claudeCodeDisabled) +
+				' <button class="link" data-action="claude-code-open-settings">' + escapeHtml(i18n.claudeCodeOpenSettingsBtn) + '</button>' +
+				'</div></section>'
+			);
+		}
+		const status = view.status;
+		if (status.state === 'empty') {
+			return (
+				'<section data-source="claudeCode"><h2>' + escapeHtml(i18n.claudeCodeSectionTitle) + '</h2>' +
+				'<p class="dim" style="margin: 0 0 10px;">' + escapeHtml(i18n.claudeCodeSubtitle) + '</p>' +
+				'<div class="banner">' + escapeHtml(i18n.claudeCodeEmpty) + '</div>' +
+				'<div class="mmx-actions" style="margin-top: 12px;">' +
+				'<button data-action="claude-code-open-folder">' + escapeHtml(i18n.claudeCodeOpenFolderBtn) + '</button>' +
+				'</div></section>'
+			);
+		}
+		const lastSyncText = status.lastSyncAt
+			? new Date(status.lastSyncAt).toLocaleString()
+			: i18n.claudeCodeNeverSynced;
+		const header =
+			'<section data-source="claudeCode"><h2>' + escapeHtml(i18n.claudeCodeSectionTitle) + '</h2>' +
+			'<p class="dim" style="margin: 0 0 10px;">' + escapeHtml(i18n.claudeCodeSubtitle) + '</p>' +
+			'<div class="kv"><span class="dim">' + escapeHtml(i18n.claudeCodeLastSync) + '</span>' +
+			'<span>' + escapeHtml(lastSyncText) + '</span></div>' +
+			'<div class="kv"><span class="dim">' + escapeHtml(i18n.claudeCodeLogPath) + '</span>' +
+			'<span class="path">' + escapeHtml(status.logPath) + '</span></div>';
+		const errorBanner = (status.state === 'error' && status.lastError)
+			? '<div class="banner">' + escapeHtml(i18n.claudeCodeErrorBanner) + ' — ' + escapeHtml(status.lastError) + '</div>'
+			: '';
+		const cards =
+			'<div class="grid grid-3">' +
+				localCard(i18n.windowToday, view.today) +
+				localCard(i18n.window7d, view.sevenDay) +
+				localCard(i18n.window30d, view.thirtyDay) +
+			'</div>';
+		const actions =
+			'<div class="mmx-actions" style="margin-top: 12px;">' +
+				'<button data-action="claude-code-rescan">' + escapeHtml(i18n.claudeCodeRecheckBtn) + '</button>' +
+				'<button data-action="claude-code-open-folder">' + escapeHtml(i18n.claudeCodeOpenFolderBtn) + '</button>' +
+			'</div>';
+		const notes = [];
+		if (status.filesTracked > 0) {
+			notes.push(escapeHtml(i18n.claudeCodeFilesTracked.replace('{0}', String(status.filesTracked))));
+		}
+		if (status.parseErrors > 0) {
+			notes.push(escapeHtml(i18n.claudeCodeParseErrors.replace('{0}', String(status.parseErrors))));
+		}
+		const notesHtml = notes.length
+			? '<div class="kv"><span class="dim"></span><span>' + notes.join(' · ') + '</span></div>'
+			: '';
+		const chart = chartSection(view.dailySeries);
+		const models = modelTable(view.perModel);
+		return header + errorBanner + cards + actions + notesHtml + chart + models + '</section>';
 	}
 	function chartSection(series) {
 		if (!series || series.length === 0) return '';
@@ -991,9 +1096,10 @@ footer {
 		const banner = platformBanner(view.sources);
 		const plan = view.plan ? platformSection(view.plan) : '';
 		const local = view.local ? localSection(view.local) : '';
+		const claudeCode = claudeCodeSection(view.claudeCode);
 		const empty = emptyState(view.sources);
 		const mmx = mmxSection(view.mmxCli);
-		root.innerHTML = banner + plan + local + mmx + empty;
+		root.innerHTML = banner + plan + local + claudeCode + mmx + empty;
 		updatedStamp.textContent = i18n.fieldUpdated + ': ' + new Date().toLocaleTimeString();
 	}
 	document.addEventListener('click', function (event) {
@@ -1005,6 +1111,9 @@ footer {
 		else if (action === 'reset') vscode.postMessage({ type: 'reset' });
 		else if (action === 'mmx-copy-prompt') vscode.postMessage({ type: 'mmxCopyPrompt' });
 		else if (action === 'mmx-recheck') vscode.postMessage({ type: 'mmxRecheck' });
+		else if (action === 'claude-code-rescan') vscode.postMessage({ type: 'claudeCodeRescan' });
+		else if (action === 'claude-code-open-folder') vscode.postMessage({ type: 'claudeCodeOpenFolder' });
+		else if (action === 'claude-code-open-settings') vscode.postMessage({ type: 'claudeCodeOpenSettings' });
 	});
 	window.addEventListener('message', function (event) {
 		const message = event.data;

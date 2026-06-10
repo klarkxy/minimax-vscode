@@ -1,17 +1,21 @@
 // Types shared across the dashboard module.
 //
-// The dashboard renders a single view that combines three data sources:
-//   - local token accounting (src/usage.ts)
+// The dashboard renders a single view that combines four data sources:
+//   - local token accounting (src/usage.ts) — the extension's own
+//     `onUsage` callbacks from `src/provider/index.ts:247-253`
+//   - Claude Code JSONL log ingest (src/dashboard/claudeCodeIngest.ts)
+//     — sibling store fed by the same extension's background poller
 //   - platform coding-plan API (/v1/api/openplatform/coding_plan/remains)
 //   - platform account/amount API (historical billing)
 //
-// All three are independent — if any one fails, the dashboard degrades
+// All four are independent — if any one fails, the dashboard degrades
 // gracefully and still renders the rest.
 
 import type { ModelUsage, UsageStats } from '../usage';
 import type { MmxCliStatus } from './mmxCli';
+import type { ClaudeCodeIngestStatus } from './claudeCodeIngest';
 
-export type { MmxCliStatus };
+export type { MmxCliStatus, ClaudeCodeIngestStatus };
 
 /** Information returned by the platform `coding_plan/remains` API. */
 export interface PlanUsage {
@@ -49,11 +53,25 @@ export interface PlanModelInfo {
 	percentage: number;
 }
 
+/** Aggregated Claude Code view-model. Mirrors the shape of `local` so
+ *  the dashboard can render both with the same chart / table helpers. */
+export interface ClaudeCodeView {
+	stats: UsageStats;
+	today: ModelUsage;
+	sevenDay: ModelUsage;
+	thirtyDay: ModelUsage;
+	perModel: Array<{ modelId: string; usage: ModelUsage }>;
+	dailySeries: Array<{ date: string; usage: ModelUsage }>;
+	status: ClaudeCodeIngestStatus;
+}
+
 /** Aggregated dashboard view-model. */
 export interface DashboardView {
 	/** Best-effort status of each upstream source. */
 	sources: {
 		local: 'ok' | 'empty' | 'error';
+		claudeCode: 'ok' | 'empty' | 'disabled' | 'error' | 'loading';
+		claudeCodeError?: string;
 		plan: 'ok' | 'loading' | 'unconfigured' | 'error' | 'unsupported';
 		planError?: string;
 	};
@@ -66,6 +84,10 @@ export interface DashboardView {
 		perModel: Array<{ modelId: string; usage: ModelUsage }>;
 		dailySeries: Array<{ date: string; usage: ModelUsage }>;
 	};
+	/** Claude Code JSONL-derived view. `undefined` when the ingester
+	 *  isn't running (e.g. the user has fully uninstalled Claude Code
+	 *  AND disabled the setting); the dashboard substitutes a banner. */
+	claudeCode?: ClaudeCodeView;
 	/** Platform plan usage, only present when `sources.plan === 'ok'`. */
 	plan?: PlanUsage;
 	/** mmx-cli status. Always present (defaults to "missing"). */

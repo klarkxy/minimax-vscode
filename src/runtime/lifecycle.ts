@@ -4,7 +4,12 @@ import { logger } from '../logger';
 import { MiniMaxChatProvider } from '../provider';
 import { setCommitModelStore } from '../git/commitMessage';
 import { registerActionUrls } from './actions';
-import { registerCommands, setCommandContext, bindChatTurnNotifier } from './commands';
+import {
+	registerCommands,
+	setCommandContext,
+	setClaudeCodeIngest,
+	bindChatTurnNotifier,
+} from './commands';
 import { autoSelectEndpointIfUnset } from './endpoint';
 import { initializeDiagnostics } from './diagnostics';
 import { registerProvider } from './provider';
@@ -17,6 +22,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	setCommitModelStore(context.globalState);
 	await initializeDiagnostics(context);
 	registerCommands(context);
+	// Start the Claude Code JSONL log ingester. Independent of the
+	// provider so the dashboard can show Claude Code data even if the
+	// provider's API call layer never runs (e.g. user only uses
+	// Claude Code CLI / Claude Code VSCode extension).
+	setClaudeCodeIngest(context);
 	registerActionUrls(context);
 
 	// First-run language-driven endpoint selection. The function is a no-op

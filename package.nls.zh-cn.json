@@ -13,7 +13,7 @@
 	"minimax.command.showUsage": "查看用量",
 	"minimax.command.resetUsage": "清空用量",
 	"minimax.command.showProviderStatus": "查看扩展状态",
-	"minimax.command.openDashboard": "打开用量面板",  "minimax.command.installMmxCli": "复制 mmx-cli 官方安装指令",	"minimax.config.title": "MiniMax",
+	"minimax.command.openDashboard": "打开用量面板",  "minimax.command.installMmxCli": "复制 mmx-cli 官方安装指令",	"minimax.command.refreshClaudeCodeIngest": "重新扫描 Claude Code 日志",	"minimax.command.openClaudeCodeLogFolder": "打开 Claude Code 日志目录",	"minimax.config.title": "MiniMax",
 	"minimax.walkthrough.title": "MiniMax 入门",
 	"minimax.walkthrough.description": "配置 MiniMax Token Plan API Key、选择模型并调整高级设置。",
 	"minimax.walkthrough.setApiKey.title": "设置 API Key",

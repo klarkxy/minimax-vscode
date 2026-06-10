@@ -3,7 +3,7 @@ import { AuthManager } from '../auth';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import { getModels, getVisibleModels } from '../models/registry';
-import { getBaseUrl } from '../config';
+import { getBaseUrl, getClaudeCodeLogPath } from '../config';
 import { chooseCommitModel, generateCommitMessage } from '../git/commitMessage';
 import { toggleM31MContextEnabled } from '../provider/models';
 import { createUsageStore, type UsageStore } from '../usage';
@@ -13,6 +13,10 @@ import { createPlanCache, type PlanCache } from '../dashboard/aggregator';
 import { createMmxCliCache, type MmxCliCache } from '../dashboard/mmxCliCache';
 import { copyMmxInstallPrompt } from '../dashboard/mmxCli';
 import type { ChatTurnNotifier } from '../dashboard/chatTurnNotifier';
+import {
+	createClaudeCodeIngest,
+	type ClaudeCodeIngestHandle,
+} from '../dashboard/claudeCodeIngest';
 
 let cachedContext: vscode.ExtensionContext | undefined;
 let cachedAuth: AuthManager | undefined;
@@ -20,6 +24,7 @@ let cachedUsage: UsageStore | undefined;
 let cachedPlanCache: PlanCache | undefined;
 let cachedMmxCliCache: MmxCliCache | undefined;
 let cachedPlanStatusBar: PlanStatusBar | undefined;
+let cachedClaudeCodeIngest: ClaudeCodeIngestHandle | undefined;
 let turnNotifierDisposable: vscode.Disposable | undefined;
 
 function getPlanCache(): PlanCache {
@@ -63,6 +68,48 @@ export function setCommandContext(context: vscode.ExtensionContext): void {
 			}
 		}));
 	}
+}
+
+/**
+ * Start the background poller that ingests Claude Code JSONL session
+ * logs into a sibling Memento-backed store. Idempotent — re-calling
+ * has no effect. The handle is cached so command handlers and the
+ * dashboard panel can subscribe to it.
+ *
+ * A configuration change to any of the three Claude Code settings
+ * tears down the handle and rebuilds it on the next call so the new
+ * path / interval / on-off state takes effect.
+ */
+export function setClaudeCodeIngest(context: vscode.ExtensionContext): void {
+	if (cachedClaudeCodeIngest) return;
+	cachedClaudeCodeIngest = createClaudeCodeIngest({
+		globalState: context.globalState,
+		logPath: getClaudeCodeLogPath(),
+	}).start();
+	context.subscriptions.push({
+		dispose: () => {
+			cachedClaudeCodeIngest?.dispose();
+			cachedClaudeCodeIngest = undefined;
+		},
+	});
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((e) => {
+			if (
+				e.affectsConfiguration('minimax.dashboard.includeClaudeCode') ||
+				e.affectsConfiguration('minimax.claudeCode.logPath') ||
+				e.affectsConfiguration('minimax.claudeCode.pollIntervalMs')
+			) {
+				cachedClaudeCodeIngest?.dispose();
+				cachedClaudeCodeIngest = undefined;
+				setClaudeCodeIngest(context);
+			}
+		}),
+	);
+}
+
+/** Return the cached Claude Code ingester handle, if one is running. */
+export function getClaudeCodeIngest(): ClaudeCodeIngestHandle | undefined {
+	return cachedClaudeCodeIngest;
 }
 
 /**
@@ -151,6 +198,7 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 				usageStore: cachedUsage,
 				planCache: getPlanCache(),
 				mmxCliCache: getMmxCliCache(),
+				claudeCodeIngest: cachedClaudeCodeIngest,
 				host: detectHost(),
 			});
 			// Fire-and-forget: ensure the cache has a fresh snapshot for
@@ -166,6 +214,12 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 			// next (paste it into a chat, run the commands in a
 			// terminal, etc.).
 			void copyMmxInstallPromptForCommand();
+		}),
+		vscode.commands.registerCommand('minimax.refreshClaudeCodeIngest', () => {
+			void cachedClaudeCodeIngest?.refresh();
+		}),
+		vscode.commands.registerCommand('minimax.openClaudeCodeLogFolder', () => {
+			void openClaudeCodeLogFolder();
 		}),
 	);
 }
@@ -219,6 +273,28 @@ async function openRequestDumpsFolder(): Promise<void> {
 		logger.warn(t('extension.openRequestDumpsFolderFailed'), error);
 		vscode.window.showErrorMessage(t('extension.openRequestDumpsFolderFailed'));
 	}
+}
+
+/**
+ * Reveal the configured Claude Code log directory in the OS file
+ * manager. Shows a warning if the directory doesn't exist (which is
+ * normal for users who haven't installed Claude Code yet).
+ */
+async function openClaudeCodeLogFolder(): Promise<void> {
+	const dir = getClaudeCodeLogPath();
+	try {
+		const stat = await vscode.workspace.fs.stat(vscode.Uri.file(dir));
+		if (stat.type & vscode.FileType.Directory) {
+			await vscode.env.openExternal(vscode.Uri.file(dir));
+			return;
+		}
+	} catch {
+		// Directory doesn't exist or is unreadable — fall through to
+		// the warning.
+	}
+	void vscode.window.showWarningMessage(
+		t('claudeCode.folderMissing', dir),
+	);
 }
 
 async function showPricing(): Promise<void> {
@@ -327,6 +403,61 @@ async function showUsage(): Promise<void> {
 	lines.push('');
 	lines.push(t('usage.line.startedAt', stats.startedAt));
 	lines.push(t('usage.line.updatedAt', stats.updatedAt));
+
+	// Append a clearly-labelled Claude Code section so the markdown
+	// report covers both the extension's own usage and the Claude
+	// Code JSONL-derived usage. Independent data source — kept in its
+	// own block so a reader can tell them apart at a glance.
+	const cc = cachedClaudeCodeIngest;
+	if (cc) {
+		const ccStats = cc.store.read();
+		lines.push('');
+		lines.push('## Claude Code (separate source)');
+		const ccTotal = ccStats.total;
+		if (ccTotal.requests === 0) {
+			lines.push(t('claudeCode.showUsageEmpty'));
+		} else {
+			lines.push(
+				t(
+					'usage.line.total',
+					formatNumber(ccTotal.inputTokens),
+					formatNumber(ccTotal.outputTokens),
+					formatNumber(ccTotal.requests),
+				),
+			);
+			if (ccTotal.cacheReadTokens > 0 || ccTotal.cacheWriteTokens > 0) {
+				lines.push(
+					t(
+						'usage.line.cache',
+						formatNumber(ccTotal.cacheReadTokens),
+						formatNumber(ccTotal.cacheWriteTokens),
+					),
+				);
+			}
+			const ccPerModel = Object.entries(ccStats.byModel);
+			if (ccPerModel.length > 0) {
+				lines.push('');
+				for (const [id, usage] of ccPerModel) {
+					lines.push(
+						t(
+							'usage.line.model',
+							id,
+							formatNumber(usage.inputTokens),
+							formatNumber(usage.outputTokens),
+							formatNumber(usage.requests),
+						),
+					);
+				}
+			}
+		}
+		const ccStatus = cc.status();
+		lines.push('');
+		lines.push(`- Log path: \`${ccStatus.logPath}\``);
+		lines.push(`- Files tracked: ${ccStatus.filesTracked}`);
+		if (ccStatus.parseErrors > 0) {
+			lines.push(`- Parse errors: ${ccStatus.parseErrors}`);
+		}
+	}
 
 	const doc = await vscode.workspace.openTextDocument({
 		content: lines.join('\n'),

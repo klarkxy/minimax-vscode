@@ -1,5 +1,10 @@
 import * as vscode from 'vscode';
-import { CONFIG_SECTION, DEFAULT_BASE_URL_GLOBAL } from './consts';
+import * as path from 'node:path';
+import {
+	CONFIG_SECTION,
+	DEFAULT_BASE_URL_GLOBAL,
+	DEFAULT_CLAUDE_CODE_LOG_PATH,
+} from './consts';
 
 export type DebugMode = 'minimal' | 'metadata' | 'verbose';
 
@@ -97,6 +102,57 @@ export function getM3ContextWindow(): number {
 export function getStabilizeToolListEnabled(): boolean {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 	return config.get<boolean>('experimental.stabilizeToolList', false);
+}
+
+/**
+ * Whether the usage dashboard should also ingest token usage from
+ * Claude Code CLI / the Claude Code VSCode extension. Reads
+ * JSONL session files under `~/.claude/projects` (configurable via
+ * `minimax.claudeCode.logPath`) on a 30 s poll. Default `true`.
+ */
+export function getIncludeClaudeCode(): boolean {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	return config.get<boolean>('dashboard.includeClaudeCode', true);
+}
+
+/**
+ * Absolute path to the directory containing Claude Code JSONL session
+ * logs. Defaults to `~/.claude/projects` on all platforms.
+ *
+ * Supports a leading `~` (expanded to the user's home directory via
+ * `process.env.HOME` on POSIX and `process.env.USERPROFILE` on
+ * Windows). Other tilde forms (`~user/foo`) are left verbatim — the
+ * local install is always for the current user.
+ */
+export function getClaudeCodeLogPath(): string {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const raw = config.get<string>('claudeCode.logPath', DEFAULT_CLAUDE_CODE_LOG_PATH);
+	return expandHome(raw);
+}
+
+/**
+ * Poll interval (in milliseconds) for the Claude Code log ingester.
+ * Default `30 000` (30 s); clamped to `[5 000, 600 000]` even if the
+ * user edits `settings.json` to a value outside the published schema.
+ */
+export function getClaudeCodePollIntervalMs(): number {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const value = config.get<number>('claudeCode.pollIntervalMs', 30_000);
+	if (!Number.isFinite(value)) return 30_000;
+	if (value < 5_000) return 5_000;
+	if (value > 600_000) return 600_000;
+	return value;
+}
+
+function expandHome(p: string): string {
+	if (!p || !p.startsWith('~')) return p;
+	const home = process.env.HOME || process.env.USERPROFILE || '';
+	if (!home) return p;
+	if (p === '~') return home;
+	if (p.startsWith('~/') || p.startsWith('~\\')) {
+		return path.join(home, p.slice(2));
+	}
+	return p;
 }
 
 function normalizeDebugMode(value: unknown): DebugMode | undefined {

@@ -52,9 +52,13 @@ MiniMax 的 Anthropic 兼容端点只暴露二值开关 `thinking: { type: "disa
 
 按模型统计输入 / 输出 / 缓存读取的累计 token 数（跨会话累加），配 **MiniMax: Show Usage** 状态命令快速查看。
 
+### Claude Code JSONL 读取
+
+后台轮询器读 `~/.claude/projects/**/*.jsonl`（即 [Claude Code CLI](https://docs.claude.com/en/docs/claude-code/overview) 和 [Claude Code VSCode 扩展](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code) 自己写日志的那个目录），把它们的 token 用量喂进用量面板，作为**第二个独立数据源**——视觉上与本扩展自己的统计分开。游标持久化在 memento 里，所以关掉再开不会重读历史数据。
+
 ### 用量面板
 
-一键 Webview 面板，显示今日 / 近 7 日 / 近 30 日的 token、30 日柱状图、按模型拆分，以及平台 `coding_plan/remains` 给的 5h 重置 / 周限额 / 套餐到期（需配 API Key）。面板底部有一个 **mmx-cli** 板块，仅显示官方 [`mmx`](https://github.com/MiniMax-AI/cli) 多模态命令行的探测状态——装包、登录、装 SKILL 全部交由用户（或用户的 AI Agent）自己完成。
+一键 Webview 面板，显示今日 / 近 7 日 / 近 30 日的 token、30 日柱状图、按模型拆分，平台 `coding_plan/remains` 给的 5h 重置 / 周限额 / 套餐到期（需配 API Key），以及上面提到的 Claude Code JSONL 用量。面板底部有一个 **mmx-cli** 板块，仅显示官方 [`mmx`](https://github.com/MiniMax-AI/cli) 多模态命令行的探测状态——装包、登录、装 SKILL 全部交由用户（或用户的 AI Agent）自己完成。
 
 ### 按模型微调采样参数
 
@@ -148,6 +152,9 @@ Token Plan 订阅 Key 的价格（与上方按量计费分开计费）。一把�
 | `minimax.modelIdOverrides` | _恒等映射_ | 把 picker ID 映射到 API ID（用于第三方代理）。 |
 | `minimax.visionModel` | _自动_ | 非 M3 模型使用的视觉代理。对 M3 无效。 |
 | `minimax.visionPrompt` | _见 package.json_ | 视觉代理 prompt。 |
+| `minimax.dashboard.includeClaudeCode` | `true` | Dashboard 里 Claude Code JSONL 读取 section 的总开关。关掉时该 section 显示「在设置中已关闭」横幅 + 「打开设置」按钮（不消失）。游标跨重启持久化，关掉再开不会重读历史数据。 |
+| `minimax.claudeCode.logPath` | `~/.claude/projects` | 读取器扫描的 Claude Code JSONL 会话日志根目录。`~` 在 POSIX / Windows 都会展开。改完点 Dashboard 的「立即重新扫描」或重启扩展。 |
+| `minimax.claudeCode.pollIntervalMs` | `30000` | 读取器扫描间隔（毫秒）。夹在 `[5000, 600000]` 之间——就算直接改 `settings.json` 越界也会被夹回。 |
 | `minimax.experimental.stabilizeToolList` | `false` | 合成 preflight 工具调用以稳住上游 prompt cache。**实验性。** |
 
 ## 命令
@@ -169,7 +176,9 @@ Token Plan 订阅 Key 的价格（与上方按量计费分开计费）。一把�
 | **MiniMax: Switch to Chinese API (`minimaxi.com/anthropic`)** | 切换到国内版 Anthropic 端点 |
 | **MiniMax: Show Logs** | 聚焦 MiniMax 输出通道 |
 | **MiniMax: Open Request Dumps Folder** | 在文件管理器中打开请求 dump 目录 |
-| **MiniMax: 打开用量面板** | 打开用量 Dashboard（今日 / 7 日 / 30 日 token、模型拆分、30 日柱状图、平台 `coding_plan/remains` 数据） |
+| **MiniMax: 打开用量面板** | 打开用量 Dashboard（今日 / 7 日 / 30 日 token、模型拆分、30 日柱状图、平台 `coding_plan/remains` 数据、Claude Code JSONL 读取） |
+| **MiniMax: 重新扫描 Claude Code 日志** | 强制重新读取配置的 Claude Code JSONL 日志目录。和 Dashboard 里「立即重新扫描」按钮走同一段代码。 |
+| **MiniMax: 打开 Claude Code 日志目录** | 在系统文件管理器中打开 Claude Code 日志目录（默认 `~/.claude/projects`）。目录不存在时弹警告。 |
 | **MiniMax: 复制 mmx-cli 官方安装指令** | 把 [官方入门文档](https://platform.minimaxi.com/docs/token-plan/minimax-cli) 原版的三步安装指令复制到剪贴板。语言随配置的端点（国内 → 简体中文，国际 → English）。本扩展**不**替你执行任何安装 / 登录 / SKILL 命令。 |
 
 ## 按模型调参
@@ -222,9 +231,10 @@ M2.x 没有 `videoInput` 能力，视频附件会被静默丢弃（带 warning �
 
 ## 用量面板
 
-点击 VS Code 底部状态栏的 `$(graph) MiniMax …` 按钮，或在命令面板运行 **MiniMax: 打开用量面板**，即可在侧边栏打开一个 Webview 面板，数据来自两个源头：
+点击 VS Code 底部状态栏的 `$(graph) MiniMax …` 按钮，或在命令面板运行 **MiniMax: 打开用量面板**，即可在侧边栏打开一个 Webview 面板，数据来自三个源头：
 
 - **本地 token 统计**：扩展发起的每一次请求都会写入持久化计数器，仪表盘按时间窗口聚合：今日 / 近 7 日 / 近 30 日三组卡片，分别列出输入、缓存读取、缓存写入、输出、请求数；下方是一张 30 日柱状图和按模型拆分的明细表。
+- **Claude Code JSONL 读取**（同级板块，左侧加了一道强调色边便于一眼区分）：来自 [Claude Code CLI](https://docs.claude.com/en/docs/claude-code/overview) 和 [Claude Code VSCode 扩展](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code) 的 token 用量。后台轮询器每 30 秒扫一遍 `~/.claude/projects/**/*.jsonl`，解析每条 `type: "assistant"` 行的数据，喂入与本地统计同构的模型 / 每日 / 时间窗口统计。游标持久化在 memento 里，关掉再开不会重读历史数据。点 section 上的「立即重新扫描」按钮，或者命令面板的 **MiniMax: 重新扫描 Claude Code 日志**，都可以强制刷新。
 - **平台 Token Plan**：配置了 API Key 时，仪表盘额外调用 `GET /v1/api/openplatform/coding_plan/remains`，展示 5 小时重置窗口、周限额、各模型额度表以及套餐到期日。
 
 日常 token 计数器的右边还有两个状态栏项，不用打开 Dashboard 就能一眼看到额度：`$(bolt) 5h 73%`（5 小时窗口的剩余百分比）和 `$(calendar) Week 11%`（周限额的剩余百分比）。颜色直接走 `statusBarItem.remoteBackground` / `warningBackground` / `errorBackground` 这三个主题 token。未配置 API Key 时两项都是灰色破折号，hover 提示运行 **MiniMax: Set API Key**。

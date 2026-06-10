@@ -1,16 +1,21 @@
 // Aggregator: stitches local usage accounting with the (optional)
-// platform coding-plan response into a single `DashboardView`.
+// platform coding-plan response and the Claude Code JSONL ingest into
+// a single `DashboardView`.
 
 import { createUsageStore, type ModelUsage, type UsageStore } from '../usage';
 import { fetchPlanUsage, type PlanApiOptions, type PlanApiResult } from './api';
 import { readMmxCliStatus, type MmxCliStatus } from './mmxCli';
-import type { DashboardView, PlanUsage } from './types';
+import type { ClaudeCodeIngestHandle } from './claudeCodeIngest';
+import type { ClaudeCodeView, DashboardView, PlanUsage } from './types';
 
 export interface AggregatorOptions {
 	store: UsageStore;
 	platform: PlanApiOptions | null;
 	/** When false, skips the platform API call (e.g. user toggle). */
 	includePlatform?: boolean;
+	/** Optional Claude Code ingester. When present, the view includes
+	 *  a `claudeCode` section; when absent, the section is omitted. */
+	claudeCodeIngest?: ClaudeCodeIngestHandle;
 	/** Clock — overridable for tests. */
 	now?: () => Date;
 	/**
@@ -137,21 +142,51 @@ function buildLocalView(store: UsageStore): DashboardView['local'] {
 	};
 }
 
+/**
+ * Build the Claude Code portion of the dashboard view. Returns
+ * `undefined` when no ingester is running — the dashboard substitutes
+ * a banner in that case. The returned shape mirrors `buildLocalView`
+ * so the renderer can use the same chart/table helpers.
+ */
+function buildClaudeCodeView(
+	handle: ClaudeCodeIngestHandle | undefined,
+): ClaudeCodeView | undefined {
+	if (!handle) return undefined;
+	const store = handle.store;
+	const stats = store.read();
+	return {
+		stats,
+		today: store.readToday(),
+		sevenDay: store.readRange(7),
+		thirtyDay: store.readRange(30),
+		perModel: Object.entries(stats.byModel)
+			.map(([modelId, usage]) => ({ modelId, usage }))
+			.sort((a, b) => b.usage.requests - a.usage.requests),
+		dailySeries: store.readDailySeries(30),
+		status: handle.status(),
+	};
+}
+
 export function buildCachedDashboardView(options: {
 	store: UsageStore;
 	planSnapshot?: PlanSnapshot;
 	planSource: DashboardView['sources']['plan'];
 	planError?: string;
 	mmxCli?: MmxCliStatus;
+	claudeCodeIngest?: ClaudeCodeIngestHandle;
 }): DashboardView {
 	const localView = buildLocalView(options.store);
+	const claudeCode = buildClaudeCodeView(options.claudeCodeIngest);
 	return {
 		sources: {
 			local: localView.stats.total.requests === 0 ? 'empty' : 'ok',
+			claudeCode: claudeCode?.status.state ?? 'disabled',
+			claudeCodeError: claudeCode?.status.lastError ?? undefined,
 			plan: options.planSource,
 			planError: options.planError,
 		},
 		local: localView,
+		claudeCode,
 		plan: options.planSnapshot?.usage,
 		mmxCli: options.mmxCli ?? {
 			install: 'unknown',
@@ -174,6 +209,7 @@ export async function buildDashboardView(
 	const localView = buildLocalView(options.store);
 	const localSource: DashboardView['sources']['local'] =
 		localView.stats.total.requests === 0 ? 'empty' : 'ok';
+	const claudeCode = buildClaudeCodeView(options.claudeCodeIngest);
 
 	let planSection: PlanUsage | undefined;
 	let planSource: DashboardView['sources']['plan'] = 'unsupported';
@@ -194,9 +230,12 @@ export async function buildDashboardView(
 		return {
 			sources: {
 				local: localSource,
+				claudeCode: claudeCode?.status.state ?? 'disabled',
+				claudeCodeError: claudeCode?.status.lastError ?? undefined,
 				plan: planSource,
 			},
 			local: localView,
+			claudeCode,
 			mmxCli: mmxStatus,
 		};
 	}
@@ -227,10 +266,13 @@ export async function buildDashboardView(
 	const view: DashboardView = {
 		sources: {
 			local: localSource,
+			claudeCode: claudeCode?.status.state ?? 'disabled',
+			claudeCodeError: claudeCode?.status.lastError ?? undefined,
 			plan: planSource,
 			planError,
 		},
 		local: localView,
+		claudeCode,
 		mmxCli: options.mmxCliStatus ?? mmxStatus,
 	};
 	if (planSection) {

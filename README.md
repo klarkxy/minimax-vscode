@@ -52,9 +52,13 @@ Fill the SCM input box with a Conventional-Commits-style draft of the staged dif
 
 Per-model cumulative input / output / cache-read tokens across the extension lifetime, with a **MiniMax: Show Usage** status command.
 
+### Claude Code JSONL ingest
+
+Background poller reads `~/.claude/projects/**/*.jsonl` (the same files written by [Claude Code CLI](https://docs.claude.com/en/docs/claude-code/overview) and the [Claude Code VSCode extension](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code)) and feeds their token usage into the dashboard as a **second, independent data source** — visually distinct from the extension's own accounting. The cursor is persisted in memento, so disabling and re-enabling the feature does not re-read historical data.
+
 ### Usage dashboard
 
-A one-click webview with today / 7-day / 30-day token usage, a 30-day bar chart, a per-model breakdown, and the platform `coding_plan/remains` data (5h reset, weekly limit, subscription expiry) when an API key is configured. A bottom-of-page **mmx-cli** section detects / installs the official [`mmx`](https://github.com/MiniMax-AI/cli) multimodal CLI and the matching agent SKILL.
+A one-click webview with today / 7-day / 30-day token usage, a 30-day bar chart, a per-model breakdown, the platform `coding_plan/remains` data (5h reset, weekly limit, subscription expiry) when an API key is configured, and the Claude Code JSONL-derived counters described above. A bottom-of-page **mmx-cli** section detects / installs the official [`mmx`](https://github.com/MiniMax-AI/cli) multimodal CLI and the matching agent SKILL.
 
 ### Per-model sampling controls
 
@@ -148,6 +152,9 @@ Token Plan usage deducts from the included quota according to each endpoint's pa
 | `minimax.modelIdOverrides` | _identity_ | Map picker IDs to API IDs (useful for proxies). |
 | `minimax.visionModel` | _auto_ | Vision proxy for non-M3 models. Has no effect on M3. |
 | `minimax.visionPrompt` | _see package.json_ | Custom vision proxy prompt. |
+| `minimax.dashboard.includeClaudeCode` | `true` | Master toggle for the Claude Code JSONL ingest section in the **Usage Dashboard**. When `false`, the section is replaced with a "Disabled in Settings" banner containing an "Open Settings" button. The cursor is persisted across restarts; disabling and re-enabling does not re-read historical data. |
+| `minimax.claudeCode.logPath` | `~/.claude/projects` | Root directory the ingester walks for Claude Code JSONL session logs. Supports `~` expansion on POSIX and Windows. Restart / click **Re-scan** after changing. |
+| `minimax.claudeCode.pollIntervalMs` | `30000` | How often the ingester scans the log directory for new lines, in milliseconds. Clamped to `[5000, 600000]` even if you edit `settings.json` to a value outside that range. |
 | `minimax.experimental.stabilizeToolList` | `false` | Synthesise preflight tool calls to keep the upstream prompt cache warm. **Experimental.** |
 
 ## Commands
@@ -170,6 +177,8 @@ Token Plan usage deducts from the included quota according to each endpoint's pa
 | **MiniMax: Show Logs** | Focus the MiniMax output channel |
 | **MiniMax: Open Request Dumps Folder** | Reveal verbose request dumps |
 | **MiniMax: Open Usage Dashboard** | Open the usage dashboard (today / 7-day / 30-day tokens, per-model breakdown, 30-day bar chart, platform `coding_plan/remains` data) |
+| **MiniMax: Rescan Claude Code Logs** | Force a fresh read of the configured Claude Code JSONL log directory. Same code path as the dashboard's "Re-scan now" button. |
+| **MiniMax: Open Claude Code Log Folder** | Reveal the resolved Claude Code log directory (`~/.claude/projects` by default) in the OS file manager. Shows a warning if the directory doesn't exist. |
 | **MiniMax: Copy mmx-cli install prompt** | Copy the verbatim three-step install prompt from the [official docs](https://platform.minimaxi.com/docs/token-plan/minimax-cli) to the clipboard. Language matches the configured endpoint (China → 简体中文, otherwise → English). The extension does not run any install / login / SKILL commands on your behalf. |
 
 ## Per-model sampling
@@ -221,9 +230,10 @@ M2.x silently drops video attachments (with a log warning) — they have no `vid
 
 ## Usage dashboard
 
-Click the `$(graph) MiniMax …` item in the VS Code status bar, or run **MiniMax: Open Usage Dashboard**, to open a side-panel webview that combines two data sources:
+Click the `$(graph) MiniMax …` item in the VS Code status bar, or run **MiniMax: Open Usage Dashboard**, to open a side-panel webview that combines three data sources:
 
 - **Local token accounting**: every request the extension makes is written to a persistent counter. The dashboard aggregates it into three windows (**Today**, **Last 7 days**, **Last 30 days**), each with columns for `Input`, `Cache read`, `Cache write`, `Output` and `Requests`. A 30-day bar chart and a per-model breakdown table sit below the windows.
+- **Claude Code JSONL ingest** (sibling section, visually separated by a left accent strip): tokens consumed by [Claude Code CLI](https://docs.claude.com/en/docs/claude-code/overview) and the [Claude Code VSCode extension](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code). A background poller walks `~/.claude/projects/**/*.jsonl` every 30 s, parses each `type: "assistant"` line, and feeds the same model / day / window shape. The cursor is persisted in memento, so disabling and re-enabling the feature does not re-read historical data. Use the **Re-scan now** button in the section to force a refresh, or **MiniMax: Rescan Claude Code Logs** from the command palette.
 - **Platform Token Plan**: when an API key is configured, the dashboard also calls `GET /v1/api/openplatform/coding_plan/remains` and renders the 5-hour reset window, the weekly limit, the per-model quota table and the subscription expiry.
 
 Two extra status-bar items sit to the right of the daily-token counter: `$(bolt) 5h 73%` (5-hour remaining percent) and `$(calendar) Week 11%` (weekly remaining percent). The colour follows the `statusBarItem.remoteBackground` / `warningBackground` / `errorBackground` theme tokens. Without an API key both items render a muted em-dash placeholder and the tooltip nudges you to run **MiniMax: Set API Key**.

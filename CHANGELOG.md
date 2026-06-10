@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.2.0 — README restyling & config unification
+## 2.2.0 — README restyling, config unification, Claude Code JSONL ingest
 
 ### Documentation
 
@@ -8,6 +8,66 @@
   per-model settings section, pricing visual, thinking-mode description.
 - Clarified M3 context handling caveats, reworked "advanced settings"
   walkthrough copy, and unified all command names across en/zh.
+
+### Features
+
+- **Claude Code JSONL ingest in the usage dashboard.** The dashboard
+  now shows token usage from **Claude Code CLI** and the **Claude Code
+  VSCode extension** alongside the extension's own accounting.
+  Previously, those clients sent API calls that bypassed our request
+  layer, so the dashboard silently missed them.
+  - **Background poller reads `~/.claude/projects/**/*.jsonl`** on a
+    30 s tick, parses each `type: "assistant"` line, and feeds
+    per-model / per-day / per-month totals into a sibling
+    Memento-backed store (`src/dashboard/claudeCodeIngest.ts`).
+    Cursor state is persisted in memento so restarts resume from the
+    last byte — no re-reading of historical data. UUID-based
+    1000-entry LRU prevents the same record from being counted
+    twice when Claude Code is mid-writing a line. The cursor
+    resets to 0 on file truncation or rotation.
+  - **New "Claude Code usage" section in the dashboard.** Sits
+    below the existing "Local token usage" card with a left accent
+    strip for visual separation. Shows today / 7d / 30d cards, a
+    per-model breakdown table, a 30-day bar chart, the last-sync
+    timestamp, the resolved log path, file count, and any
+    unparseable-line count. Subscribes to the ingester's store so
+    the panel re-renders on every poll that lands new data.
+  - **Three new settings** (all in the existing `minimax.*`
+    namespace):
+    - `minimax.dashboard.includeClaudeCode` (boolean, default
+      `true`) — master toggle for the section. When `false`, the
+      dashboard keeps the section visible and shows a
+      "Disabled in Settings" banner with an "Open Settings" button.
+    - `minimax.claudeCode.logPath` (string, default
+      `~/.claude/projects`) — root directory Claude Code writes
+      JSONL session logs to. Supports `~` expansion on both POSIX
+      and Windows.
+    - `minimax.claudeCode.pollIntervalMs` (integer, default
+      `30000`, clamped to `[5000, 600000]`) — how often the
+      ingester scans for new lines.
+  - **Two new commands:** `MiniMax: Rescan Claude Code Logs` and
+    `MiniMax: Open Claude Code Log Folder`. The dashboard section
+    also has a "Re-scan now" button that calls the same code path.
+  - **`MiniMax: Show Usage` extended.** The markdown report now
+    ends with a clearly-labelled "## Claude Code (separate
+    source)" section that includes today's totals, the per-model
+    breakdown, and the resolved log path. Independent of the
+    local-store data so the two sources stay visually separated.
+  - **Independent lifecycle.** The ingester is constructed and
+    started in `runtime/lifecycle.ts` after the provider registers.
+    Flipping any of the three Claude Code settings in real time
+    tears the ingester down and rebuilds it on the next tick so
+    changes take effect within seconds.
+
+### Migration
+
+- The new Memento keys (`minimax-vscode.claudeCodeUsageStats`,
+  `minimax-vscode.claudeCodeIngestCursor`) are purely additive.
+  Existing `USAGE_STATS_KEY` data is untouched.
+- No backfill is needed — the cursor is empty on first run; the
+  first poll reads all files from byte 0.
+- On uninstall the two new keys are inert and are eventually
+  garbage-collected by VS Code.
 
 ### Fixes
 

@@ -155,6 +155,10 @@ const zh: Translations = {
 	// prompt to the clipboard. The user decides what to do next.
 	'mmx.promptCopied': '官方安装指令已复制到剪贴板。',
 	'mmx.copyFailed': '写入剪贴板失败。',
+
+	// Claude Code (JSONL log ingest)
+	'claudeCode.folderMissing': '找不到 Claude Code 日志目录：{0}',
+	'claudeCode.showUsageEmpty': '暂无 Claude Code 用量记录。请运行 Claude Code CLI 或 Claude Code VSCode 扩展产生一些会话。',
 };
 
 const en: Translations = {
@@ -300,6 +304,10 @@ const en: Translations = {
 	// prompt to the clipboard. The user decides what to do next.
 	'mmx.promptCopied': 'Official install prompt copied to clipboard.',
 	'mmx.copyFailed': 'Could not write to clipboard.',
+
+	// Claude Code (JSONL log ingest)
+	'claudeCode.folderMissing': 'Could not find the Claude Code log directory: {0}',
+	'claudeCode.showUsageEmpty': 'No Claude Code usage recorded yet. Run the Claude Code CLI or the Claude Code VSCode extension to generate some sessions.',
 };
 
 const dictionaries: Record<'en' | 'zh', Translations> = { en, zh };

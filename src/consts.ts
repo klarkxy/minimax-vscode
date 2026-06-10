@@ -32,6 +32,22 @@ export const USAGE_STATS_KEY = 'minimax-vscode.usageStats';
 /** memento key for the last-known mmx-cli status. Stored as JSON. */
 export const MMX_CLI_STATUS_KEY = 'minimax-vscode.mmxCliStatus';
 
+/** memento key for cumulative token usage from Claude Code CLI / VSCode
+ *  extension JSONL session logs. Same `UsageStats` shape as
+ *  `USAGE_STATS_KEY` so the dashboard can render with the same helpers. */
+export const CLAUDE_CODE_USAGE_STATS_KEY = 'minimax-vscode.claudeCodeUsageStats';
+
+/** memento key for the per-file byte-offset cursor used by the Claude
+ *  Code log ingester. JSON blob — see `src/dashboard/claudeCodeIngest.ts`. */
+export const CLAUDE_CODE_INGEST_CURSOR_KEY = 'minimax-vscode.claudeCodeIngestCursor';
+
+
+// ---- Claude Code log ingest defaults ----
+
+/** Default root directory Claude Code writes JSONL session logs to.
+ *  Used when the user has not overridden `minimax.claudeCode.logPath`. */
+export const DEFAULT_CLAUDE_CODE_LOG_PATH = '~/.claude/projects';
+
 
 // ---- Walkthrough ----
 
