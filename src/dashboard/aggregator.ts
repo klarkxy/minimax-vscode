@@ -13,6 +13,20 @@ export interface AggregatorOptions {
 	includePlatform?: boolean;
 	/** Clock — overridable for tests. */
 	now?: () => Date;
+	/**
+	 * Optional pre-fetched platform snapshot. When provided, the
+	 * aggregator reuses it instead of issuing a new `fetchPlanUsage`
+	 * call — saves a round-trip on the common refresh path where the
+	 * dashboard panel has just consulted the shared PlanCache.
+	 */
+	planSnapshot?: PlanSnapshot;
+	/**
+	 * Optional pre-fetched mmx-cli status. When provided, the aggregator
+	 * reuses it instead of calling `readMmxCliStatus` again. Mirrors the
+	 * `planSnapshot` contract: the dashboard consults `MmxCliCache`
+	 * before calling the aggregator.
+	 */
+	mmxCliStatus?: MmxCliStatus;
 }
 
 // ---- Shared plan cache (Dashboard + status bar) --------------------------
@@ -66,17 +80,27 @@ export function createPlanCache(): PlanCache {
 			return snapshot;
 		},
 		async refresh(platform) {
+			// Deduplicate concurrent calls: while a fetch is in flight, every
+			// caller shares the same promise. The previous implementation
+			// cleared `inFlight` inside `.then()` only, so a rejected promise
+			// (network error, 5xx, etc.) would leave `inFlight` set forever
+			// and the next `refresh()` would replay the same broken promise
+			// without ever retrying. We use `.finally()` to release the slot
+			// in both the success and failure paths.
 			if (inFlight) {
 				return inFlight;
 			}
-			const promise = fetchPlanUsage(platform).then((result) => {
-				inFlight = undefined;
-				if (result.ok) {
-					snapshot = { usage: result.usage, fetchedAt: Date.now() };
-					notify();
-				}
-				return result;
-			});
+			const promise = fetchPlanUsage(platform)
+				.then((result) => {
+					if (result.ok) {
+						snapshot = { usage: result.usage, fetchedAt: Date.now() };
+						notify();
+					}
+					return result;
+				})
+				.finally(() => {
+					inFlight = undefined;
+				});
 			inFlight = promise;
 			return promise;
 		},
@@ -166,7 +190,7 @@ export async function buildDashboardView(
 
 	if (options.includePlatform === false) {
 		planSource = 'unsupported';
-		const mmxStatus: MmxCliStatus = await mmxPromise;
+		const mmxStatus: MmxCliStatus = options.mmxCliStatus ?? (await mmxPromise);
 		return {
 			sources: {
 				local: localSource,
@@ -177,9 +201,16 @@ export async function buildDashboardView(
 		};
 	}
 
-	const planPromise = options.platform
-		? fetchPlanUsage(options.platform)
-		: Promise.resolve<PlanApiResult>({ ok: false, reason: 'unconfigured' });
+	// Reuse a pre-fetched snapshot when the caller has one — that's
+	// the common dashboard path, where the panel consults the shared
+	// PlanCache before calling the aggregator. Without this, every
+	// refresh would issue a second `fetchPlanUsage` even when the
+	// cache already has fresh data.
+	const planPromise: Promise<PlanApiResult> = options.planSnapshot
+		? Promise.resolve<PlanApiResult>({ ok: true, usage: options.planSnapshot.usage })
+		: options.platform
+			? fetchPlanUsage(options.platform)
+			: Promise.resolve<PlanApiResult>({ ok: false, reason: 'unconfigured' });
 
 	const [planResult, mmxStatus] = await Promise.all([planPromise, mmxPromise]);
 
@@ -200,7 +231,7 @@ export async function buildDashboardView(
 			planError,
 		},
 		local: localView,
-		mmxCli: mmxStatus,
+		mmxCli: options.mmxCliStatus ?? mmxStatus,
 	};
 	if (planSection) {
 		view.plan = planSection;

@@ -33,6 +33,7 @@ export function bypassVisionResolution(
 			unavailableImageMessages: 0,
 			failedImageMessages: 0,
 			droppedImageParts: 0,
+			droppedVideoParts: 0,
 			markerVisionTextChars: 0,
 			invalidMarkerVisionMetadata: 0,
 		},
@@ -137,6 +138,7 @@ function createVisionResolutionStats(): VisionResolutionStats {
 		unavailableImageMessages: 0,
 		failedImageMessages: 0,
 		droppedImageParts: 0,
+		droppedVideoParts: 0,
 		markerVisionTextChars: 0,
 		invalidMarkerVisionMetadata: 0,
 	};
@@ -157,51 +159,18 @@ function collectInputImageStats(
 }
 
 function createVisionMarkerBindings(
-	messages: readonly vscode.LanguageModelChatRequestMessage[],
-	stats: VisionResolutionStats,
-): Map<number, string> {
-	const bindings = new Map<number, string>();
-	const boundUserMessages = new Set<number>();
-
-	for (const [messageIndex, message] of messages.entries()) {
-		if (message.role !== vscode.LanguageModelChatMessageRole.Assistant) {
-			continue;
-		}
-
-		const visionText = findAssistantVisionText(message, stats);
-		if (!visionText) {
-			continue;
-		}
-
-		for (let userIndex = messageIndex - 1; userIndex >= 0; userIndex -= 1) {
-			if (boundUserMessages.has(userIndex)) {
-				continue;
-			}
-			const candidate = messages[userIndex];
-			if (candidate.role !== vscode.LanguageModelChatMessageRole.User) {
-				continue;
-			}
-			if (getImageParts(candidate).length === 0) {
-				continue;
-			}
-
-			bindings.set(userIndex, visionText);
-			boundUserMessages.add(userIndex);
-			break;
-		}
-	}
-
-	return bindings;
-}
-
-function findAssistantVisionText(
-	_message: vscode.LanguageModelChatRequestMessage,
+	_messages: readonly vscode.LanguageModelChatRequestMessage[],
 	_stats: VisionResolutionStats,
-): string | undefined {
+): Map<number, string> {
 	// Marker-based vision replay is not yet implemented for MiniMax.
 	// Vision descriptions are only injected on the current-turn image,
-	// not propagated to subsequent turns.
-	return undefined;
+	// not propagated to subsequent turns. We keep the function (and
+	// its return type) so the surrounding `resolveImageMessages` flow
+	// does not need a separate code path; the function simply returns
+	// an empty map until replay is wired up.
+	void _messages;
+	void _stats;
+	return new Map();
 }
 
 function findCurrentImageMessageIndex(

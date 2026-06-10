@@ -11,6 +11,8 @@ export interface VisionResolutionStats {
 	unavailableImageMessages: number;
 	failedImageMessages: number;
 	droppedImageParts: number;
+	/** Video parts dropped from the request (unsupported MIME / too large). */
+	droppedVideoParts: number;
 	markerVisionTextChars: number;
 	invalidMarkerVisionMetadata: number;
 }

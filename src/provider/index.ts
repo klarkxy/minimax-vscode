@@ -84,17 +84,31 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 				// has to update live without an editor reload. The
 				// boolean is flipped via the `minimax.toggleM31MContext`
 				// command (which pops a modal warning first).
+				//
+				// `minimax.maxTokens`, `minimax.sampling`, and
+				// `minimax.experimental.*` are also watched so the
+				// picker reflects any per-model cap, sampling
+				// override, or experimental knob the user flipped
+				// — without these, a session would need to be
+				// re-created to pick up the new value.
 				if (
 					e.affectsConfiguration('minimax.apiKey') ||
 					e.affectsConfiguration('minimax.visibleModels') ||
 					e.affectsConfiguration('minimax.apiBaseUrl') ||
 					e.affectsConfiguration('minimax.debugMode') ||
 					e.affectsConfiguration('minimax.modelIdOverrides') ||
-					e.affectsConfiguration('minimax.enableM31MContext')
+					e.affectsConfiguration('minimax.enableM31MContext') ||
+					e.affectsConfiguration('minimax.maxTokens') ||
+					e.affectsConfiguration('minimax.sampling') ||
+					e.affectsConfiguration('minimax.experimental.stabilizeToolList') ||
+					e.affectsConfiguration('minimax.experimental.modelDefPresets')
 				) {
 					this.onDidChangeLanguageModelChatInformationEmitter.fire();
 				}
 
+				// `minimax.visionModel` changes invalidate the cached
+				// vision-proxy model handle so the next request picks
+				// up the new model.
 				if (e.affectsConfiguration('minimax.visionModel')) {
 					this.vision.reset();
 				}
@@ -195,24 +209,32 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 			progress,
 			requestKind,
 		});
-		if (toolFlow.preflightHandled) {
-			return;
-		}
 
-		const prepared = await prepareChatRequest({
-			authManager: this.authManager,
-			globalStorageUri: this.globalStorageUri,
-			modelInfo,
-			segment,
-			messages: toolFlow.messages,
-			options,
-			token,
-			cacheDiagnostics: this.cacheDiagnostics,
-			getVisionModel: () => this.vision.get(),
-		});
-
+		// Pulse the chat-turn notifier for EVERY user-facing turn —
+		// including the preflight round (which consumes tool calls on
+		// the host side) and prepare-time failures (which still count
+		// toward the user's mental model of "one prompt, one round").
+		// Without the start/end pair around the early returns, the
+		// dashboard plan cache would only pulse on the round that
+		// actually streamed a response.
 		this._chatTurnNotifier.notifyTurnStart();
 		try {
+			if (toolFlow.preflightHandled) {
+				return;
+			}
+
+			const prepared = await prepareChatRequest({
+				authManager: this.authManager,
+				globalStorageUri: this.globalStorageUri,
+				modelInfo,
+				segment,
+				messages: toolFlow.messages,
+				options,
+				token,
+				cacheDiagnostics: this.cacheDiagnostics,
+				getVisionModel: () => this.vision.get(),
+			});
+
 			return await streamChatCompletion({
 				prepared,
 				progress,

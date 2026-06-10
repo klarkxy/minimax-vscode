@@ -97,7 +97,7 @@ export function convertMessages(
 		}
 
 		if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
-			const converted = convertAssistantMessage(message, supportsImages);
+			const converted = convertAssistantMessage(message);
 			if (converted) {
 				result.push(converted);
 			}
@@ -119,8 +119,6 @@ export function convertMessages(
 
 function convertAssistantMessage(
 	message: vscode.LanguageModelChatRequestMessage,
-	supportsImages: boolean,
-	_supportsVideos: boolean = false,
 ): MiniMaxMessage | undefined {
 	const blocks: MiniMaxContentBlock[] = [];
 	let textBuf = '';
@@ -204,7 +202,6 @@ function convertAssistantMessage(
 		out.push({ role: 'user', content: resultBlocks });
 	}
 
-	void supportsImages; // assistant messages never carry images here
 	return out[0];
 }
 

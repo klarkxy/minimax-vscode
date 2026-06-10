@@ -5,6 +5,7 @@ export {
 	createUserFacingError,
 	MiniMaxRequestError,
 	normalizeRequestError,
+	resetErrorActionUrls,
 	setErrorActionUrl,
 } from './error';
 export type { MiniMaxRequestErrorKind, ErrorActionUrls } from './types';

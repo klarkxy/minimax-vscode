@@ -314,6 +314,71 @@ test('buildDashboardView: includePlatform=false skips platform call', async () =
 	assert.equal(view.plan, undefined);
 });
 
+test('buildDashboardView: planSnapshot short-circuits fetchPlanUsage', async () => {
+	// Regression: the dashboard panel calls `buildDashboardView` after
+	// refreshing the shared PlanCache. Without the `planSnapshot`
+	// option, the aggregator would issue a second `fetchPlanUsage`
+	// round-trip, doubling the platform traffic on every refresh.
+	const store = createUsageStore(new FakeMemento());
+	let fetchCalls = 0;
+	const snapshot = {
+		usage: {
+			modelName: 'MiniMax-M3',
+			currentTotal: 1000,
+			currentUsed: 250,
+			currentPercentage: 25,
+			currentResetText: '2h 0m',
+			weeklyTotal: 5000,
+			weeklyUsed: 500,
+			weeklyPercentage: 10,
+			weeklyResetText: '3d 0h',
+			weeklyUnlimited: false,
+			expiryDate: '',
+			expiryDays: 0,
+		},
+		fetchedAt: Date.now(),
+	};
+	const view = await buildDashboardView({
+		store,
+		platform: {
+			apiKey: 'k',
+			fetchImpl: () => {
+				fetchCalls += 1;
+				return Promise.resolve(jsonResponse(validPayload));
+			},
+		},
+		planSnapshot: snapshot,
+	});
+	assert.equal(fetchCalls, 0, 'snapshot was reused, no fresh fetch');
+	assert.equal(view.sources.plan, 'ok');
+	assert.equal(view.plan?.modelName, 'MiniMax-M3');
+});
+
+test('buildDashboardView: mmxCliStatus short-circuits readMmxCliStatus', async () => {
+	// Mirror of the planSnapshot regression test: when the panel has
+	// already refreshed the shared MmxCliCache, the aggregator should
+	// accept the cached status as-is rather than spawning another
+	// `readMmxCliStatus` (which shells out to `where`/`which` and
+	// potentially `mmx --version`).
+	const store = createUsageStore(new FakeMemento());
+	const cachedMmx = {
+		install: 'installed' as const,
+		version: '1.2.3',
+		binPath: '/usr/local/bin/mmx',
+		auth: 'loggedIn' as const,
+		skill: 'installed' as const,
+		agentReady: true,
+	};
+	const view = await buildDashboardView({
+		store,
+		platform: null,
+		mmxCliStatus: cachedMmx,
+	});
+	assert.equal(view.mmxCli.install, 'installed');
+	assert.equal(view.mmxCli.version, '1.2.3');
+	assert.equal(view.mmxCli.agentReady, true);
+});
+
 // --- totalTokens helper --------------------------------------------------
 
 test('totalTokens: all-in number — input + cacheWrite + cacheRead + output', () => {
@@ -401,6 +466,57 @@ test('createPlanCache: invalidate clears snapshot and notifies', async () => {
 	assert.equal(cache.read(), undefined);
 	assert.equal(notifications, 2, 'one for the successful fetch, one for the invalidate');
 	sub.dispose();
+});
+
+test('createPlanCache: rejects do not poison the in-flight slot', async () => {
+	// Regression: a network-error / 5xx response must release the
+	// in-flight slot so the next refresh() actually retries. The
+	// previous implementation cleared inFlight inside .then() only,
+	// leaving a failed promise in the slot and breaking all subsequent
+	// refreshes.
+	const cache = createPlanCache();
+	const failingPlatform = {
+		apiKey: 'k',
+		fetchImpl: () => Promise.reject(new Error('ECONNRESET')),
+	};
+
+	const first = await cache.refresh(failingPlatform);
+	assert.equal(first.ok, false, 'first call returns the error result');
+	// Snapshot must NOT be cached on a failure — that was already
+	// covered by the dedicated "failed refresh does not cache" test,
+	// but we re-assert here as a guard against the regression.
+	assert.equal(cache.read(), undefined);
+
+	// A second refresh after a failure must observe an empty in-flight
+	// slot and call the underlying transport again. We give the second
+	// call a working fetch so the result is unambiguously "fresh".
+	let secondCalls = 0;
+	const workingPlatform = {
+		apiKey: 'k',
+		fetchImpl: () => {
+			secondCalls += 1;
+			return Promise.resolve(jsonResponse(validPayload));
+		},
+	};
+	const second = await cache.refresh(workingPlatform);
+	assert.equal(second.ok, true);
+	assert.equal(secondCalls, 1, 'second refresh fired a new request after the failure');
+	if (second.ok) {
+		assert.equal(second.usage.modelName, 'MiniMax-M3');
+	}
+});
+
+test('createPlanCache: failed refresh does not cache a snapshot', async () => {
+	const cache = createPlanCache();
+	const platform = {
+		apiKey: 'k',
+		fetchImpl: () => Promise.resolve(jsonResponse({}, 500)),
+	};
+	const result = await cache.refresh(platform);
+	assert.equal(result.ok, false);
+	// A failed fetch must not write to the snapshot — the next refresh
+	// (with a working fetch) should still produce a fresh snapshot.
+	assert.equal(cache.read(), undefined);
 });
 
 // --- createChatTurnNotifier ------------------------------------------------

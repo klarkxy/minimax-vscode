@@ -333,7 +333,6 @@ export class MiniMaxClient {
 		temperature: number | undefined,
 		topP: number | undefined,
 		callbacks: StreamCallbacks,
-		extraQueryParams?: Record<string, string | number | boolean | undefined>,
 	): Promise<void> {
 		// `options.modelDef` carries per-model `sampling` and `extra`
 		// fields. It's the only way to plumb the modelDef down to the
@@ -346,8 +345,13 @@ export class MiniMaxClient {
 		}
 
 		const baseUrl = options?.baseUrl?.trim() || this.defaultBaseUrl;
-		const effectiveBaseUrl = appendQueryParams(baseUrl, extraQueryParams);
-		const client = new Anthropic({ apiKey, baseURL: effectiveBaseUrl });
+		// No future query-string toggles are in flight right now — the
+		// thinking-effort signal is sent in the request body via the
+		// typed `thinking` field. `appendQueryParams` is kept exported
+		// for when the next toggle (e.g. a model-ID override or a debug
+		// flag) needs to ride on the URL; it currently always receives
+		// `undefined`.
+		const client = new Anthropic({ apiKey, baseURL: baseUrl });
 
 		// Build the Anthropic request body. System prompt is a top-level field.
 		// Thinking requires the dedicated beta header on the Anthropic API; on
@@ -432,13 +436,12 @@ export class MiniMaxClient {
 		baseUrl: string | undefined,
 		request: MiniMaxRequest,
 		cancellationToken: vscode.CancellationToken | undefined,
-		extraQueryParams?: Record<string, string | number | boolean | undefined>,
 	): Promise<{ text: string; usage?: MiniMaxUsage }> {
 		const trimmedKey = apiKey?.trim();
 		if (!trimmedKey) {
 			throw new Error('API key is required');
 		}
-		const url = appendQueryParams(baseUrl?.trim() || this.defaultBaseUrl, extraQueryParams);
+		const url = baseUrl?.trim() || this.defaultBaseUrl;
 		const client = new Anthropic({ apiKey: trimmedKey, baseURL: url });
 
 		// completeChat always sends a non-streaming request; the type

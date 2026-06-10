@@ -195,7 +195,7 @@ function handleThinking(
 
 		// Emit a VS Code thinking part for in-progress reasoning. The
 		// signature_delta that follows will be attached to the same block.
-		emitThinkingPart(progress, text, signature);
+		emitThinkingPart(progress, text);
 	} else if (signature) {
 		// Backfill signature onto the last thinking block.
 		const last = state.accumulatedThinkingBlocks[state.accumulatedThinkingBlocks.length - 1];
@@ -214,7 +214,6 @@ function handleThinking(
 function emitThinkingPart(
 	progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 	text: string,
-	_signature: string | undefined,
 ): void {
 	const ThinkingCtor = (vscode as unknown as { LanguageModelThinkingPart?: unknown })
 		.LanguageModelThinkingPart;
@@ -226,7 +225,6 @@ function emitThinkingPart(
 		) => unknown;
 		const part = new Ctor(text);
 		progress.report(part as unknown as vscode.LanguageModelResponsePart);
-		void _signature;
 		return;
 	}
 	// Fallback for hosts that don't expose the proposed API.
@@ -291,6 +289,16 @@ function reportCopilotContextUsage(
 	// subsequent turns). Aggregating all three counters into `prompt_tokens`
 	// matches both the oai-compatible-copilot upstream and what Copilot
 	// Chat's status-bar widget actually expects to see.
+	//
+	// Note on `cached_tokens`: per Anthropic's API, this field counts
+	// only the *read* portion of the cache (i.e. the cached prefix that
+	// was actually re-used on this turn). We deliberately do NOT
+	// include `cache_creation_input_tokens` here because the OAI-
+	// compatible copilot widget interprets `cached_tokens` as "tokens
+	// served from cache" — adding the write portion would double-count
+	// it. The all-in `prompt_tokens` above is the right number for the
+	// "tokens billed on this turn" view; `cached_tokens` is for the
+	// cache-effectiveness sub-stat.
 	const inputTokens = usage.input_tokens ?? 0;
 	const cacheCreateTokens = usage.cache_creation_input_tokens ?? 0;
 	const cacheReadTokens = usage.cache_read_input_tokens ?? 0;

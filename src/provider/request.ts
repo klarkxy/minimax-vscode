@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { AuthManager } from '../auth';
 import { MiniMaxClient } from '../client';
-import { getApiModelId, getBaseUrl, getMaxTokens } from '../config';
+import { getApiModelId, getMaxTokens } from '../config';
 import { CONFIG_SECTION } from '../consts';
 import { t } from '../i18n';
 import { findModelById } from '../models/registry';
@@ -18,7 +18,7 @@ import {
 import { getConfiguredThinkingEffort, type ModelConfigurationOptions } from './models';
 import type { ReplayMarkerMetadata } from './replay';
 import type { ConversationSegment } from './segment';
-import { collectTrailingToolResultIds, prepareRequestTools } from './tools/request';
+import { prepareRequestTools } from './tools/request';
 import { logger } from '../logger';
 import { safeStringify } from '../json';
 import { bypassVisionResolution, resolveImageMessages } from './vision/index';
@@ -195,7 +195,6 @@ export async function prepareChatRequest({
 	});
 
 	const diagnosticsRun = cacheDiagnostics.beginRequest();
-	void getBaseUrl(); // kept for future per-request override
 
 	const trailingToolResultIds: string[] = [];
 	for (const message of converted.messages) {
@@ -326,10 +325,6 @@ function buildThinkingPayload(
 	return undefined;
 }
 
-// `collectTrailingToolResultIds` is no longer used by the Anthropic transport
-// but kept for callers that still want to know the count for diagnostics.
-void collectTrailingToolResultIds;
-
 /**
  * Count the number of image data parts in the request so the bypass log
  * line can tell the user "I skipped the vision proxy and forwarded N
@@ -454,6 +449,12 @@ function enforceRequestBodySizeLimit(
 	converted: ConvertedConversation,
 	modelId: string,
 ): void {
+	// Per-attachment caps (10 MB image, 50 MB video) checked first so the
+	// user gets a precise error pointing at the offending attachment
+	// rather than a generic "your body is too large" message when only
+	// one part is the culprit.
+	enforceInlineAttachmentSizeLimits(converted);
+
 	const bytes = estimateRequestBodyBytes(converted);
 	if (bytes <= MAX_REQUEST_BODY_BYTES_FOR_MODEL(modelId)) {
 		return;
@@ -470,6 +471,56 @@ function enforceRequestBodySizeLimit(
 }
 
 /**
+ * Per-attachment caps from the MiniMax Anthropic-API docs:
+ *   - inline image (base64/url): ≤ 10 MB
+ *   - inline video (base64/url): ≤ 50 MB
+ *   - `mm_file://` references:   exempt (up to 512 MB server-side)
+ * Throw a localised error naming the offending block so the user knows
+ * which attachment to shrink. We do NOT silently drop oversized
+ * attachments — the host contract is "your attachment reached the
+ * model", and dropping it would leave the model guessing.
+ */
+function enforceInlineAttachmentSizeLimits(converted: ConvertedConversation): void {
+	for (const message of converted.messages) {
+		if (typeof message.content === 'string') {
+			continue;
+		}
+		for (const block of message.content) {
+			if (block.type === 'image') {
+				const bytes = block.source.type === 'base64'
+					? Math.floor((block.source.data.length * 3) / 4)
+					: Buffer.byteLength(block.source.url, 'utf8');
+				if (bytes > MAX_INLINE_IMAGE_BYTES) {
+					throw new Error(
+						t(
+							'request.imageTooLarge',
+							(bytes / 1024 / 1024).toFixed(1),
+							MAX_INLINE_IMAGE_BYTES / 1024 / 1024,
+						),
+					);
+				}
+			} else if (block.type === 'video') {
+				if (block.source.type === 'mm_file') {
+					continue;
+				}
+				const bytes = block.source.type === 'base64'
+					? Math.floor((block.source.data.length * 3) / 4)
+					: Buffer.byteLength(block.source.url, 'utf8');
+				if (bytes > MAX_INLINE_VIDEO_BYTES) {
+					throw new Error(
+						t(
+							'request.videoTooLarge',
+							(bytes / 1024 / 1024).toFixed(1),
+							MAX_INLINE_VIDEO_BYTES / 1024 / 1024,
+						),
+					);
+				}
+			}
+		}
+	}
+}
+
+/**
  * Per-model request-body caps from the MiniMax Anthropic-API docs. M3 is
  * the only model in the picker that accepts inline media at all, so we
  * only need a 64 MB entry; the M2.x branch is here for callers that
@@ -479,3 +530,12 @@ function MAX_REQUEST_BODY_BYTES_FOR_MODEL(modelId: string): number {
 	if (modelId === 'MiniMax-M3') return 64 * 1024 * 1024;
 	return 32 * 1024 * 1024;
 }
+
+/**
+ * Per-attachment caps from the MiniMax Anthropic-API docs. M3 is the
+ * only picker model that accepts inline media, but the constants live
+ * here as a single source of truth that the `convert.ts` MIME table
+ * is sized against.
+ */
+const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_INLINE_VIDEO_BYTES = 50 * 1024 * 1024;

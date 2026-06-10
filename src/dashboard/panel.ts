@@ -87,7 +87,7 @@ export class DashboardPanel {
 			enableScripts: true,
 			localResourceRoots: [deps.extensionUri],
 		};
-		this.panel.webview.html = this.renderHtml(dashboardMessages(this.state.locale), null);
+		this.panel.webview.html = this.renderHtml(dashboardMessages(this.state.locale));
 		this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
 		this.panel.webview.onDidReceiveMessage(this.messageListener, null, this.disposables);
 		this.panel.onDidChangeViewState(() => {
@@ -140,7 +140,7 @@ export class DashboardPanel {
 		}
 		this.inFlight = true;
 		try {
-			const apiKey = await this.deps.auth.getApiKey();
+			const apiKey = await this.authForRefresh();
 			const planSnapshot = this.deps.planCache.read();
 			const mmxCliSnapshot = this.deps.mmxCliCache.read();
 			const cachedView = buildCachedDashboardView({
@@ -155,8 +155,13 @@ export class DashboardPanel {
 			});
 			await this.postData(cachedView);
 
+			// Refresh the plan cache in the background. We kick this off
+			// before awaiting `buildDashboardView` so the aggregator can
+			// reuse the snapshot we already have on cache hit, instead of
+			// issuing a second `fetchPlanUsage` round-trip.
+			let planRefreshPromise: Promise<unknown> = Promise.resolve();
 			if (apiKey) {
-				await this.deps.planCache.refresh({
+				planRefreshPromise = this.deps.planCache.refresh({
 					apiKey,
 					host: this.deps.host,
 				});
@@ -170,6 +175,11 @@ export class DashboardPanel {
 				logger.warn('mmx-cli cache refresh failed', error);
 				return null;
 			});
+			await planRefreshPromise;
+			// Read the cache again post-refresh so the final view
+			// reflects whatever the background fetch landed.
+			const refreshedPlanSnapshot = this.deps.planCache.read();
+			const refreshedMmxCliSnapshot = this.deps.mmxCliCache.read();
 			const view = await buildDashboardView({
 				store: this.deps.usageStore,
 				platform: apiKey
@@ -178,6 +188,10 @@ export class DashboardPanel {
 						host: this.deps.host,
 					}
 					: null,
+				// Hand the aggregator the snapshot we already have so it
+				// does NOT re-fetch on its own.
+				planSnapshot: refreshedPlanSnapshot,
+				mmxCliStatus: refreshedMmxCliSnapshot?.status,
 			});
 			await this.postData(view);
 			await mmxPromise;
@@ -187,6 +201,15 @@ export class DashboardPanel {
 		} finally {
 			this.inFlight = false;
 		}
+	}
+
+	/**
+	 * Read the API key from the auth manager. Wrapped so the panel can
+	 * later swap in a faster path (e.g. cached from secrets.onDidChange)
+	 * without touching the rest of `refresh`.
+	 */
+	private async authForRefresh(): Promise<string | undefined> {
+		return this.deps.auth.getApiKey();
 	}
 
 	private async postData(view: DashboardView): Promise<void> {
@@ -224,7 +247,6 @@ export class DashboardPanel {
 					this.state.locale = next;
 					this.panel.webview.html = this.renderHtml(
 						dashboardMessages(this.state.locale),
-						null,
 					);
 				}
 				return;
@@ -244,7 +266,7 @@ export class DashboardPanel {
 				return;
 			}
 			case 'mmxCopyPrompt': {
-				await handleMmxCopyPrompt(this.deps.host ?? 'global', this.state.locale);
+				await handleMmxCopyPrompt(this.deps.host ?? 'global');
 				return;
 			}
 			case 'mmxRecheck': {
@@ -254,7 +276,7 @@ export class DashboardPanel {
 		}
 	}
 
-	private renderHtml(messages: DashboardMessages, _placeholder: unknown): string {
+	private renderHtml(messages: DashboardMessages): string {
 		const cspSource = this.panel.webview.cspSource;
 		const themeKind = vscode.ColorThemeKind[vscode.window.activeColorTheme.kind] ?? '';
 		const bodyClass = themeKind === 'Light' ? 'theme-light' : 'theme-dark';
@@ -1035,7 +1057,6 @@ function escapeHtml(value: string): string {
 
 async function handleMmxCopyPrompt(
 	host: 'china' | 'global',
-	locale: DashboardLocale,
 ): Promise<void> {
 	// The extension does not install anything, log in, or run any
 	// shell command on the user's behalf here. It just copies the
@@ -1043,7 +1064,6 @@ async function handleMmxCopyPrompt(
 	// clipboard, in the language matching the configured endpoint.
 	// The user is fully in control of what they do with the prompt
 	// next (paste it into a chat, run the commands themselves, etc.).
-	void locale;
 	const result = await copyMmxInstallPrompt(host);
 	if (!result.copied) {
 		vscode.window.showErrorMessage(t('mmx.copyFailed'));

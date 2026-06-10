@@ -22,11 +22,27 @@ const errorActionUrlStore = (() => {
 		set: (key: keyof ErrorActionUrls, url: string) => {
 			current = { ...current, [key]: url };
 		},
+		/**
+		 * Reset the store to an empty state. Test-only escape hatch —
+		 * the module-level singleton would otherwise leak between
+		 * tests that touch the action URL config.
+		 */
+		reset: () => {
+			current = {};
+		},
 	};
 })();
 
 export function setErrorActionUrl(key: keyof ErrorActionUrls, url: string): void {
 	errorActionUrlStore.set(key, url);
+}
+
+/**
+ * Reset the action URL store to its empty default. Used by tests
+ * to clear state between runs; production code never calls this.
+ */
+export function resetErrorActionUrls(): void {
+	errorActionUrlStore.reset();
 }
 
 export class MiniMaxRequestError extends Error {
@@ -170,8 +186,9 @@ function getHttpErrorMessage(status: number): string {
 
 function getNetworkErrorMessage(code: string | undefined): string {
 	const errorCode = code ?? 'UNKNOWN';
+	const category = getNetworkErrorCategory(code);
 
-	switch (getNetworkErrorCategory(code)) {
+	switch (category) {
 		case 'dns':
 			return t('error.network.dns', errorCode);
 		case 'unreachable':
@@ -190,6 +207,16 @@ function getNetworkErrorMessage(code: string | undefined): string {
 			return t('error.network.configuration', errorCode);
 		case 'generic':
 			return t('error.network.generic', errorCode);
+		default: {
+			// Compile-time exhaustiveness check: if a new variant is
+			// added to `NetworkErrorCategory` and this switch is not
+			// updated, the assignment to `_exhaustive` will fail to
+			// type-check. The runtime throw is a safety net for the
+			// rare case where the cast slips through.
+			const _exhaustive: never = category;
+			void _exhaustive;
+			return t('error.network.generic', errorCode);
+		}
 	}
 }
 
@@ -278,7 +305,7 @@ function formatMarkdownMessage(
 	const formattedSummary = `**${escapeBoldText(summary)}**`;
 	const actionLinks = actions?.map(formatActionLink).join(' · ');
 	return actionLinks
-		? [formattedSummary + '\\', '\\', `**${actionLinks}**`].join('\n')
+		? `${formattedSummary}\n\n**${actionLinks}**`
 		: formattedSummary;
 }
 
@@ -356,7 +383,11 @@ function getDiagnosticErrorActions(
 }
 
 function escapeBoldText(text: string): string {
-	return text.replace(/\*\*/g, '\\*\\*');
+	// Escape any literal `*` in the i18n summary so it can't form
+	// unintended bold/italic markers in the surrounding `**...**`.
+	// The standard Markdown escape for a literal asterisk is `\*`;
+	// we apply it to every `*` (not just `**`) for safety.
+	return text.replace(/\*/g, '\\*');
 }
 
 function joinDiagnosticParts(...parts: (string | undefined)[]): string {

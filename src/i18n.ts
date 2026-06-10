@@ -65,6 +65,10 @@ const zh: Translations = {
 		'实验性稳定工具列表设置已尝试 {0} 轮，仍无法得到稳定的已启用工具列表。请关闭该实验性设置，或先用 VS Code 的 Configure Tools 关闭不常用的工具。',
 	'request.bodyTooLarge':
 		'估算请求体 {0} MB，已超过 {1} 官方上限 {2} MB。请减小附件 / 上下文长度；大视频可走 Files API 上传后用 mm_file:// 引用。',
+	'request.imageTooLarge':
+		'附件图片约 {0} MB，超过 Anthropic 兼容接口单图内联上限 {1} MB。请压缩图片或改为外链。',
+	'request.videoTooLarge':
+		'附件视频约 {0} MB，超过 Anthropic 兼容接口单视频内联上限 {1} MB。请压缩视频，或先用 Files API 上传 (mm_file://) 后再用引用形式。',
 	'notice.toolDrift':
 		'⚠️ 工具列表不稳定，缓存命中率可能下降。',
 
@@ -205,6 +209,10 @@ const en: Translations = {
 		'The experimental stabilize-tool-list setting has hit the {0}-round limit without a stable enabled tool list. Disable the experimental setting or trim tools via VS Code Configure Tools.',
 	'request.bodyTooLarge':
 		'Estimated request body is {0} MB, over the {2} MB limit for {1}. Trim attachments / context, or upload large videos via the Files API and reference them as mm_file://.',
+	'request.imageTooLarge':
+		'Attached image is ~{0} MB, over the {1} MB inline image cap on the Anthropic-compatible endpoint. Compress the image or upload it as a URL.',
+	'request.videoTooLarge':
+		'Attached video is ~{0} MB, over the {1} MB inline video cap on the Anthropic-compatible endpoint. Compress the video or upload it via the Files API (mm_file://) and reference it that way.',
 	'notice.toolDrift':
 		'⚠️ Tool list is unstable, cache hit rate may drop.',
 
