@@ -81,6 +81,16 @@ export interface DashboardMessages {
 	claudeCodeParseErrors: string;
 	claudeCodeNeverSynced: string;
 	claudeCodeNoData: string;
+	// ---- Tab bar ----
+	/** Tabs without a backing data source are hidden entirely; only the
+	 *  labels for the always-on "总" tab and any visible source tabs are
+	 *  rendered. Labels stay lowercase English for product names in both
+	 *  locales to match the source identifiers. */
+	tabsTotal: string;
+	tabsCopilot: string;
+	tabsClaude: string;
+	tabsCodex: string;
+	tabsOpencode: string;
 }
 
 const en: DashboardMessages = {
@@ -162,6 +172,13 @@ const en: DashboardMessages = {
 	claudeCodeParseErrors: '{0} unparseable line(s) skipped',
 	claudeCodeNeverSynced: 'never',
 	claudeCodeNoData: 'No Claude Code usage recorded yet.',
+
+	// Tab bar
+	tabsTotal: 'Total',
+	tabsCopilot: 'copilot',
+	tabsClaude: 'claude',
+	tabsCodex: 'codex',
+	tabsOpencode: 'opencode',
 };
 
 const zh: DashboardMessages = {
@@ -243,6 +260,13 @@ const zh: DashboardMessages = {
 	claudeCodeParseErrors: '已跳过 {0} 行无法解析的内容',
 	claudeCodeNeverSynced: '尚未同步',
 	claudeCodeNoData: '暂无 Claude Code 用量记录。',
+
+	// Tab bar — 产品名保留英文小写，与截图和 source 标识符一致
+	tabsTotal: '总',
+	tabsCopilot: 'copilot',
+	tabsClaude: 'claude',
+	tabsCodex: 'codex',
+	tabsOpencode: 'opencode',
 };
 
 const dictionaries: Record<DashboardLocale, DashboardMessages> = { en, zh };

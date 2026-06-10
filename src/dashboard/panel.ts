@@ -374,11 +374,6 @@ section {
 	padding: 18px 20px;
 	margin-bottom: 20px;
 }
-section[data-source="claudeCode"] {
-	/* Visual distinction from the local (extension) section: a left
-	   accent strip so the user can tell at a glance which is which. */
-	border-left: 3px solid var(--accent);
-}
 section h2 {
 	margin: 0 0 14px;
 	font-size: 14px;
@@ -659,6 +654,32 @@ footer {
 	gap: 8px;
 	flex-wrap: wrap;
 }
+
+/* ---- Tab bar ---- */
+.tabs {
+	display: flex; gap: 0; flex-wrap: wrap;
+	border-bottom: 1px solid var(--border);
+	margin-bottom: 16px;
+}
+.tabs button[role="tab"] {
+	background: transparent;
+	border: none;
+	border-bottom: 2px solid transparent;
+	border-radius: 0;
+	padding: 8px 16px;
+	color: var(--fg-mute);
+	font-size: 13px;
+	cursor: pointer;
+	margin-bottom: -1px; /* overlap the bottom border */
+}
+.tabs button[role="tab"]:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+.tabs button[role="tab"][aria-selected="true"] {
+	color: var(--fg);
+	border-bottom-color: var(--accent);
+}
+[data-tab-pane].hidden { display: none; }
 </style>
 </head>
 <body class="${bodyClass}">
@@ -692,6 +713,57 @@ footer {
 	const root = document.getElementById('root');
 	const updatedStamp = document.querySelector('[data-stamp="updated"]');
 	const i18n = JSON.parse(document.getElementById('i18n').textContent);
+
+	// ---- Tab state ----
+	//
+	// The dashboard groups data sources into a tab bar (总 / copilot /
+	// claude / codex / opencode). Tabs without a backing data source
+	// are hidden entirely so the user can't click into an empty pane.
+	// The currently-active tab is persisted in the webview state so
+	// that closing and re-opening the dashboard lands the user back
+	// where they were.
+	const KNOWN_TAB_IDS = ['total', 'copilot', 'claude', 'codex', 'opencode'];
+	const persisted = vscode.getState() || {};
+	let activeTab = (typeof persisted.activeTab === 'string' && KNOWN_TAB_IDS.indexOf(persisted.activeTab) !== -1)
+		? persisted.activeTab
+		: 'total';
+
+	// Returns the tab definitions that should appear in the tab bar,
+	// filtered by whether each source has data. Order is fixed: 总,
+	// copilot, claude, codex, opencode — matches the product naming
+	// the user asked for and the source identifiers in the code.
+	function computeVisibleTabs(view) {
+		const all = [
+			{ id: 'total',    label: i18n.tabsTotal },
+			{ id: 'copilot',  label: i18n.tabsCopilot,  visible: !!view.copilot },
+			{ id: 'claude',   label: i18n.tabsClaude,   visible: !!view.claudeCode && view.sources.claudeCode !== 'disabled' },
+			{ id: 'codex',    label: i18n.tabsCodex,    visible: !!view.codex },
+			{ id: 'opencode', label: i18n.tabsOpencode, visible: !!view.opencode },
+		];
+		return all.filter(function (t) { return t.id === 'total' || t.visible; });
+	}
+	function renderTabsHtml(tabs) {
+		return tabs.map(function (t) {
+			const selected = t.id === activeTab;
+			return '<button role="tab" data-tab="' + escapeHtml(t.id) + '"' +
+				' aria-selected="' + (selected ? 'true' : 'false') + '">' +
+				escapeHtml(t.label) + '</button>';
+		}).join('');
+	}
+	function applyActiveTab() {
+		const panes = root.querySelectorAll('[data-tab-pane]');
+		for (let i = 0; i < panes.length; i++) {
+			const pane = panes[i];
+			const id = pane.getAttribute('data-tab-pane');
+			pane.classList.toggle('hidden', id !== activeTab);
+		}
+		const buttons = root.querySelectorAll('.tabs [role="tab"]');
+		for (let i = 0; i < buttons.length; i++) {
+			const btn = buttons[i];
+			const id = btn.getAttribute('data-tab');
+			btn.setAttribute('aria-selected', id === activeTab ? 'true' : 'false');
+		}
+	}
 
 	function fmtNumber(n) {
 		if (typeof n !== 'number' || !isFinite(n)) return '0';
@@ -878,8 +950,13 @@ footer {
 		return header + chart + models;
 	}
 	function claudeCodeSection(view) {
+		// The caller only invokes this when the Claude Code ingester is
+		// live (i.e. view is defined). The 'disabled' case is handled
+		// by hiding the entire 'claude' tab in render; we still keep
+		// a defensive empty-string return so a stale render() call
+		// cannot accidentally render the string 'undefined' into the page.
+		if (!view) return '';
 		// Three layouts:
-		//   - 'disabled'      → thin banner with an "Open Settings" CTA.
 		//   - 'empty'         → friendly empty state with an
 		//                       "Open log folder" CTA in case the path
 		//                       is wrong.
@@ -887,18 +964,10 @@ footer {
 		//                       window cards, error banner when last
 		//                       poll failed, action row, daily chart,
 		//                       per-model table).
-		if (!view) {
-			return (
-				'<section data-source="claudeCode"><h2>' + escapeHtml(i18n.claudeCodeSectionTitle) + '</h2>' +
-				'<div class="banner">' + escapeHtml(i18n.claudeCodeDisabled) +
-				' <button class="link" data-action="claude-code-open-settings">' + escapeHtml(i18n.claudeCodeOpenSettingsBtn) + '</button>' +
-				'</div></section>'
-			);
-		}
 		const status = view.status;
 		if (status.state === 'empty') {
 			return (
-				'<section data-source="claudeCode"><h2>' + escapeHtml(i18n.claudeCodeSectionTitle) + '</h2>' +
+				'<section><h2>' + escapeHtml(i18n.claudeCodeSectionTitle) + '</h2>' +
 				'<p class="dim" style="margin: 0 0 10px;">' + escapeHtml(i18n.claudeCodeSubtitle) + '</p>' +
 				'<div class="banner">' + escapeHtml(i18n.claudeCodeEmpty) + '</div>' +
 				'<div class="mmx-actions" style="margin-top: 12px;">' +
@@ -910,7 +979,7 @@ footer {
 			? new Date(status.lastSyncAt).toLocaleString()
 			: i18n.claudeCodeNeverSynced;
 		const header =
-			'<section data-source="claudeCode"><h2>' + escapeHtml(i18n.claudeCodeSectionTitle) + '</h2>' +
+			'<section><h2>' + escapeHtml(i18n.claudeCodeSectionTitle) + '</h2>' +
 			'<p class="dim" style="margin: 0 0 10px;">' + escapeHtml(i18n.claudeCodeSubtitle) + '</p>' +
 			'<div class="kv"><span class="dim">' + escapeHtml(i18n.claudeCodeLastSync) + '</span>' +
 			'<span>' + escapeHtml(lastSyncText) + '</span></div>' +
@@ -1093,16 +1162,73 @@ footer {
 		);
 	}
 	function render(view) {
+		const tabs = computeVisibleTabs(view);
+		// If the active tab is no longer visible (e.g. the user disabled
+		// Claude Code mid-session), fall back to the first visible tab.
+		// 'total' is always the first entry from computeVisibleTabs, so
+		// this also covers the cold-start case.
+		let activeId = activeTab;
+		if (!tabs.some(function (t) { return t.id === activeId; })) {
+			activeId = tabs.length > 0 ? tabs[0].id : 'total';
+		}
+		activeTab = activeId;
+
+		// Banner sits above the tab bar so important platform warnings
+		// (e.g. "API key missing") stay visible regardless of which tab
+		// is active. The banner is part of the "总" concern semantically
+		// but is rendered once at the top of the dashboard so it works
+		// across every tab.
 		const banner = platformBanner(view.sources);
-		const plan = view.plan ? platformSection(view.plan) : '';
-		const local = view.local ? localSection(view.local) : '';
-		const claudeCode = claudeCodeSection(view.claudeCode);
-		const empty = emptyState(view.sources);
-		const mmx = mmxSection(view.mmxCli);
-		root.innerHTML = banner + plan + local + claudeCode + mmx + empty;
+
+		// Skip the tab bar entirely if only the "总" tab has data — the
+		// single-section layout reads better without a 1-tab nav.
+		const tabBar = tabs.length > 1
+			? '<nav class="tabs" role="tablist">' + renderTabsHtml(tabs) + '</nav>'
+			: '';
+
+		// Each visible tab is rendered as its own pane; inactive panes
+		// carry .hidden and are toggled by applyActiveTab. We still
+		// build the HTML for every visible pane (not just the active
+		// one) so that switching tabs is instant and scroll position
+		// within the page is preserved.
+		const totalPane =
+			'<div data-tab-pane="total">' +
+				(view.plan ? platformSection(view.plan) : '') +
+				localSection(view.local) +
+				mmxSection(view.mmxCli) +
+				emptyState(view.sources) +
+			'</div>';
+		const claudePane = (view.claudeCode && view.sources.claudeCode !== 'disabled')
+			? '<div data-tab-pane="claude">' + claudeCodeSection(view.claudeCode) + '</div>'
+			: '';
+		const copilotPane = view.copilot
+			? '<div data-tab-pane="copilot">' + escapeHtml('') + '</div>'
+			: '';
+		const codexPane = view.codex
+			? '<div data-tab-pane="codex">' + escapeHtml('') + '</div>'
+			: '';
+		const opencodePane = view.opencode
+			? '<div data-tab-pane="opencode">' + escapeHtml('') + '</div>'
+			: '';
+
+		root.innerHTML = banner + tabBar + totalPane + claudePane + copilotPane + codexPane + opencodePane;
+		applyActiveTab();
 		updatedStamp.textContent = i18n.fieldUpdated + ': ' + new Date().toLocaleTimeString();
 	}
 	document.addEventListener('click', function (event) {
+		// Tab clicks: switch the active pane and persist the choice in
+		// webview state. Checked before [data-action] so a future
+		// element with both attributes cannot get the wrong handler.
+		const tabEl = event.target.closest('[data-tab]');
+		if (tabEl) {
+			const id = tabEl.getAttribute('data-tab');
+			if (id && id !== activeTab) {
+				activeTab = id;
+				vscode.setState({ activeTab: id });
+				applyActiveTab();
+			}
+			return;
+		}
 		const target = event.target.closest('[data-action]');
 		if (!target) return;
 		const action = target.getAttribute('data-action');

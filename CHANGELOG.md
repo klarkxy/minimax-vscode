@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### UI
+
+- **Usage dashboard switched to a tab bar.** The previously-stacked
+  "MiniMax 用量面板" and "Claude Code 用量" sections are now
+  siblings under a single `<nav class="tabs" role="tablist">` with
+  `总 / copilot / claude / codex / opencode` labels. Tabs without a
+  backing data source are hidden entirely so users cannot click into
+  an empty pane. The active tab is persisted in the webview state
+  and survives a panel re-render or a dashboard close-and-reopen.
+  When only `总` has data the tab bar is omitted entirely, preserving
+  the previous single-section layout.
+
 ## 2.2.0 — README restyling, config unification, Claude Code JSONL ingest
 
 ### Documentation

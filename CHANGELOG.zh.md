@@ -2,6 +2,12 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 未发布
+
+### 界面
+
+- **用量看板改为页签形式。** 原来平铺堆叠的「MiniMax 用量面板」和「Claude Code 用量」两块，现在统一在 `<nav class="tabs" role="tablist">` 下，按 `总 / copilot / claude / codex / opencode` 顺序排列。**没有数据源的页签直接隐藏**，防止用户点进空白页签产生误解。当前激活的页签记到 webview state 里，刷新或关掉再开都会回到上次停留的位置。仅 `总` 有数据时不画页签栏，回退到原来的单 section 布局。
+
 ## 2.2.0 — README 重排、配置统一、用量看板接入 Claude Code JSONL
 
 ### 文档
