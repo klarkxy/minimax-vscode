@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.2.0 — README restyling, config unification, Claude Code JSONL ingest
 
 ### UI
 
@@ -26,8 +26,6 @@
   `18,234,290 3.3%` and overflowed the row now render as
   `18.23M 3.3%`. `fmtFull` is kept around for the day-axis hover
   tooltip on the bar chart, where full numbers are still useful.
-
-## 2.2.0 — README restyling, config unification, Claude Code JSONL ingest
 
 ### Documentation
 

@@ -2,15 +2,13 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
-## 未发布
+## 2.2.0 — README 重排、配置统一、用量看板接入 Claude Code JSONL
 
 ### 界面
 
 - **用量看板改为页签形式。** 原来平铺堆叠的「MiniMax 用量面板」和「Claude Code 用量」两块，现在统一在 `<nav class="tabs" role="tablist">` 下，按 `总 / copilot / claude / codex / opencode` 顺序排列。**没有数据源的页签直接隐藏**，防止用户点进空白页签产生误解。当前激活的页签记到 webview state 里，刷新或关掉再开都会回到上次停留的位置。仅 `总` 有数据时不画页签栏，回退到原来的单 section 布局。
 - **「总」页签改为所有来源的逐项求和。** 原先「本地 token 统计」改名为「copilot」页签，单独显示 Copilot Chat 的用量；「总」页签改读一个新增的 `view.total` 聚合字段，对 `copilot` + `claudeCode`（以及未来的 `codex` / `opencode`）做逐项求和，按模型按日期合并 `perModel` 与 `dailySeries`。只有单一来源时 `total === 该来源`（数值完全一致），所以单源场景视觉上没变化。
 - **数字用 K / M / B 单位显示。** 之前饼图图例和按模型表里 `18,234,290 3.3%` 这种数字会撑爆一行，现在显示成 `18.23M 3.3%`。柱状图悬浮提示里的「按日总量」仍保留完整数字（`fmtFull`），那里的精度更有用。
-
-## 2.2.0 — README 重排、配置统一、用量看板接入 Claude Code JSONL
 
 ### 文档
 
