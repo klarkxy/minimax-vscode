@@ -13,6 +13,19 @@
   and survives a panel re-render or a dashboard close-and-reopen.
   When only `总` has data the tab bar is omitted entirely, preserving
   the previous single-section layout.
+- **"总" tab is now the element-wise sum of every source.** The
+  local (Copilot Chat) data was renamed to the "copilot" tab; the
+  "总" tab reads from a fresh `view.total` aggregate that sums
+  `copilot` + `claudeCode` (+ future `codex` / `opencode`)
+  element-wise, with `perModel` and `dailySeries` merged by key.
+  When only one source is present `total === that source`
+  numerically, so the visual is unchanged for the common
+  single-source case.
+- **K / M / B suffix on the donut legend, the per-model table, and
+  the requests count.** Values that previously rendered as
+  `18,234,290 3.3%` and overflowed the row now render as
+  `18.23M 3.3%`. `fmtFull` is kept around for the day-axis hover
+  tooltip on the bar chart, where full numbers are still useful.
 
 ## 2.2.0 — README restyling, config unification, Claude Code JSONL ingest
 

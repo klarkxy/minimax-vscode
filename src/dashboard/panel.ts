@@ -765,10 +765,16 @@ footer {
 		}
 	}
 
+	// Compact formatter used in the donut centre, the legend, the
+	// per-model table, and anywhere else a number is shown to a
+	// human. Picks K (10^3) / M (10^6) / B (10^9) so values like
+	// 18,234,290 read as "18.23M" instead of overflowing the row.
 	function fmtNumber(n) {
 		if (typeof n !== 'number' || !isFinite(n)) return '0';
-		if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M';
-		if (n >= 1_000) return (n / 1_000).toFixed(1) + 'k';
+		const abs = Math.abs(n);
+		if (abs >= 1_000_000_000) return (n / 1_000_000_000).toFixed(2) + 'B';
+		if (abs >= 1_000_000) return (n / 1_000_000).toFixed(2) + 'M';
+		if (abs >= 1_000) return (n / 1_000).toFixed(1) + 'k';
 		return String(n);
 	}
 	function fmtFull(n) {
@@ -848,7 +854,7 @@ footer {
 			return '<li>' +
 				'<span class="dot" style="background:' + it.color + '"></span>' +
 				'<span class="lbl">' + escapeHtml(it.key) + '</span>' +
-				'<span class="val">' + fmtFull(it.value) +
+				'<span class="val">' + fmtNumber(it.value) +
 					'<span class="pct">' + pct + '%</span>' +
 				'</span>' +
 			'</li>';
@@ -866,7 +872,7 @@ footer {
 			'</div>' +
 			'<div class="kv kv-total">' +
 				'<span>' + escapeHtml(i18n.fieldRequests) + '</span>' +
-				'<span>' + fmtFull(usage.requests) + '</span>' +
+				'<span>' + fmtNumber(usage.requests) + '</span>' +
 			'</div></div>'
 		);
 	}
@@ -938,15 +944,19 @@ footer {
 		}
 		return '';
 	}
-	function localSection(local) {
-		const header = '<section data-source="local"><h2>' + escapeHtml(i18n.localSectionTitle) + '</h2>' +
+	// Renders a generic per-source tab body: header + 3 window cards +
+	// daily chart + per-model table. Used for both the "总" tab (with
+	// view.total as the source) and the per-source tabs like
+	// "copilot" (with view.copilot).
+	function sourceSection(title, source) {
+		const header = '<section><h2>' + escapeHtml(title) + '</h2>' +
 			'<div class="grid grid-3">' +
-				localCard(i18n.windowToday, local.today) +
-				localCard(i18n.window7d, local.sevenDay) +
-				localCard(i18n.window30d, local.thirtyDay) +
+				localCard(i18n.windowToday, source.today) +
+				localCard(i18n.window7d, source.sevenDay) +
+				localCard(i18n.window30d, source.thirtyDay) +
 			'</div></section>';
-		const chart = chartSection(local.dailySeries);
-		const models = modelTable(local.perModel);
+		const chart = chartSection(source.dailySeries);
+		const models = modelTable(source.perModel);
 		return header + chart + models;
 	}
 	function claudeCodeSection(view) {
@@ -1039,11 +1049,11 @@ footer {
 		const rows = perModel.map(function (row) {
 			const u = row.usage;
 			return '<tr><td><span class="model-tag">' + escapeHtml(row.modelId) + '</span></td>' +
-				'<td class="right">' + fmtFull(u.inputTokens) + '</td>' +
-				'<td class="right">' + fmtFull(u.cacheReadTokens) + '</td>' +
-				'<td class="right">' + fmtFull(u.cacheWriteTokens) + '</td>' +
-				'<td class="right">' + fmtFull(u.outputTokens) + '</td>' +
-				'<td class="right">' + fmtFull(u.requests) + '</td></tr>';
+				'<td class="right">' + fmtNumber(u.inputTokens) + '</td>' +
+				'<td class="right">' + fmtNumber(u.cacheReadTokens) + '</td>' +
+				'<td class="right">' + fmtNumber(u.cacheWriteTokens) + '</td>' +
+				'<td class="right">' + fmtNumber(u.outputTokens) + '</td>' +
+				'<td class="right">' + fmtNumber(u.requests) + '</td></tr>';
 		}).join('');
 		return (
 			'<section><h2>' + escapeHtml(i18n.perModelTitle) + '</h2>' +
@@ -1191,10 +1201,16 @@ footer {
 		// build the HTML for every visible pane (not just the active
 		// one) so that switching tabs is instant and scroll position
 		// within the page is preserved.
+		//
+		// The "总" pane composes the platform plan + the aggregate
+		// SourceView + mmx-cli status. Each per-source pane (copilot,
+		// claude, codex, opencode) is a self-contained view of that
+		// source's data, with no Token Plan or mmx-cli (those are
+		// account-level / system-level, not per-source).
 		const totalPane =
 			'<div data-tab-pane="total">' +
 				(view.plan ? platformSection(view.plan) : '') +
-				localSection(view.local) +
+				sourceSection(i18n.totalSectionTitle, view.total) +
 				mmxSection(view.mmxCli) +
 				emptyState(view.sources) +
 			'</div>';
@@ -1202,7 +1218,9 @@ footer {
 			? '<div data-tab-pane="claude">' + claudeCodeSection(view.claudeCode) + '</div>'
 			: '';
 		const copilotPane = view.copilot
-			? '<div data-tab-pane="copilot">' + escapeHtml('') + '</div>'
+			? '<div data-tab-pane="copilot">' +
+				sourceSection(i18n.copilotSectionTitle, view.copilot) +
+			'</div>'
 			: '';
 		const codexPane = view.codex
 			? '<div data-tab-pane="codex">' + escapeHtml('') + '</div>'

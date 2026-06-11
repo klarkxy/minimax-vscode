@@ -1,12 +1,14 @@
-// Aggregator: stitches local usage accounting with the (optional)
-// platform coding-plan response and the Claude Code JSONL ingest into
-// a single `DashboardView`.
+// Aggregator: stitches local Copilot-Chat usage accounting with the
+// (optional) platform coding-plan response and the Claude Code JSONL
+// ingest into a single `DashboardView`. The view carries per-source
+// tabs (`copilot`, `claudeCode`, ...) and a `total` field that is the
+// element-wise sum of every available source.
 
 import { createUsageStore, type ModelUsage, type UsageStore } from '../usage';
 import { fetchPlanUsage, type PlanApiOptions, type PlanApiResult } from './api';
 import { readMmxCliStatus, type MmxCliStatus } from './mmxCli';
 import type { ClaudeCodeIngestHandle } from './claudeCodeIngest';
-import type { ClaudeCodeView, DashboardView, PlanUsage } from './types';
+import type { ClaudeCodeView, DashboardView, PlanUsage, SourceView } from './types';
 
 export interface AggregatorOptions {
 	store: UsageStore;
@@ -126,16 +128,18 @@ export function createPlanCache(): PlanCache {
 }
 
 /**
- * Build the local portion of the dashboard view from the usage store.
+ * Build the Copilot-Chat portion of the dashboard view from the usage
+ * store. Always present — the local store is created at extension
+ * activation. The returned shape matches `SourceView` so the
+ * dashboard's chart / table helpers work for both the per-source
+ * tabs and the aggregate "总" tab.
  */
-function buildLocalView(store: UsageStore): DashboardView['local'] {
-	const stats = store.read();
+function buildCopilotView(store: UsageStore): SourceView {
 	return {
-		stats,
 		today: store.readToday(),
 		sevenDay: store.readRange(7),
 		thirtyDay: store.readRange(30),
-		perModel: Object.entries(stats.byModel)
+		perModel: Object.entries(store.read().byModel)
 			.map(([modelId, usage]) => ({ modelId, usage }))
 			.sort((a, b) => b.usage.requests - a.usage.requests),
 		dailySeries: store.readDailySeries(30),
@@ -144,9 +148,9 @@ function buildLocalView(store: UsageStore): DashboardView['local'] {
 
 /**
  * Build the Claude Code portion of the dashboard view. Returns
- * `undefined` when no ingester is running — the dashboard substitutes
- * a banner in that case. The returned shape mirrors `buildLocalView`
- * so the renderer can use the same chart/table helpers.
+ * `undefined` when no ingester is running — the "claude" tab is hidden
+ * in that case. The returned shape extends `SourceView` so the
+ * dashboard can use the same chart/table helpers plus the status row.
  */
 function buildClaudeCodeView(
 	handle: ClaudeCodeIngestHandle | undefined,
@@ -167,6 +171,87 @@ function buildClaudeCodeView(
 	};
 }
 
+/** Add two `ModelUsage` buckets element-wise. */
+function addUsage(a: ModelUsage, b: ModelUsage): ModelUsage {
+	return {
+		inputTokens: a.inputTokens + b.inputTokens,
+		cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+		cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
+		outputTokens: a.outputTokens + b.outputTokens,
+		requests: a.requests + b.requests,
+	};
+}
+
+const EMPTY_USAGE: ModelUsage = {
+	inputTokens: 0,
+	cacheReadTokens: 0,
+	cacheWriteTokens: 0,
+	outputTokens: 0,
+	requests: 0,
+};
+
+/**
+ * Sum a list of per-source views into a single aggregate. Used for
+ * the "总" tab so a user with N source tabs sees a single set of
+ * all-in totals without having to add the tabs themselves.
+ *
+ * Aggregation rules:
+ *   - `today` / `sevenDay` / `thirtyDay` are summed element-wise.
+ *   - `perModel` entries are merged by `modelId` (the same model used
+ *     by two sources still shows up as one row).
+ *   - `dailySeries` is merged by date and re-sorted ascending.
+ *
+ * Returns an empty `SourceView` when no sources are passed.
+ */
+function aggregateSourceViews(views: SourceView[]): SourceView {
+	if (views.length === 0) {
+		return {
+			today: { ...EMPTY_USAGE },
+			sevenDay: { ...EMPTY_USAGE },
+			thirtyDay: { ...EMPTY_USAGE },
+			perModel: [],
+			dailySeries: [],
+		};
+	}
+	const today = views.reduce<ModelUsage>(
+		(acc, v) => addUsage(acc, v.today),
+		{ ...EMPTY_USAGE },
+	);
+	const sevenDay = views.reduce<ModelUsage>(
+		(acc, v) => addUsage(acc, v.sevenDay),
+		{ ...EMPTY_USAGE },
+	);
+	const thirtyDay = views.reduce<ModelUsage>(
+		(acc, v) => addUsage(acc, v.thirtyDay),
+		{ ...EMPTY_USAGE },
+	);
+	const perModel = new Map<string, ModelUsage>();
+	for (const v of views) {
+		for (const row of v.perModel) {
+			const existing = perModel.get(row.modelId) ?? { ...EMPTY_USAGE };
+			perModel.set(row.modelId, addUsage(existing, row.usage));
+		}
+	}
+	const dailySeries = new Map<string, ModelUsage>();
+	for (const v of views) {
+		for (const row of v.dailySeries) {
+			const existing = dailySeries.get(row.date) ?? { ...EMPTY_USAGE };
+			dailySeries.set(row.date, addUsage(existing, row.usage));
+		}
+	}
+	return {
+		today,
+		sevenDay,
+		thirtyDay,
+		perModel: Array.from(perModel.entries())
+			.map(([modelId, usage]) => ({ modelId, usage }))
+			.sort((a, b) => b.usage.requests - a.usage.requests),
+		dailySeries: Array.from(dailySeries.entries())
+			.map(([date, usage]) => ({ date, usage }))
+			.sort((a, b) => a.date.localeCompare(b.date)),
+	};
+}
+
 export function buildCachedDashboardView(options: {
 	store: UsageStore;
 	planSnapshot?: PlanSnapshot;
@@ -175,17 +260,21 @@ export function buildCachedDashboardView(options: {
 	mmxCli?: MmxCliStatus;
 	claudeCodeIngest?: ClaudeCodeIngestHandle;
 }): DashboardView {
-	const localView = buildLocalView(options.store);
+	const copilotView = buildCopilotView(options.store);
 	const claudeCode = buildClaudeCodeView(options.claudeCodeIngest);
+	const sourceViews: SourceView[] = [copilotView];
+	if (claudeCode) sourceViews.push(claudeCode);
+	const total = aggregateSourceViews(sourceViews);
 	return {
 		sources: {
-			local: localView.stats.total.requests === 0 ? 'empty' : 'ok',
+			copilot: copilotView.today.requests === 0 && copilotView.sevenDay.requests === 0 ? 'empty' : 'ok',
 			claudeCode: claudeCode?.status.state ?? 'disabled',
 			claudeCodeError: claudeCode?.status.lastError ?? undefined,
 			plan: options.planSource,
 			planError: options.planError,
 		},
-		local: localView,
+		total,
+		copilot: copilotView,
 		claudeCode,
 		plan: options.planSnapshot?.usage,
 		mmxCli: options.mmxCli ?? {
@@ -206,10 +295,13 @@ export function buildCachedDashboardView(options: {
 export async function buildDashboardView(
 	options: AggregatorOptions,
 ): Promise<DashboardView> {
-	const localView = buildLocalView(options.store);
-	const localSource: DashboardView['sources']['local'] =
-		localView.stats.total.requests === 0 ? 'empty' : 'ok';
+	const copilotView = buildCopilotView(options.store);
+	const copilotSource: DashboardView['sources']['copilot'] =
+		copilotView.today.requests === 0 && copilotView.sevenDay.requests === 0 ? 'empty' : 'ok';
 	const claudeCode = buildClaudeCodeView(options.claudeCodeIngest);
+	const sourceViews: SourceView[] = [copilotView];
+	if (claudeCode) sourceViews.push(claudeCode);
+	const total = aggregateSourceViews(sourceViews);
 
 	let planSection: PlanUsage | undefined;
 	let planSource: DashboardView['sources']['plan'] = 'unsupported';
@@ -229,12 +321,13 @@ export async function buildDashboardView(
 		const mmxStatus: MmxCliStatus = options.mmxCliStatus ?? (await mmxPromise);
 		return {
 			sources: {
-				local: localSource,
+				copilot: copilotSource,
 				claudeCode: claudeCode?.status.state ?? 'disabled',
 				claudeCodeError: claudeCode?.status.lastError ?? undefined,
 				plan: planSource,
 			},
-			local: localView,
+			total,
+			copilot: copilotView,
 			claudeCode,
 			mmxCli: mmxStatus,
 		};
@@ -265,13 +358,14 @@ export async function buildDashboardView(
 
 	const view: DashboardView = {
 		sources: {
-			local: localSource,
+			copilot: copilotSource,
 			claudeCode: claudeCode?.status.state ?? 'disabled',
 			claudeCodeError: claudeCode?.status.lastError ?? undefined,
 			plan: planSource,
 			planError,
 		},
-		local: localView,
+		total,
+		copilot: copilotView,
 		claudeCode,
 		mmxCli: options.mmxCliStatus ?? mmxStatus,
 	};

@@ -2,10 +2,17 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as fsp from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 import { fetchPlanUsage } from '../src/dashboard/api.js';
 import { buildDashboardView, totalTokens, totalNetTokens, createPlanCache } from '../src/dashboard/aggregator.js';
 import { createChatTurnNotifier } from '../src/dashboard/chatTurnNotifier.js';
+import {
+	createClaudeCodeIngest,
+	type FileSystemLike,
+} from '../src/dashboard/claudeCodeIngest.js';
 import { createUsageStore } from '../src/usage.js';
 import { dashboardMessages, pickDashboardLocale } from '../src/dashboard/messages.js';
 
@@ -220,15 +227,19 @@ test('fetchPlanUsage: caches the response for cacheTtlMs', async () => {
 
 // --- buildDashboardView --------------------------------------------------
 
-test('buildDashboardView: empty store shows local=empty, no plan', async () => {
+test('buildDashboardView: empty store shows copilot=empty, no plan', async () => {
 	const store = createUsageStore(new FakeMemento());
 	const view = await buildDashboardView({ store, platform: null });
-	assert.equal(view.sources.local, 'empty');
+	assert.equal(view.sources.copilot, 'empty');
 	assert.equal(view.sources.plan, 'unconfigured');
-	assert.equal(view.local.today.requests, 0);
-	assert.equal(view.local.sevenDay.inputTokens, 0);
-	assert.equal(view.local.thirtyDay.requests, 0);
-	assert.equal(view.local.dailySeries.length, 30);
+	assert.equal(view.copilot.today.requests, 0);
+	assert.equal(view.copilot.sevenDay.inputTokens, 0);
+	assert.equal(view.copilot.thirtyDay.requests, 0);
+	assert.equal(view.copilot.dailySeries.length, 30);
+	// With no per-source data the aggregate "总" tab should mirror
+	// the copilot view (single-source aggregate = source itself).
+	assert.equal(view.total.today.requests, 0);
+	assert.equal(view.total.dailySeries.length, 30);
 	assert.equal(view.plan, undefined);
 	// mmx-cli status is always present (the dashboard renders it
 	// unconditionally). In the test sandbox the binary is not on
@@ -252,17 +263,23 @@ test('buildDashboardView: populates per-model and daily buckets', async () => {
 	await store.record('MiniMax-M2.7', { inputTokens: 30, outputTokens: 15 });
 
 	const view = await buildDashboardView({ store, platform: null });
-	assert.equal(view.sources.local, 'ok');
-	assert.equal(view.local.today.requests, 3);
-	assert.equal(view.local.today.inputTokens, 180);
-	assert.equal(view.local.today.cacheReadTokens, 10);
-	assert.equal(view.local.today.cacheWriteTokens, 5);
-	assert.equal(view.local.today.outputTokens, 80);
-	assert.equal(view.local.sevenDay.requests, 3);
-	assert.equal(view.local.thirtyDay.requests, 3);
-	assert.equal(view.local.perModel.length, 2);
-	assert.equal(view.local.perModel[0]!.modelId, 'MiniMax-M3');
-	assert.equal(view.local.perModel[0]!.usage.requests, 2);
+	assert.equal(view.sources.copilot, 'ok');
+	assert.equal(view.copilot.today.requests, 3);
+	assert.equal(view.copilot.today.inputTokens, 180);
+	assert.equal(view.copilot.today.cacheReadTokens, 10);
+	assert.equal(view.copilot.today.cacheWriteTokens, 5);
+	assert.equal(view.copilot.today.outputTokens, 80);
+	assert.equal(view.copilot.sevenDay.requests, 3);
+	assert.equal(view.copilot.thirtyDay.requests, 3);
+	assert.equal(view.copilot.perModel.length, 2);
+	assert.equal(view.copilot.perModel[0]!.modelId, 'MiniMax-M3');
+	assert.equal(view.copilot.perModel[0]!.usage.requests, 2);
+	// With only one source the aggregate is numerically identical.
+	assert.equal(view.total.today.requests, 3);
+	assert.equal(view.total.today.inputTokens, 180);
+	assert.equal(view.total.perModel.length, 2);
+	assert.equal(view.total.perModel[0]!.modelId, 'MiniMax-M3');
+	assert.equal(view.total.perModel[0]!.usage.requests, 2);
 });
 
 test('buildDashboardView: includes plan when platform call succeeds', async () => {
@@ -377,6 +394,117 @@ test('buildDashboardView: mmxCliStatus short-circuits readMmxCliStatus', async (
 	assert.equal(view.mmxCli.install, 'installed');
 	assert.equal(view.mmxCli.version, '1.2.3');
 	assert.equal(view.mmxCli.agentReady, true);
+});
+
+// --- aggregate "总" across copilot + claude -------------------------------
+
+/** Minimal Claude Code assistant-line builder, modelled after the helper
+ *  in `claudeCodeIngest.test.ts`. Kept local to avoid coupling. */
+function ccAssistantLine(opts: {
+	model: string;
+	ts: string;
+	input: number;
+	output: number;
+	cacheCreate?: number;
+	cacheRead?: number;
+	messageId?: string;
+}): string {
+	return JSON.stringify({
+		type: 'assistant',
+		uuid: 'uuid-' + Math.random().toString(36).slice(2),
+		sessionId: 'sess-1',
+		timestamp: opts.ts,
+		message: {
+			id: opts.messageId ?? 'msg_' + Math.random().toString(36).slice(2),
+			model: opts.model,
+			role: 'assistant',
+			content: [{ type: 'text', text: 'hi' }],
+			usage: {
+				input_tokens: opts.input,
+				output_tokens: opts.output,
+				cache_creation_input_tokens: opts.cacheCreate ?? 0,
+				cache_read_input_tokens: opts.cacheRead ?? 0,
+			},
+		},
+	});
+}
+function realFs(rootDir: string): FileSystemLike {
+	return {
+		readFile: (p, e) => fsp.readFile(p, e),
+		stat: async (p) => {
+			const s = await fsp.stat(p);
+			return { size: s.size, mtimeMs: s.mtimeMs };
+		},
+		readdir: (p, o) => fsp.readdir(p, o),
+	};
+}
+
+test('buildDashboardView: total = element-wise sum of copilot + claudeCode', async () => {
+	// Use a temp directory for the Claude Code JSONL so the ingester's
+	// `fs.createReadStream` can open a real file.
+	const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'dashboard-agg-test-'));
+	try {
+		// Bucket both claude-code and local-store lines under today's
+		// local date so the per-window (today) aggregation is
+		// exercised; otherwise `readToday()` would return 0 and the
+		// sum assertion would degenerate to the copilot value alone.
+		const now = new Date();
+		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 0, 0);
+		const todayTs = today.toISOString();
+
+		// Two claude-code lines on the same model so perModel
+		// merging is exercised after aggregation.
+		await fsp.writeFile(
+			path.join(dir, 's.jsonl'),
+			ccAssistantLine({ model: 'claude-opus-4', ts: todayTs, input: 200, output: 80, messageId: 'a' }) + '\n' +
+			ccAssistantLine({ model: 'claude-opus-4', ts: todayTs, input: 50, output: 20, messageId: 'b' }) + '\n',
+		);
+		const claudeIngest = createClaudeCodeIngest({
+			globalState: new FakeMemento(),
+			logPath: dir,
+			pollIntervalMs: 60_000,
+			fs: realFs(dir),
+		});
+		await claudeIngest.refresh();
+
+		const store = createUsageStore(new FakeMemento());
+		// One local-store line on a different model, so perModel has
+		// two distinct entries after aggregation.
+		await store.record('MiniMax-M3', { inputTokens: 100, outputTokens: 40, cacheReadTokens: 5 });
+
+		const view = await buildDashboardView({
+			store,
+			platform: null,
+			claudeCodeIngest: claudeIngest,
+		});
+
+		// Per-source assertions first.
+		assert.equal(view.copilot.today.requests, 1);
+		assert.equal(view.copilot.today.inputTokens, 100);
+		assert.ok(view.claudeCode, 'claudeCode should be present');
+		assert.equal(view.claudeCode!.today.requests, 2);
+		assert.equal(view.claudeCode!.today.inputTokens, 250);
+		assert.equal(view.claudeCode!.today.outputTokens, 100);
+
+		// Aggregate assertions — the heart of the "总" tab.
+		assert.equal(view.total.today.requests, 3, 'copilot + claude requests');
+		assert.equal(view.total.today.inputTokens, 350, 'copilot + claude input');
+		assert.equal(view.total.today.outputTokens, 140, 'copilot + claude output');
+		assert.equal(view.total.today.cacheReadTokens, 5);
+
+		// perModel merging: two distinct model rows after merge.
+		assert.equal(view.total.perModel.length, 2);
+		const modelIds = view.total.perModel.map((r) => r.modelId).sort();
+		assert.deepEqual(modelIds, ['MiniMax-M3', 'claude-opus-4']);
+		// claude-opus-4 entry: 2 requests, 250 input.
+		const opus = view.total.perModel.find((r) => r.modelId === 'claude-opus-4')!;
+		assert.equal(opus.usage.requests, 2);
+		assert.equal(opus.usage.inputTokens, 250);
+
+		claudeIngest.dispose();
+	} finally {
+		await fsp.rm(dir, { recursive: true, force: true });
+	}
 });
 
 // --- totalTokens helper --------------------------------------------------

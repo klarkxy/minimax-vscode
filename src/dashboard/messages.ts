@@ -17,6 +17,12 @@ export interface DashboardMessages {
 	resetDone: string;
 	planSectionTitle: string;
 	localSectionTitle: string;
+	/** Section title for the aggregate "总" tab — sum of every
+	 *  available token source. */
+	totalSectionTitle: string;
+	/** Section title for the "copilot" tab — the extension's own
+	 *  Copilot-Chat token accounting. */
+	copilotSectionTitle: string;
 	perModelTitle: string;
 	dailyChartTitle: string;
 	noLocalData: string;
@@ -103,6 +109,8 @@ const en: DashboardMessages = {
 	resetDone: 'Local token counters have been reset.',
 	planSectionTitle: 'Token Plan (platform)',
 	localSectionTitle: 'Local token usage',
+	totalSectionTitle: 'Total token usage',
+	copilotSectionTitle: 'Copilot Chat usage',
 	perModelTitle: 'Per-model breakdown',
 	dailyChartTitle: 'Last 30 days',
 	noLocalData: 'No requests have been recorded yet. Send a message from Copilot Chat using a MiniMax model and the counters will fill in.',
@@ -191,6 +199,8 @@ const zh: DashboardMessages = {
 	resetDone: '本地 token 计数器已清空。',
 	planSectionTitle: 'Token Plan（平台）',
 	localSectionTitle: '本地 token 统计',
+	totalSectionTitle: '总用量（所有来源）',
+	copilotSectionTitle: 'Copilot Chat 用量',
 	perModelTitle: '按模型拆分',
 	dailyChartTitle: '近 30 日',
 	noLocalData: '暂无请求记录。在 Copilot Chat 中选用 MiniMax 模型并发送消息，计数器会自动累计。',
