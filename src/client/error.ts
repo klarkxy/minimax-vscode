@@ -1,5 +1,9 @@
 import { t } from '../i18n';
-import { resolvePlatformHost } from '../consts';
+import {
+	PLATFORM_URL_CHINA,
+	PLATFORM_URL_GLOBAL,
+	resolvePlatformHost,
+} from '../consts';
 import {
 	MAX_DIAGNOSTIC_FIELD_LENGTH,
 	NETWORK_ERROR_CATEGORY_BY_CODE,
@@ -101,7 +105,11 @@ export async function createHttpError(
 	const responseText = await response.text();
 	const server = extractServerError(responseText);
 	const userSummary = getHttpErrorMessage(response.status, {
-		host: resolvePlatformHost(baseUrl),
+		// Coerce `null` to `''` (not `undefined`) so the `{1}` slot in
+		// the i18n template renders as an empty pair of parens instead
+		// of the literal "null" — `formatTemplate` would otherwise call
+		// `String(null)` and the user would see "(null)" in the toast.
+		host: resolvePlatformHost(baseUrl) ?? '',
 		upstream: formatUpstreamDetail(server),
 	});
 	const diagnosticMessage = joinDiagnosticParts(
@@ -444,24 +452,39 @@ function getHttpErrorLink(
 	key: HttpErrorLinkStatusKey,
 	baseUrl: string,
 ): ErrorActionLink | undefined {
-	// Resolve the platform host from the configured base URL. Falls
-	// back to the China host when the base URL is empty or unrecognised,
-	// which matches the `minimax.apiBaseUrl` default in `package.json`.
-	// The previous implementation hard-coded `api.minimaxi.com`, so an
-	// international user with a 401/402 landed on the China platform
-	// (issue #2).
+	// Resolve the platform host from the configured base URL. The
+	// `PLATFORM_URL_*` constants are the *user-facing* platform
+	// hostnames (`platform.minimax.io` / `platform.minimaxi.com`) —
+	// note the `platform.` prefix. The previous implementation pasted
+	// the *API* hostname (`api.minimax.io`) into the `platform.*`
+	// template, which produced the invalid hostname
+	// `platform.api.minimax.io` for international users. Now the two
+	// namespaces are explicit.
+	//
+	// When the configured URL is a third-party proxy (or empty /
+	// unrecognised), `resolvePlatformHost` returns `null` and we
+	// return `undefined` — the 401/402 falls through to the
+	// diagnostic-only actions (no broken link, and the user's proxy
+	// key is never sent to a MiniMax endpoint via the dashboard's
+	// `fetchPlanUsage` either; see `dashboard/api.ts`).
 	const host = resolvePlatformHost(baseUrl);
-	if (key === 401) {
-		return {
-			labelKey: 'error.action.setApiKey',
-			url: `https://platform.${host}/user-center/payment/token-plan`,
-		};
+	if (host === 'api.minimaxi.com') {
+		const url = `${PLATFORM_URL_CHINA}/user-center/payment/token-plan`;
+		if (key === 401) {
+			return { labelKey: 'error.action.setApiKey', url };
+		}
+		if (key === 402) {
+			return { labelKey: 'error.action.createApiKey', url };
+		}
 	}
-	if (key === 402) {
-		return {
-			labelKey: 'error.action.createApiKey',
-			url: `https://${host}`,
-		};
+	if (host === 'api.minimax.io') {
+		const url = `${PLATFORM_URL_GLOBAL}/user-center/payment/token-plan`;
+		if (key === 401) {
+			return { labelKey: 'error.action.setApiKey', url };
+		}
+		if (key === 402) {
+			return { labelKey: 'error.action.createApiKey', url };
+		}
 	}
 	return undefined;
 }

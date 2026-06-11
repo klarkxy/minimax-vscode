@@ -95,12 +95,17 @@ test('createUserFacingError: MiniMaxRequestError gets a Markdown summary without
 	// literal `\\` characters between the summary and the action links,
 	// which rendered as two backslashes in the chat. The fix uses a
 	// single newline.
+	//
+	// The base URL is a recognised MiniMax international endpoint so
+	// the action link is rendered (an unrecognised URL now suppresses
+	// the platform link entirely — see the "third-party proxy → no
+	// platform link" test).
 	const err = new MiniMaxRequestError({
 		message: 'HTTP 401',
 		userSummary: 'MiniMax API request failed with HTTP 401',
 		kind: 'http',
 		status: 401,
-		baseUrl: 'https://api.example.com',
+		baseUrl: 'https://api.minimax.io/anthropic',
 	});
 	const display = createUserFacingError(err);
 	// No literal double-backslash in the user-facing string.
@@ -242,7 +247,12 @@ test('createHttpError: action-button host follows the configured baseUrl', async
 	// The 401/402 "Create API Key" / "Set API Key" action buttons used
 	// to always point at platform.minimaxi.com — sending international
 	// users to the China platform. After the fix, the host follows
-	// the configured `minimax.apiBaseUrl`.
+	// the configured `minimax.apiBaseUrl`, AND the URL is the real
+	// *platform* host (`platform.minimax.io`, not `api.minimax.io`).
+	// The previous fix shipped a regression that produced
+	// `https://platform.api.minimax.io/...` — an invalid hostname —
+	// because the API host was being pasted into the platform URL
+	// template. This test pins the corrected URL exactly.
 	const body = JSON.stringify({
 		type: 'error',
 		error: { type: 'insufficient_balance_error', message: 'oops' },
@@ -252,13 +262,145 @@ test('createHttpError: action-button host follows the configured baseUrl', async
 		'https://api.minimax.io/anthropic',
 	);
 	const display = createUserFacingError(err402);
+	// The exact platform URL the user is sent to. The /user-center/
+	// payment/token-plan suffix is the same on both regions.
+	assert.match(
+		display.message,
+		/https:\/\/platform\.minimax\.io\/user-center\/payment\/token-plan/,
+		`expected the 402 action link to point at platform.minimax.io, got: ${display.message}`,
+	);
+	// And the regression we shipped before must NOT appear:
+	// `https://platform.api.minimax.io` was the invalid hostname.
 	assert.ok(
-		display.message.includes('https://api.minimax.io') ||
-			display.message.includes('https://platform.minimax.io'),
-		`expected the 402 action link to point at the international host, got: ${display.message}`,
+		!display.message.includes('platform.api.minimax.io'),
+		`expected no platform.api.minimax.io (invalid hostname) in toast, got: ${display.message}`,
+	);
+	// The bare API host is fine to mention in the toast TEXT (the i18n
+	// template's `{1}` placeholder), but it must not appear as a URL.
+	assert.ok(
+		!display.message.includes('https://api.minimax.io'),
+		`expected the toast not to link to the API host, got: ${display.message}`,
+	);
+});
+
+test('createHttpError: 401 China action link points at platform.minimaxi.com', async () => {
+	// Pinned regression test: the China user's "Set API Key" button
+	// must open `platform.minimaxi.com`, NOT the invalid
+	// `platform.api.minimaxi.com` (the broken URL the previous fix
+	// produced) and NOT the international `platform.minimax.io`.
+	const err = await createHttpError(
+		makeResponse(401, '{"error":{"message":"bad key"}}'),
+		'https://api.minimaxi.com/anthropic',
+	);
+	const display = createUserFacingError(err);
+	assert.match(
+		display.message,
+		/https:\/\/platform\.minimaxi\.com\/user-center\/payment\/token-plan/,
+		`expected China 401 link to be platform.minimaxi.com, got: ${display.message}`,
+	);
+	assert.ok(
+		!display.message.includes('platform.minimaxi.io'),
+		`China 401 must not link to international platform, got: ${display.message}`,
+	);
+	assert.ok(
+		!display.message.includes('platform.api.minimaxi.com'),
+		`China 401 must not have the broken api-prefixed hostname, got: ${display.message}`,
+	);
+});
+
+test('createHttpError: 401 Global action link points at platform.minimax.io', async () => {
+	// Pinned regression test: the international user's "Set API Key"
+	// button must open `platform.minimax.io`, NOT the broken
+	// `platform.api.minimax.io` that the previous fix produced.
+	const err = await createHttpError(
+		makeResponse(401, '{"error":{"message":"bad key"}}'),
+		'https://api.minimax.io/anthropic',
+	);
+	const display = createUserFacingError(err);
+	assert.match(
+		display.message,
+		/https:\/\/platform\.minimax\.io\/user-center\/payment\/token-plan/,
+		`expected Global 401 link to be platform.minimax.io, got: ${display.message}`,
+	);
+	assert.ok(
+		!display.message.includes('platform.api.minimax.io'),
+		`Global 401 must not have the broken api-prefixed hostname, got: ${display.message}`,
 	);
 	assert.ok(
 		!display.message.includes('minimaxi.com'),
-		`expected no China host in the international 402 toast, got: ${display.message}`,
+		`Global 401 must not link to the China platform, got: ${display.message}`,
 	);
+});
+
+test('createHttpError: third-party proxy → no platform link in the toast', async () => {
+	// A user pointing `minimax.apiBaseUrl` at a third-party Anthropic-
+	// compatible proxy (e.g. a self-hosted gateway) must NOT see a
+	// "Set API Key" / "Create API Key" button — the button would
+	// either send them to the wrong platform or (worse) anchor the
+	// action on a hostname that's not their real platform. The
+	// 401/402 still renders the diagnostic-only actions (e.g. "View
+	// error details") via `errorActionUrlStore` if configured, but
+	// no platform URL is generated from the proxy base URL.
+	const err = await createHttpError(
+		makeResponse(401, '{"error":{"message":"bad key"}}'),
+		'https://my-proxy.example.com/anthropic',
+	);
+	const display = createUserFacingError(err);
+	assert.ok(
+		!display.message.includes('my-proxy.example.com'),
+		`proxy URL must not appear in the toast, got: ${display.message}`,
+	);
+	assert.ok(
+		!display.message.includes('Set API Key'),
+		`no "Set API Key" button for proxy users, got: ${display.message}`,
+	);
+	assert.ok(
+		!display.message.includes('Create API Key'),
+		`no "Create API Key" button for proxy users, got: ${display.message}`,
+	);
+	assert.ok(
+		!display.message.includes('platform.minimaxi.com') &&
+			!display.message.includes('platform.minimax.io'),
+		`no platform URL must appear for proxy users, got: ${display.message}`,
+	);
+	// The userSummary goes through the i18n `{1}` placeholder which
+	// is fed the resolved host. For proxy users the implementation
+	// coerces `null` → `''` so the slot renders as empty parens,
+	// not the literal string "null" (which `i18n.formatTemplate`
+	// would otherwise stringify via `String(null)`). Pin both the
+	// raw userSummary and the rendered display.message to enforce
+	// the no-literal-"null" contract.
+	assert.ok(
+		!err.userSummary.includes('null'),
+		`userSummary must not render literal "null", got: ${err.userSummary}`,
+	);
+	assert.ok(
+		!display.message.includes('null'),
+		`display.message must not render literal "null", got: ${display.message}`,
+	);
+});
+
+test('createHttpError: 401/402 userSummary never contains literal "null" for any host', async () => {
+	// Pin the inverse side: for China and global hosts the userSummary
+	// mentions the host, but it must not render the string "null"
+	// anywhere — this is a regression guard for the `null → ''`
+	// coercion in `createHttpError`. The `formatTemplate` helper
+	// would otherwise stringify `String(null)` = "null" if a future
+	// refactor drops the coercion.
+	for (const baseUrl of [
+		'https://api.minimaxi.com/anthropic',
+		'https://api.minimax.io/anthropic',
+		'https://my-proxy.example.com/anthropic',
+	]) {
+		for (const status of [401, 402]) {
+			const err = await createHttpError(
+				makeResponse(status, '{"error":{"message":"x"}}'),
+				baseUrl,
+			);
+			assert.ok(
+				!err.userSummary.includes('null'),
+				`${status} for ${baseUrl} must not render literal "null", got: ${err.userSummary}`,
+			);
+		}
+	}
 });

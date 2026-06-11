@@ -135,6 +135,12 @@ function pulsePlanCache(): void {
 	void refreshPlanKeyState();
 }
 
+/** Last host we fed into the PlanCache. Used to decide whether the
+ *  current pulse is a host change (in which case we MUST NOT
+ *  auto-warm the cache with the previously-issued key — see the
+ *  [high] finding from Codex's second adversarial review). */
+let lastPulsedHost: 'china' | 'global' | null | undefined = undefined;
+
 /** Mirror the current auth state into the plan status bar. */
 async function refreshPlanKeyState(): Promise<void> {
 	if (!cachedAuth || !cachedPlanStatusBar) return;
@@ -142,8 +148,28 @@ async function refreshPlanKeyState(): Promise<void> {
 	cachedPlanStatusBar.setKeyState(key ? 'set' : 'unset');
 	if (key) {
 		// Best-effort warm-up; the dashboard will reuse the same snapshot.
-		void getPlanCache().refresh({ apiKey: key, host: detectHost() });
+		// The host-classifier and PlanCache short-circuits already
+		// guard the credential-leak paths for proxy users and malformed
+		// URLs. The remaining concern is the cross-config-event race:
+		// the user changes `minimax.apiBaseUrl` from a third-party
+		// proxy to `api.minimaxi.com` (or vice versa); the apiBaseUrl
+		// change fires before the user has had a chance to swap the
+		// API key, so a `refresh({ apiKey: oldKey, host: newHost })`
+		// would forward the old proxy key to the new official host.
+		// We close that path by refusing to auto-warm when the host
+		// has changed since the last pulse — the cache is invalidated
+		// instead, and the next explicit user action (key change,
+		// dashboard open, or the chat-turn-end notifier firing
+		// against a stable host) is what kicks off the next fetch.
+		const host = detectHost();
+		if (host === null || host !== lastPulsedHost) {
+			lastPulsedHost = host;
+			getPlanCache().invalidate();
+		} else {
+			void getPlanCache().refresh({ apiKey: key, host });
+		}
 	} else {
+		lastPulsedHost = undefined;
 		getPlanCache().invalidate();
 	}
 }
@@ -201,7 +227,11 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 				planCache: getPlanCache(),
 				mmxCliCache: getMmxCliCache(),
 				claudeCodeIngest: cachedClaudeCodeIngest,
-				host: detectHost(),
+				// Pass the live resolver rather than a one-shot value
+				// so the panel reflects the user's `minimax.apiBaseUrl`
+				// changes on the next refresh — see `DashboardPanelDeps.
+				// getHost` for the credential-leak rationale.
+				getHost: detectHost,
 			});
 			// Fire-and-forget: ensure the cache has a fresh snapshot for
 			// both the dashboard render and the status bar to consume.
@@ -234,7 +264,11 @@ export function registerCommands(context: vscode.ExtensionContext): void {
  * with the prompt next.
  */
 async function copyMmxInstallPromptForCommand(): Promise<void> {
-	const result = await copyMmxInstallPrompt(detectHost());
+	// Third-party-proxy users get the international prompt by default;
+	// the install-prompt language is not security-sensitive, so we
+	// simply pick the most common case when `detectHost()` returns
+	// `null`.
+	const result = await copyMmxInstallPrompt(detectHost() ?? 'global');
 	if (!result.copied) {
 		vscode.window.showErrorMessage(t('mmx.copyFailed'));
 		return;
@@ -242,17 +276,27 @@ async function copyMmxInstallPromptForCommand(): Promise<void> {
 	vscode.window.showInformationMessage(t('mmx.promptCopied'));
 }
 
-function detectHost(): 'china' | 'global' {
+function detectHost(): 'china' | 'global' | null {
 	// Defer to the configured `minimax.apiBaseUrl` so a fresh
 	// international install lands on the global platform instead of
 	// the previously-hard-coded `'china'` default. `getApiHostForPlatform`
 	// shares the same resolution rules as the 401/402 action buttons
 	// in `client/error.ts`, so the dashboard's "Token Plan" widget and
 	// the error toasts both agree on which platform the user is on.
+	//
+	// Returns `null` when the configured URL is a third-party proxy
+	// (e.g. a self-hosted Anthropic-compatible gateway). Callers that
+	// need a non-null value (e.g. the mmx-cli install prompt) should
+	// use `?? 'global'` at the call site; callers that care about
+	// *not* sending the API key to MiniMax's official endpoints
+	// (e.g. `refreshPlanKeyState`, the PlanCache) propagate `null`
+	// all the way to `fetchPlanUsage` so the call short-circuits.
 	try {
-		return getApiHostForPlatform() === 'api.minimaxi.com' ? 'china' : 'global';
+		const host = getApiHostForPlatform();
+		if (host === null) return null;
+		return host === 'api.minimaxi.com' ? 'china' : 'global';
 	} catch {
-		return 'china';
+		return null;
 	}
 }
 

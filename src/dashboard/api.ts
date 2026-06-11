@@ -19,10 +19,27 @@ const HOSTS = {
 	global: 'https://www.minimax.io',
 } as const;
 
+/** The Referer header value sent to the platform's `coding_plan/remains`
+ *  endpoint for each region. The previous implementation hard-coded
+ *  the China Referer unconditionally, which leaked the default region
+ *  into the request even when the user was on the global endpoint.
+ *  The header is not documented as required by either platform, but
+ *  it mirrors what the platform UI sends and keeps the request
+ *  pattern stable for users with a corporate proxy that filters
+ *  Referer mismatches. */
+const REFERER_BY_HOST: Record<'china' | 'global', string> = {
+	china: 'https://platform.minimaxi.com/',
+	global: 'https://platform.minimax.io/',
+};
+
 export interface PlanApiOptions {
 	apiKey: string;
-	/** `china` resolves to `minimaxi.com`, anything else to `minimax.io`. */
-	host?: 'china' | 'global';
+	/** `china` resolves to `minimaxi.com`, `global` to `minimax.io`.
+	 *  `null` means "the user is on a third-party proxy" — we have
+	 *  no MiniMax endpoint to call, so `fetchPlanUsage` short-circuits
+	 *  to `{ ok: false, reason: 'unsupported' }` WITHOUT sending the
+	 *  API key anywhere. This is the credential-leak guard. */
+	host?: 'china' | 'global' | null;
 	/** 8s in-process cache; callers can pre-warm by passing a fresh value. */
 	cache?: Map<string, { value: PlanUsage; expiresAt: number }>;
 	cacheTtlMs?: number;
@@ -39,6 +56,13 @@ export async function fetchPlanUsage(
 ): Promise<PlanApiResult> {
 	if (!options.apiKey) {
 		return { ok: false, reason: 'unconfigured' };
+	}
+	// Third-party proxy: never send the API key to MiniMax's official
+	// endpoints, regardless of which proxy URL the user configured.
+	// This is the close point for the credential-leak finding from
+	// Codex's adversarial review (see LRN-20260611-005).
+	if (options.host === null) {
+		return { ok: false, reason: 'unsupported' };
 	}
 	const host = options.host ?? 'china';
 	const cacheKey = `plan:${host}`;
@@ -63,7 +87,7 @@ export async function fetchPlanUsage(
 			method: 'GET',
 			headers: {
 				Authorization: `Bearer ${options.apiKey}`,
-				Referer: 'https://platform.minimaxi.com/',
+				Referer: REFERER_BY_HOST[host],
 				Accept: 'application/json',
 			},
 			signal: options.signal,

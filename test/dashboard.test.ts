@@ -225,6 +225,69 @@ test('fetchPlanUsage: caches the response for cacheTtlMs', async () => {
 	assert.equal(calls, 1);
 });
 
+test('fetchPlanUsage: host=null short-circuits to "unsupported" without calling fetchImpl', async () => {
+	// Credential-leak guard: when the user is on a third-party proxy
+	// (`minimax.apiBaseUrl` does not match either MiniMax host), the
+	// PlanApiOptions.host is `null`. The implementation MUST return
+	// `{ ok: false, reason: 'unsupported' }` immediately and MUST NOT
+	// call `fetchImpl` — otherwise the user's proxy key would be sent
+	// to MiniMax's official `coding_plan/remains` endpoint.
+	let calls = 0;
+	const fetchImpl = () => {
+		calls += 1;
+		return Promise.resolve(jsonResponse(validPayload));
+	};
+	const result = await fetchPlanUsage({
+		apiKey: 'proxy-key',
+		host: null,
+		fetchImpl,
+	});
+	assert.equal(result.ok, false);
+	if (!result.ok) {
+		assert.equal(result.reason, 'unsupported');
+	}
+	assert.equal(calls, 0, 'fetchImpl must not be invoked when host is null');
+});
+
+test('fetchPlanUsage: Referer header matches the host (China vs global)', async () => {
+	// Pinned regression: the previous implementation hard-coded
+	// `Referer: https://platform.minimaxi.com/` for every call,
+	// leaking the China default into requests meant for the
+	// international endpoint. The corrected implementation sends
+	// the Referer that matches the configured host. We capture the
+	// request headers and assert they line up.
+	const captured: Array<{ url: string; headers: Record<string, string> }> = [];
+	const fetchImpl: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input);
+		const headers: Record<string, string> = {};
+		if (init?.headers) {
+			const h = init.headers as Record<string, string>;
+			for (const k of Object.keys(h)) headers[k.toLowerCase()] = h[k]!;
+		}
+		captured.push({ url, headers });
+		return jsonResponse(validPayload);
+	}) as unknown as typeof fetch;
+
+	await fetchPlanUsage({ apiKey: 'k', host: 'china', fetchImpl });
+	await fetchPlanUsage({ apiKey: 'k', host: 'global', fetchImpl });
+
+	assert.equal(captured.length, 2);
+	const chinaCall = captured[0]!;
+	const globalCall = captured[1]!;
+	assert.match(chinaCall.url, /minimaxi\.com/, 'china call must hit the China platform');
+	assert.match(globalCall.url, /minimax\.io/, 'global call must hit the international platform');
+	assert.equal(
+		chinaCall.headers['referer'],
+		'https://platform.minimaxi.com/',
+		'china Referer must match the China platform',
+	);
+	assert.equal(
+		globalCall.headers['referer'],
+		'https://platform.minimax.io/',
+		'global Referer must match the international platform',
+	);
+});
+
 // --- buildDashboardView --------------------------------------------------
 
 test('buildDashboardView: empty store shows copilot=empty, no plan', async () => {
@@ -506,6 +569,59 @@ test('buildDashboardView: total = element-wise sum of copilot + claudeCode', asy
 	} finally {
 		await fsp.rm(dir, { recursive: true, force: true });
 	}
+});
+
+// --- createPlanCache --------------------------------------------------
+
+test('createPlanCache: host change is observable via manual invalidate', async () => {
+	// Pinned regression for Codex's 2nd-review [high] finding: the
+	// `refreshPlanKeyState` helper in `src/runtime/commands.ts` uses
+	// `invalidate()` (NOT `refresh()`) when `detectHost()` changes
+	// between pulses — otherwise the previously-issued API key would
+	// be sent to the new host. This test pins the cache contract that
+	// backs that fix: after `invalidate()`, the next refresh fetches
+	// even within the TTL.
+	let calls = 0;
+	const fetchImpl = () => {
+		calls += 1;
+		return Promise.resolve(jsonResponse(validPayload));
+	};
+	const cache = createPlanCache({ ttlMs: 60_000 });
+	// First pulse: user is on China.
+	await cache.refresh({ apiKey: 'k', host: 'china', fetchImpl });
+	assert.equal(calls, 1);
+	assert.ok(cache.read(), 'first refresh populates the cache');
+	// Host change (e.g. apiBaseUrl flipped to global): the wrapper
+	// in `refreshPlanKeyState` calls `cache.invalidate()` instead of
+	// `cache.refresh({...oldKey, host: 'global'})`.
+	cache.invalidate();
+	assert.equal(cache.read(), undefined, 'invalidate clears the snapshot');
+	// Next pulse: cache is empty → must re-fetch.
+	await cache.refresh({ apiKey: 'k', host: 'global', fetchImpl });
+	assert.equal(calls, 2, 'host change triggers a fresh fetch (no TTL-bypass flag needed)');
+	assert.ok(cache.read(), 'second refresh populates the cache');
+});
+
+test('createPlanCache: apiKey change is observable via manual invalidate', async () => {
+	// Symmetric to the host-change test above: a non-empty key
+	// replacement (e.g. user pastes a new key) is also handled by
+	// the `lastPulsedHost` + `invalidate()` pattern in
+	// `refreshPlanKeyState` (the key-change case is folded into the
+	// same `host !== lastPulsedHost` branch). The cache contract is
+	// the same: invalidate, then re-fetch on the next pulse.
+	let calls = 0;
+	const fetchImpl = () => {
+		calls += 1;
+		return Promise.resolve(jsonResponse(validPayload));
+	};
+	const cache = createPlanCache({ ttlMs: 60_000 });
+	await cache.refresh({ apiKey: 'A', host: 'china', fetchImpl });
+	assert.equal(calls, 1);
+	// Key replacement: the wrapper invalidates and the next pulse
+	// re-fetches with the new key.
+	cache.invalidate();
+	await cache.refresh({ apiKey: 'B', host: 'china', fetchImpl });
+	assert.equal(calls, 2, 'key change triggers a fresh fetch');
 });
 
 // --- totalTokens helper --------------------------------------------------

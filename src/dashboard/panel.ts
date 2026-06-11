@@ -44,8 +44,21 @@ export interface DashboardPanelDeps {
 	 *  ingester's `activate()` call), the section is rendered as a
 	 *  thin "disabled" placeholder. */
 	claudeCodeIngest?: ClaudeCodeIngestHandle;
-	/** Optional platform host override; defaults to the configured base URL. */
-	host?: 'china' | 'global';
+	/**
+	 * Resolver for the live platform host. Evaluated at every
+	 * refresh / install-prompt dispatch, NOT captured at construction
+	 * — the user can change `minimax.apiBaseUrl` while the panel is
+	 * open, and the next refresh must reflect that change (otherwise
+	 * the PlanCache would forward the user's key to whichever host
+	 * the panel was opened against, which is the same credential-leak
+	 * path that the upstream `fetchPlanUsage` short-circuit was
+	 * designed to close).
+	 *
+	 * `null` means the user is on a third-party proxy — the dashboard
+	 * renders the plan section as `'unsupported'` and the mmx
+	 * install-prompt falls back to the international variant.
+	 */
+	getHost?: () => 'china' | 'global' | null;
 }
 
 const VIEW_TYPE = 'minimax.dashboard';
@@ -179,7 +192,7 @@ export class DashboardPanel {
 			if (apiKey) {
 				planRefreshPromise = this.deps.planCache.refresh({
 					apiKey,
-					host: this.deps.host,
+					host: this.deps.getHost?.() ?? null,
 				});
 			}
 			// Refresh the mmx-cli detection in the background. The
@@ -201,7 +214,7 @@ export class DashboardPanel {
 				platform: apiKey
 					? {
 						apiKey,
-						host: this.deps.host,
+						host: this.deps.getHost?.() ?? null,
 					}
 					: null,
 				// Hand the aggregator the snapshot we already have so it
@@ -283,7 +296,7 @@ export class DashboardPanel {
 				return;
 			}
 			case 'mmxCopyPrompt': {
-				await handleMmxCopyPrompt(this.deps.host ?? 'global');
+				await handleMmxCopyPrompt(this.deps.getHost?.() ?? 'global');
 				return;
 			}
 			case 'mmxRecheck': {
