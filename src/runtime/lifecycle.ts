@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import { MiniMaxChatProvider } from '../provider';
-import { setCommitModelStore } from '../git/commitMessage';
 import { registerActionUrls } from './actions';
 import {
 	registerCommands,
@@ -19,7 +18,6 @@ let activeProvider: MiniMaxChatProvider | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	setCommandContext(context);
-	setCommitModelStore(context.globalState);
 	await initializeDiagnostics(context);
 	registerCommands(context);
 	// Start the Claude Code JSONL log ingester. Independent of the

@@ -2,7 +2,7 @@
   "name": "minimax-vscode-copilot",
   "displayName": "Minimax VScode Copilot",
   "description": "Language model provider for GitHub Copilot in VS Code: use MiniMax M2.7 / M2.7-highspeed / M3 models for programming with a Token Plan API key over the Anthropic-compatible API. Does not add speech, video, or image generation APIs.",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "publisher": "klarkxy",
   "license": "SATA-2.0",
   "icon": "icon/icon.png",
@@ -47,8 +47,7 @@
     "onLanguageModelChatProvider:minimax"
   ],
   "enabledApiProposals": [
-    "languageModelThinkingPart",
-    "contribSourceControlInputBoxMenu"
+    "languageModelThinkingPart"
   ],
   "contributes": {
     "commands": [
@@ -93,18 +92,11 @@
         "category": "MiniMax"
       },
       {
-        "command": "minimax.generateCommitMessage",
-        "title": "%minimax.command.generateCommitMessage%",
-        "icon": "$(git-commit)",
+        "command": "minimax.useForCopilotCommitMessages",
+        "title": "%minimax.command.useForCopilotCommitMessages%",
         "category": "MiniMax"
       },
       {
-        "command": "minimax.chooseCommitModel",
-        "title": "%minimax.command.chooseCommitModel%",
-        "category": "MiniMax"
-      },
-      {
-
         "command": "minimax.toggleM31MContext",
         "title": "%minimax.command.toggleM31MContext%",
         "category": "MiniMax"
@@ -145,15 +137,7 @@
         "category": "MiniMax"
       }
     ],
-    "menus": {
-      "scm/inputBox": [
-        {
-          "command": "minimax.generateCommitMessage",
-          "group": "navigation@1",
-          "when": "scmProvider == git"
-        }
-      ]
-    },
+    "menus": {},
     "configuration": {
       "title": "%minimax.config.title%",
       "properties": {
@@ -185,17 +169,6 @@
           "uniqueItems": true,
           "scope": "application",
           "markdownDescription": "Programming text models (M2.7 / M2.7-highspeed / M3) for Token Plan. M3 is the latest native-multimodal frontier coding model (officially 1M context; effective 512K until the >512K tier is fully rolled out). MiniMax no longer recommends M2.5 and earlier."
-        },
-        "minimax.commitModel": {
-          "type": "string",
-          "enum": [
-            "MiniMax-M3",
-            "MiniMax-M2.7",
-            "MiniMax-M2.7-highspeed"
-          ],
-          "default": "MiniMax-M3",
-          "scope": "application",
-          "markdownDescription": "Model used by **MiniMax: Generate Commit Message**. Defaults to `MiniMax-M3` — M3 and M2.7 now share the same per-token price (input ¥2.10/M, output ¥8.40/M on the China endpoint), so M3's frontier-coding quality is the obvious choice. Switch to `MiniMax-M2.7-highspeed` if you want a faster draft."
         },
         "minimax.maxTokens": {
           "type": "number",

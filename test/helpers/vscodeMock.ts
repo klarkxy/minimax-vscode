@@ -162,15 +162,11 @@ export const workspace = {
 			if (key === 'enabled') {
 				return true as unknown as T;
 			}
-			// `commitModel` is intentionally unset here so the
-			// `resolveCommitModelId` unit tests can exercise the M3
-			// fallback path. Tests that need a specific override should
-			// stub `vscode.workspace.getConfiguration` locally rather
-			// than relying on a value baked into this shared mock.
-			if (key === 'commitModel') {
-				return defaultValue;
-			}
 			return defaultValue;
+		},
+		update: async (_key: string, _value: unknown, _target?: unknown): Promise<void> => {
+			// No-op default. Tests that need to assert configuration writes
+			// should stub `vscode.workspace.getConfiguration` locally.
 		},
 	}),
 	tabGroups: {

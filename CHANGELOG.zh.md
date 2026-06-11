@@ -2,6 +2,22 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.3.0 — 砍掉自研 commit 流水线，改走 Copilot 工具模型路由
+
+> **注意：** 本版删除了一个原本公开的命令和设置。
+> 之前给 `MiniMax: Generate Commit Message` 绑过快捷键、或在
+> `settings.json` 里设过 `minimax.commitModel` 的用户，需要迁移到新路径。
+
+### 移除
+
+- **`MiniMax: Generate Commit Message` 命令和 `minimax.commitModel` 设置被删除。** 想用 MiniMax（或其它 provider）生成 commit message，在用户设置里写 `chat.utilitySmallModel: <vendor>/<id>`，或者跑新增的 **MiniMax: 设置 Copilot 工具模型** 命令——两段式 QuickPick 先选 model，再勾选要覆盖的 `chat.*` 设置（默认 `chat.utilitySmallModel` 对应 ✨ 按钮 family，可选 `chat.utilityModel` 对应标题/摘要 family）。新路径走 VS Code 内置的 ✨ 按钮（Source Control 标题栏），自动尊重 Copilot 的 `commitMessageGeneration.instructions` 和 `localeOverride`。
+- `src/git/commitMessage.ts` 和 `src/git/scm.ts` 模块（以及它们的 `test/git.test.ts`）删除。`enabledApiProposals: contribSourceControlInputBoxMenu` 声明也删了——不再占用 input-box 菜单槽位。
+- `commit.*` i18n 键从 12 个压缩到 1 个（`commit.setupComplete`）。
+
+### 原因
+
+VS Code 的 `ILanguageModelsService` 已经会把 `chat.utilitySmallModel` 路由到扩展注册的 provider（包括我们）——见 [utilityModelContribution 源码](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/browser/utilityModelContribution.ts)。我们另开炉灶的 commit pipeline 是重复造轮子，且和 Copilot UX 越来越割裂。新路径反而更强：自动支持 `github.copilot.chat.commitMessageGeneration.instructions`（项目级格式）、`github.copilot.chat.localeOverride`（输出语言）、`.github/commit-message-instructions.md`（团队规则文件），这些我们老 pipeline 一直没读。
+
 ## 2.2.0 — README 重排、配置统一、用量看板接入 Claude Code JSONL
 
 ### 界面

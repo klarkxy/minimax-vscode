@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.3.0 — Drop custom commit pipeline, route Copilot's utility models
+
+> **Heads-up:** this release removes a previously public command and setting.
+> Users who had `MiniMax: Generate Commit Message` bound to a keyboard
+> shortcut, or who set `minimax.commitModel` in their `settings.json`,
+> will need to migrate to the new path.
+
+### Removed
+
+- **The `MiniMax: Generate Commit Message` command and the `minimax.commitModel` setting are gone.** To use MiniMax for commit messages, set `chat.utilitySmallModel: minimax/<id>` in your user settings, or run the new **MiniMax: Set Copilot's Utility Models** command — a two-stage QuickPick first asks which model, then which `chat.*` settings to overwrite (defaults to `chat.utilitySmallModel` for the Source Control ✨ button, also offers `chat.utilityModel` for titles / summaries). The new path uses VS Code's built-in ✨ button in the Source Control title bar and respects Copilot's `commitMessageGeneration.instructions` and `localeOverride` settings automatically.
+- The bespoke `src/git/commitMessage.ts` and `src/git/scm.ts` modules (and their `test/git.test.ts`) have been deleted. The `enabledApiProposals: contribSourceControlInputBoxMenu` declaration is gone too — the input-box menu slot is no longer claimed.
+- The `commit.*` i18n keys (12 entries) are reduced to one: `commit.setupComplete`.
+
+### Why
+
+VS Code's `ILanguageModelsService` already routes `chat.utilitySmallModel` to extension-registered providers (us included) — see the [utilityModelContribution source](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/browser/utilityModelContribution.ts). Maintaining a parallel commit-message pipeline duplicated effort and diverged from Copilot's UX. The new path is also strictly more capable: it picks up `github.copilot.chat.commitMessageGeneration.instructions` (per-project format), `github.copilot.chat.localeOverride` (response language), and `.github/commit-message-instructions.md` (team rule file), none of which our bespoke pipeline ever honored.
+
 ## 2.2.0 — README restyling, config unification, Claude Code JSONL ingest
 
 ### UI

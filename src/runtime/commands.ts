@@ -4,7 +4,6 @@ import { t } from '../i18n';
 import { logger } from '../logger';
 import { getModels, getVisibleModels } from '../models/registry';
 import { getApiHostForPlatform, getBaseUrl, getClaudeCodeAllowedModels, getClaudeCodeLogPath } from '../config';
-import { chooseCommitModel, generateCommitMessage } from '../git/commitMessage';
 import { toggleM31MContextEnabled } from '../provider/models';
 import { createUsageStore, type UsageStore } from '../usage';
 import { DashboardPanel } from '../dashboard/panel';
@@ -189,15 +188,8 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('minimax.showPricing', () => {
 			void showPricing();
 		}),
-		vscode.commands.registerCommand('minimax.generateCommitMessage', (...args: unknown[]) => {
-			logger.debug('minimax.generateCommitMessage called', { args });
-			if (!cachedAuth) {
-				cachedAuth = new AuthManager(context);
-			}
-			void generateCommitMessage(cachedAuth, args[0]);
-		}),
-		vscode.commands.registerCommand('minimax.chooseCommitModel', () => {
-			void chooseCommitModel();
+		vscode.commands.registerCommand('minimax.useForCopilotCommitMessages', () => {
+			void useForCopilotCommitMessages();
 		}),
 		vscode.commands.registerCommand('minimax.toggleM31MContext', () => {
 			// Lifts the M3 picker entry from the safe 512K default to
@@ -274,6 +266,150 @@ async function copyMmxInstallPromptForCommand(): Promise<void> {
 		return;
 	}
 	vscode.window.showInformationMessage(t('mmx.promptCopied'));
+}
+
+/**
+ * Two-stage picker for routing Copilot Chat's "utility" / "small utility"
+ * families to a model of the user's choice. Mirrors
+ * `setVisionProxyModel` in `src/provider/vision/model.ts`.
+ *
+ * Stage 1 — pick a model. Lists every chat model the current VS Code
+ * instance knows about (MiniMax, plus any other extension-registered
+ * provider the user has installed). Sorts MiniMax first, then by
+ * `vendor:id`. The current `chat.utilitySmallModel` value is marked.
+ *
+ * Stage 2 — pick which `chat.*` setting(s) to write the chosen model
+ * into. Defaults to `chat.utilitySmallModel` (the ✨ button family);
+ * `chat.utilityModel` is also offered (titles / summaries family).
+ * Both go through the same `ILanguageModelsService` (see
+ * https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/browser/utilityModelContribution.ts)
+ * so the `<vendor>:<id>` format is the right shape for both.
+ *
+ * The per-task `github.copilot.chat.*.model` overrides
+ * (`askAgent.model`, `conversationCompaction.model`,
+ * `instantApply.shortContextModelName`) are NOT exposed here — those
+ * take a bare Copilot-family model id, not `<vendor>:<id>`, so mixing
+ * them in this flow would mislead users. They are listed in the README
+ * under "Per-task model overrides" for users who want to set them
+ * manually.
+ *
+ * Reload / restart Copilot Chat for the changes to take effect — the
+ * settings are read at extension activation, not on every commit.
+ */
+async function useForCopilotCommitMessages(): Promise<void> {
+	let allModels: vscode.LanguageModelChat[];
+	try {
+		allModels = await vscode.lm.selectChatModels();
+	} catch (error) {
+		logger.warn('useForCopilotCommitMessages: selectChatModels failed', error);
+		void vscode.window.showErrorMessage(t('commit.modelListFailed'));
+		return;
+	}
+	if (allModels.length === 0) {
+		void vscode.window.showInformationMessage(t('commit.noModels'));
+		return;
+	}
+
+	const currentUtilitySmall =
+		vscode.workspace
+			.getConfiguration('chat')
+			.get<string>('utilitySmallModel', '')
+			.trim() || undefined;
+	const currentUtility =
+		vscode.workspace
+			.getConfiguration('chat')
+			.get<string>('utilityModel', '')
+			.trim() || undefined;
+
+	const items: vscode.QuickPickItem[] = allModels.map((m) => {
+		const fullId = `${m.vendor}/${m.id}`;
+		const isCurrent = fullId === currentUtilitySmall || fullId === currentUtility;
+		return {
+			label: m.name || m.id,
+			description: fullId,
+			detail: isCurrent ? t('commit.currentlySelected') : undefined,
+		};
+	});
+	// MiniMax models first, then the rest alphabetically by vendor then id.
+	items.sort((a, b) => {
+		const aIsMiniMax = a.description?.startsWith('minimax/') ? 0 : 1;
+		const bIsMiniMax = b.description?.startsWith('minimax/') ? 0 : 1;
+		if (aIsMiniMax !== bIsMiniMax) return aIsMiniMax - bIsMiniMax;
+		return (a.description ?? '').localeCompare(b.description ?? '');
+	});
+
+	const pick = await vscode.window.showQuickPick(items, {
+		title: t('commit.pickModelTitle'),
+		placeHolder: t('commit.pickModelPlaceholder'),
+		ignoreFocusOut: true,
+		matchOnDescription: true,
+	});
+	if (!pick || !pick.description) return;
+
+	const targetItems: (vscode.QuickPickItem & { picked?: boolean })[] = [
+		{
+			label: t('commit.targetUtilitySmall'),
+			description: 'chat.utilitySmallModel',
+			detail: t('commit.targetUtilitySmallDetail'),
+			picked: true,
+		},
+		{
+			label: t('commit.targetUtility'),
+			description: 'chat.utilityModel',
+			detail: t('commit.targetUtilityDetail'),
+			picked: false,
+		},
+	];
+	// Multi-select: use `createQuickPick` rather than `showQuickPick`
+	// because the type pinned by our `vscode.proposed.*.d.ts` shims does
+	// not include `canSelectMany` in `QuickPickOptions`. `createQuickPick`
+	// has stable typings for `canSelectMany` + `onDidAccept` regardless
+	// of engine version.
+	//
+	// ⚠️ dispose() is called OUTSIDE the callback chain to avoid a
+	// synchronously-triggered onDidHide racing the promise resolution:
+	// onDidHide fires when dispose() is called, and if disposed before
+	// the promise is resolved, the user sees a silent no-op.
+	const targetQp = vscode.window.createQuickPick<vscode.QuickPickItem & { picked?: boolean }>();
+	targetQp.title = t('commit.pickTargetTitle');
+	targetQp.placeholder = t('commit.pickTargetPlaceholder');
+	targetQp.canSelectMany = true;
+	targetQp.ignoreFocusOut = true;
+	targetQp.items = targetItems;
+	targetQp.selectedItems = targetItems.filter((i) => i.picked);
+	const accepted = await new Promise<readonly (vscode.QuickPickItem & { picked?: boolean })[] | undefined>(
+		(resolve) => {
+			targetQp.onDidAccept(() => resolve(targetQp.selectedItems));
+			targetQp.onDidHide(() => resolve(undefined));
+			targetQp.show();
+		},
+	);
+	targetQp.dispose();
+	if (!accepted || accepted.length === 0) return;
+
+	const chatConfig = vscode.workspace.getConfiguration('chat');
+	// `config.update` returns a `Thenable<void>` (per our type shims);
+	// `Promise.all` insists on `Promise<void>`, so resolve each first.
+	const writes: Promise<void>[] = [];
+	for (const item of accepted) {
+		if (item.description === 'chat.utilitySmallModel') {
+			writes.push(
+				Promise.resolve(
+					chatConfig.update('utilitySmallModel', pick.description, vscode.ConfigurationTarget.Global),
+				),
+			);
+		} else if (item.description === 'chat.utilityModel') {
+			writes.push(
+				Promise.resolve(
+					chatConfig.update('utilityModel', pick.description, vscode.ConfigurationTarget.Global),
+				),
+			);
+		}
+	}
+	await Promise.all(writes);
+	void vscode.window.showInformationMessage(
+		t('commit.setupComplete', pick.description, accepted.length),
+	);
 }
 
 function detectHost(): 'china' | 'global' | null {
