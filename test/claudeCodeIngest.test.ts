@@ -202,6 +202,7 @@ test('ingester: first poll reads all files in the temp dir', async () => {
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
@@ -229,6 +230,7 @@ test('ingester: second poll with no file changes reads zero new lines', async ()
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
@@ -255,6 +257,7 @@ test('ingester: appending to a file is picked up on the next poll', async () => 
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
@@ -286,6 +289,7 @@ test('ingester: file truncation (size shrinks) resets cursor to 0', async () => 
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
@@ -320,6 +324,7 @@ test('ingester: file deletion drops the cursor entry', async () => {
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
@@ -346,6 +351,7 @@ test('ingester: malformed lines increment parseErrors but do not break the file'
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
@@ -371,6 +377,7 @@ test('ingester: cursor blob is persisted to memento after each poll', async () =
 			globalState: memento,
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
@@ -400,6 +407,7 @@ test('ingester: re-creating with the same memento resumes from the persisted cur
 			globalState: memento,
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await h1.refresh();
@@ -413,6 +421,7 @@ test('ingester: re-creating with the same memento resumes from the persisted cur
 			globalState: memento,
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await h2.refresh();
@@ -446,6 +455,7 @@ test('ingester: uuid LRU dedup skips re-read lines', async () => {
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
@@ -474,6 +484,7 @@ test('ingester: subscribe fires on every poll that lands data', async () => {
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		let count = 0;
@@ -502,6 +513,7 @@ test('ingester: status reports ok after a successful first poll', async () => {
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		// Polling is opt-in: before any poll runs, the store has no
@@ -530,6 +542,7 @@ test('ingester: start() begins the periodic poll', async () => {
 		const handle = createClaudeCodeIngest({
 			globalState: new FakeMemento(),
 			logPath: dir,
+			allowedModels: [],
 			fs: realFs(dir),
 			clock: {
 				now: () => Date.now(),
@@ -572,6 +585,7 @@ test('ingester: status reports empty when no JSONL files exist', async () => {
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
@@ -598,6 +612,7 @@ test('ingester: per-day buckets use the line timestamp, not the wall clock', asy
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
@@ -631,6 +646,7 @@ test('ingester: multiple files across subdirectories all discovered', async () =
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
@@ -654,6 +670,7 @@ test('ingester: store.reset() clears all in-memory stats', async () => {
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
@@ -673,6 +690,7 @@ test('ingester: dispose() is idempotent', async () => {
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		handle.dispose();
@@ -692,6 +710,7 @@ test('ingester: missing log directory is treated as empty (no error)', async () 
 			globalState: new FakeMemento(),
 			logPath: missing,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(missing),
 		});
 		await handle.refresh();
@@ -715,12 +734,135 @@ test('ingester: the on-disk UsageStats key matches the constant', async () => {
 			globalState: memento,
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await handle.refresh();
 		const stats = memento.get(CLAUDE_CODE_USAGE_STATS_KEY);
 		assert.ok(stats);
 		handle.dispose();
+	} finally {
+		await fsp.rm(dir, { recursive: true, force: true });
+	}
+});
+
+// ---- Model allowlist ---------------------------------------------------
+//
+// The Claude Code JSONL log records every model the CLI / VSCode
+// extension talked to, including models from non-MiniMax providers
+// (the user might have a third-party Anthropic-compatible endpoint
+// configured). The dashboard's job is to count MiniMax usage, so the
+// ingester filters to a configurable allowlist and reports the
+// dropped lines in `skippedModels` for visibility.
+
+test('ingester: model allowlist counts only matching models and tracks skipped count', async () => {
+	const dir = await mkTmpDir();
+	try {
+		const f1 = path.join(dir, 's.jsonl');
+		await writeFile(
+			f1,
+			// Three models: one in the allowlist, two out. The
+			// allowlist is the published picker model ID so the
+			// test mirrors what `minimax.claudeCode.allowedModels`
+			// would look like in a real install.
+			assistantLine({ model: 'MiniMax-M3', ts: '2026-06-09T10:00:00Z', input: 100, output: 50, messageId: 'a' }) + '\n' +
+			assistantLine({ model: 'deepseek-v4-flash', ts: '2026-06-09T10:01:00Z', input: 200, output: 80, messageId: 'b' }) + '\n' +
+			assistantLine({ model: 'deepseek-ai/DeepSeek-V4-Pro', ts: '2026-06-09T10:02:00Z', input: 300, output: 90, messageId: 'c' }) + '\n',
+		);
+		const handle = createClaudeCodeIngest({
+			globalState: new FakeMemento(),
+			logPath: dir,
+			pollIntervalMs: 60_000,
+			fs: realFs(dir),
+			allowedModels: ['MiniMax-M3'],
+		});
+		await handle.refresh();
+		const stats = handle.store.read();
+		// Only the MiniMax-M3 row was counted.
+		assert.equal(stats.total.requests, 1);
+		assert.equal(stats.total.inputTokens, 100);
+		assert.equal(stats.total.outputTokens, 50);
+		assert.equal(stats.byModel['MiniMax-M3'].requests, 1);
+		// Non-allowlist models are NOT recorded.
+		assert.equal(stats.byModel['deepseek-v4-flash'], undefined);
+		assert.equal(stats.byModel['deepseek-ai/DeepSeek-V4-Pro'], undefined);
+		// The status surfaces the dropped count for visibility.
+		const status = handle.status();
+		assert.equal(status.skippedModels, 2);
+		handle.dispose();
+	} finally {
+		await fsp.rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('ingester: empty allowedModels disables the filter (count every model)', async () => {
+	// The explicit opt-out. The other ingester tests in this file
+	// pass `[]` for the same reason — they assert cursor / LRU /
+	// parse-error semantics that should not be entangled with the
+	// user's settings.json.
+	const dir = await mkTmpDir();
+	try {
+		const f1 = path.join(dir, 's.jsonl');
+		await writeFile(
+			f1,
+			assistantLine({ model: 'MiniMax-M3', ts: '2026-06-09T10:00:00Z', input: 10, output: 20, messageId: 'a' }) + '\n' +
+			assistantLine({ model: 'something-else', ts: '2026-06-09T10:01:00Z', input: 5, output: 7, messageId: 'b' }) + '\n',
+		);
+		const handle = createClaudeCodeIngest({
+			globalState: new FakeMemento(),
+			logPath: dir,
+			pollIntervalMs: 60_000,
+			fs: realFs(dir),
+			allowedModels: [],
+		});
+		await handle.refresh();
+		const stats = handle.store.read();
+		assert.equal(stats.total.requests, 2);
+		assert.equal(handle.status().skippedModels, 0);
+		handle.dispose();
+	} finally {
+		await fsp.rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('ingester: skippedModels survives a cursor round-trip via memento', async () => {
+	// The skip count is part of the cursor blob so it survives
+	// extension restarts — otherwise the dashboard would always
+	// restart at 0 even after a long Claude Code session that
+	// produced thousands of non-MiniMax rows.
+	const dir = await mkTmpDir();
+	try {
+		const f1 = path.join(dir, 's.jsonl');
+		await writeFile(
+			f1,
+			assistantLine({ model: 'other-model', ts: '2026-06-09T10:00:00Z', input: 1, output: 1, messageId: 'a' }) + '\n',
+		);
+		const memento = new FakeMemento();
+		const h1 = createClaudeCodeIngest({
+			globalState: memento,
+			logPath: dir,
+			pollIntervalMs: 60_000,
+			fs: realFs(dir),
+			allowedModels: ['MiniMax-M3'],
+		});
+		await h1.refresh();
+		assert.equal(h1.status().skippedModels, 1);
+		h1.dispose();
+
+		// Re-create the ingester against the same memento. The
+		// file is unchanged, so the next poll should not add new
+		// skips; but the *cumulative* counter is preserved
+		// (1 stays at 1).
+		const h2 = createClaudeCodeIngest({
+			globalState: memento,
+			logPath: dir,
+			pollIntervalMs: 60_000,
+			fs: realFs(dir),
+			allowedModels: ['MiniMax-M3'],
+		});
+		await h2.refresh();
+		assert.equal(h2.status().skippedModels, 1, 'cumulative skip count is preserved across re-creation');
+		h2.dispose();
 	} finally {
 		await fsp.rm(dir, { recursive: true, force: true });
 	}

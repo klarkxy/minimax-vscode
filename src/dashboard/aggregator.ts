@@ -67,7 +67,8 @@ export interface PlanCache {
 }
 
 /** Create a fresh PlanCache — one per extension host. */
-export function createPlanCache(): PlanCache {
+export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
+	const ttlMs = options?.ttlMs ?? DEFAULT_PLAN_CACHE_TTL_MS;
 	let snapshot: PlanSnapshot | undefined;
 	let inFlight: Promise<PlanApiResult> | undefined;
 	const listeners = new Set<() => void>();
@@ -87,6 +88,24 @@ export function createPlanCache(): PlanCache {
 			return snapshot;
 		},
 		async refresh(platform) {
+			// Skip the network round-trip when the cached snapshot is
+			// still inside the TTL window. The previous implementation
+			// always re-fetched, which meant every chat-turn-end event
+			// (the common trigger for `refresh`) turned into a fresh
+			// HTTP call to the platform's `coding_plan/remains`
+			// endpoint. With the 5-minute TTL the cache holds a
+			// snapshot from a recent refresh and returns it directly;
+			// the next refresh past the window fetches a new one.
+			//
+			// This is the same "auto-sync approximately every 5
+			// minutes" contract the platform UI exposes — the cached
+			// value is the most recent thing the platform told us,
+			// and the user can always force a fresh fetch by
+			// `invalidate()`-ing (e.g. via the dashboard's Refresh
+			// button) or by editing the API key.
+			if (snapshot && Date.now() - snapshot.fetchedAt < ttlMs) {
+				return { ok: true, usage: snapshot.usage };
+			}
 			// Deduplicate concurrent calls: while a fetch is in flight, every
 			// caller shares the same promise. The previous implementation
 			// cleared `inFlight` inside `.then()` only, so a rejected promise
@@ -126,6 +145,15 @@ export function createPlanCache(): PlanCache {
 		},
 	};
 }
+
+/**
+ * Default in-process TTL for the PlanCache. Five minutes matches the
+ * cadence the platform's own UI shows when it auto-syncs the Token
+ * Plan card — a burst of `refresh()` calls (e.g. one per chat turn)
+ * collapses into a single HTTP round-trip per window. Overridable
+ * per-instance for tests.
+ */
+const DEFAULT_PLAN_CACHE_TTL_MS = 5 * 60_000;
 
 /**
  * Build the Copilot-Chat portion of the dashboard view from the usage

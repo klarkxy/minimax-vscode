@@ -1016,6 +1016,9 @@ footer {
 		if (status.parseErrors > 0) {
 			notes.push(escapeHtml(i18n.claudeCodeParseErrors.replace('{0}', String(status.parseErrors))));
 		}
+		if (status.skippedModels > 0) {
+			notes.push(escapeHtml(i18n.claudeCodeSkippedModels.replace('{0}', String(status.skippedModels))));
+		}
 		const notesHtml = notes.length
 			? '<div class="kv"><span class="dim"></span><span>' + notes.join(' · ') + '</span></div>'
 			: '';

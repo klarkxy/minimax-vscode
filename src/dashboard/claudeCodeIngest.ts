@@ -46,6 +46,7 @@ import {
 	getIncludeClaudeCode,
 	getClaudeCodeLogPath,
 	getClaudeCodePollIntervalMs,
+	getClaudeCodeAllowedModels,
 } from '../config';
 
 // ---- Public types ----
@@ -69,6 +70,10 @@ export interface ClaudeCodeIngestCursor {
 	lastErrorAt?: number;
 	lastError?: string;
 	parseErrors: number;
+	/** Cumulative count of assistant lines dropped because the model
+	 *  was not in the configured allowlist. Optional so cursors written
+	 *  by older builds (which had no model filter) keep loading. */
+	skippedModels?: number;
 }
 
 export type ClaudeCodeIngestState =
@@ -85,6 +90,12 @@ export interface ClaudeCodeIngestStatus {
 	lastError: string | null;
 	filesTracked: number;
 	parseErrors: number;
+	/** Number of assistant lines whose model ID was not in the
+	 *  allowlist and were therefore skipped. Surfaced for visibility —
+	 *  non-zero means the user is using Claude Code with models we
+	 *  don't track, which is expected when Claude Code is configured
+	 *  to talk to other providers. */
+	skippedModels: number;
 	totalRequests: number;
 	/** True on the very first poll cycle, until it completes. */
 	isFirstPoll: boolean;
@@ -133,6 +144,17 @@ export interface ClaudeCodeIngestOptions {
 	fs?: FileSystemLike;
 	/** Override the LRU size. Default 1000. */
 	dedupLruSize?: number;
+	/**
+	 * Optional allowlist of model IDs the ingester counts. Any
+	 * assistant line whose `message.model` is not in this set is
+	 * skipped (counted in `skippedModels` for visibility). When
+	 * omitted, the configured `minimax.claudeCode.allowedModels` is
+	 * consulted at construction time. Pass an explicit empty array to
+	 * disable the filter (count every model) — the tests rely on
+	 * this so their assertions stay independent of the user's
+	 * settings.json.
+	 */
+	allowedModels?: readonly string[];
 }
 
 const DEFAULT_DEDUP_LRU_SIZE = 1000;
@@ -276,6 +298,7 @@ function readCursor(
 		lastErrorAt: raw.lastErrorAt,
 		lastError: raw.lastError,
 		parseErrors: raw.parseErrors ?? 0,
+		skippedModels: raw.skippedModels ?? 0,
 	};
 }
 
@@ -363,6 +386,24 @@ export function createClaudeCodeIngest(
 	const pollIntervalMs = opts.pollIntervalMs ?? getClaudeCodePollIntervalMs();
 	const dedupLruSize = opts.dedupLruSize ?? DEFAULT_DEDUP_LRU_SIZE;
 
+	// Resolve the model allowlist once at construction. Two cases:
+	//   - `opts.allowedModels` is an explicit array (including `[]`):
+	//     honour it. `[]` disables the filter (count every model) —
+	//     the tests rely on this. Otherwise the constructor snapshot
+	//     is taken from the user's settings.json via
+	//     `getClaudeCodeAllowedModels`. The snapshot is intentionally
+	//     captured once: editing the allowlist at runtime requires
+	//     a workspace-configuration change, which the caller
+	//     (`setClaudeCodeIngest`) listens for and rebuilds the
+	//     ingester — so we don't need to re-read on every poll.
+	//
+	// `null` means "no filter" (count every model). An empty `Set`
+	// would mean "filter everything out", which is rarely what we
+	// want — distinguishing the two keeps the `[]` opt-out working.
+	const allowedModels: ReadonlySet<string> | null = opts.allowedModels
+		? (opts.allowedModels.length > 0 ? new Set(opts.allowedModels) : null)
+		: new Set(getClaudeCodeAllowedModels());
+
 	const lru = new LruSet(dedupLruSize);
 	const partials = new Map<string, string>();
 	const listeners = new Set<(stats: UsageStats) => void>();
@@ -409,6 +450,7 @@ export function createClaudeCodeIngest(
 			lastError: cursor.lastError ?? null,
 			filesTracked: Object.keys(cursor.files).length,
 			parseErrors: cursor.parseErrors,
+			skippedModels: cursor.skippedModels ?? 0,
 			totalRequests: stats.total.requests,
 			isFirstPoll,
 		};
@@ -518,7 +560,19 @@ export function createClaudeCodeIngest(
 			if (line.trim().length > 0) {
 				const parsed = extractUsage(line);
 				if (parsed) {
-					if (parsed.messageId) {
+					// Apply the model allowlist before the LRU: a
+					// row for a non-MiniMax model is not "MiniMax
+					// usage" and must not be counted. We still want
+					// to surface the count in the status so the
+					// user can see "yes, Claude Code is also
+					// talking to <other provider>, and we are
+					// correctly ignoring those tokens". `null` means
+					// "no filter" (the empty-array opt-out the tests
+					// use to keep their assertions independent of
+					// the user's settings.json).
+					if (allowedModels !== null && !allowedModels.has(parsed.modelId)) {
+						cursor.skippedModels = (cursor.skippedModels ?? 0) + 1;
+					} else if (parsed.messageId) {
 						if (lru.has(parsed.messageId)) {
 							// Already counted in a prior poll.
 						} else {

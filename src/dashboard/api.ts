@@ -32,7 +32,7 @@ export interface PlanApiOptions {
 	signal?: AbortSignal;
 }
 
-const DEFAULT_TTL_MS = 8_000;
+const DEFAULT_TTL_MS = 5 * 60_000;
 
 export async function fetchPlanUsage(
 	options: PlanApiOptions,

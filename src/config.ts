@@ -144,6 +144,46 @@ export function getClaudeCodePollIntervalMs(): number {
 	return value;
 }
 
+/**
+ * Default allowlist of model IDs the Claude Code ingester counts in the
+ * dashboard. Mirrors the official picker model IDs (M3 / M2.7 /
+ * M2.7-highspeed) plus the M2.x family the docs still reference. Users
+ * can override this via `minimax.claudeCode.allowedModels`.
+ *
+ * The Claude Code JSONL session log records every model the CLI / VSCode
+ * extension talked to — not just MiniMax. If the user has Claude Code
+ * configured to talk to a different provider (or a local LLM with the
+ * same Anthropic-compatible surface), those rows show up in the JSONL
+ * too. The dashboard's job is to count MiniMax usage, so we filter to
+ * this allowlist before recording anything.
+ */
+export const DEFAULT_CLAUDE_CODE_ALLOWED_MODELS: readonly string[] = [
+	'MiniMax-M3',
+	'MiniMax-M2.7',
+	'MiniMax-M2.7-highspeed',
+	'MiniMax-M2.5',
+	'MiniMax-M2.5-highspeed',
+	'MiniMax-M2.1',
+	'MiniMax-M2.1-highspeed',
+	'MiniMax-M2',
+];
+
+/**
+ * Read the configured `minimax.claudeCode.allowedModels`, falling back
+ * to `DEFAULT_CLAUDE_CODE_ALLOWED_MODELS` when the setting is missing
+ * or malformed. Empty arrays collapse to the default so a user who
+ * accidentally wipes the list does not silently disable the dashboard.
+ */
+export function getClaudeCodeAllowedModels(): readonly string[] {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const raw = config.get<unknown>('claudeCode.allowedModels');
+	if (!Array.isArray(raw)) return DEFAULT_CLAUDE_CODE_ALLOWED_MODELS;
+	const filtered = raw.filter(
+		(value): value is string => typeof value === 'string' && value.trim().length > 0,
+	);
+	return filtered.length > 0 ? filtered : DEFAULT_CLAUDE_CODE_ALLOWED_MODELS;
+}
+
 function expandHome(p: string): string {
 	if (!p || !p.startsWith('~')) return p;
 	const home = process.env.HOME || process.env.USERPROFILE || '';

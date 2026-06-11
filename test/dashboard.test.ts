@@ -463,6 +463,7 @@ test('buildDashboardView: total = element-wise sum of copilot + claudeCode', asy
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
+			allowedModels: [],
 			fs: realFs(dir),
 		});
 		await claudeIngest.refresh();
@@ -645,6 +646,73 @@ test('createPlanCache: failed refresh does not cache a snapshot', async () => {
 	// A failed fetch must not write to the snapshot — the next refresh
 	// (with a working fetch) should still produce a fresh snapshot.
 	assert.equal(cache.read(), undefined);
+});
+
+test('createPlanCache: refresh inside the TTL reuses the snapshot (no HTTP call)', async () => {
+	// The "approximately every 5 minutes" contract: a burst of
+	// refresh() calls (e.g. one per chat turn) collapses into a
+	// single HTTP round-trip per TTL window. We test with a 1 s
+	// TTL so the test is fast.
+	let calls = 0;
+	const fetchImpl = () => {
+		calls += 1;
+		return Promise.resolve(jsonResponse(validPayload));
+	};
+	const cache = createPlanCache({ ttlMs: 1_000 });
+	const platform = { apiKey: 'k', fetchImpl };
+
+	const first = await cache.refresh(platform);
+	assert.equal(first.ok, true);
+	assert.equal(calls, 1);
+
+	// Five refreshes inside the 1 s window: all should reuse the
+	// snapshot — no further HTTP calls.
+	for (let i = 0; i < 5; i += 1) {
+		const r = await cache.refresh(platform);
+		assert.equal(r.ok, true);
+	}
+	assert.equal(calls, 1, 'snapshot inside the TTL is returned without an HTTP call');
+
+	// invalidate() clears the snapshot and forces the next refresh
+	// to fetch again.
+	cache.invalidate();
+	await cache.refresh(platform);
+	assert.equal(calls, 2, 'invalidate() forces a fresh fetch');
+});
+
+test('createPlanCache: refresh past the TTL re-fetches (no stuck snapshot)', async () => {
+	let calls = 0;
+	const fetchImpl = () => {
+		calls += 1;
+		return Promise.resolve(jsonResponse(validPayload));
+	};
+	const cache = createPlanCache({ ttlMs: 10 });
+	const platform = { apiKey: 'k', fetchImpl };
+
+	await cache.refresh(platform);
+	assert.equal(calls, 1);
+
+	// Wait past the TTL. The next refresh must observe a stale
+	// snapshot and re-issue the HTTP call.
+	await new Promise((r) => setTimeout(r, 25));
+	await cache.refresh(platform);
+	assert.equal(calls, 2, 'snapshot past the TTL is refreshed');
+});
+
+test('createPlanCache: ttlMs=0 disables the in-process cache (every refresh fetches)', async () => {
+	// Defensive: a misconfigured TTL of 0 (or any value <= 0) should
+	// not poison the cache by pinning it to the first snapshot.
+	let calls = 0;
+	const fetchImpl = () => {
+		calls += 1;
+		return Promise.resolve(jsonResponse(validPayload));
+	};
+	const cache = createPlanCache({ ttlMs: 0 });
+	const platform = { apiKey: 'k', fetchImpl };
+	await cache.refresh(platform);
+	await cache.refresh(platform);
+	await cache.refresh(platform);
+	assert.equal(calls, 3, 'ttlMs=0 means every refresh is a fresh HTTP call');
 });
 
 // --- createChatTurnNotifier ------------------------------------------------

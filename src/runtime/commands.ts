@@ -3,7 +3,7 @@ import { AuthManager } from '../auth';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import { getModels, getVisibleModels } from '../models/registry';
-import { getBaseUrl, getClaudeCodeLogPath } from '../config';
+import { getBaseUrl, getClaudeCodeAllowedModels, getClaudeCodeLogPath } from '../config';
 import { chooseCommitModel, generateCommitMessage } from '../git/commitMessage';
 import { toggleM31MContextEnabled } from '../provider/models';
 import { createUsageStore, type UsageStore } from '../usage';
@@ -85,6 +85,7 @@ export function setClaudeCodeIngest(context: vscode.ExtensionContext): void {
 	cachedClaudeCodeIngest = createClaudeCodeIngest({
 		globalState: context.globalState,
 		logPath: getClaudeCodeLogPath(),
+		allowedModels: getClaudeCodeAllowedModels(),
 	}).start();
 	context.subscriptions.push({
 		dispose: () => {
@@ -97,7 +98,8 @@ export function setClaudeCodeIngest(context: vscode.ExtensionContext): void {
 			if (
 				e.affectsConfiguration('minimax.dashboard.includeClaudeCode') ||
 				e.affectsConfiguration('minimax.claudeCode.logPath') ||
-				e.affectsConfiguration('minimax.claudeCode.pollIntervalMs')
+				e.affectsConfiguration('minimax.claudeCode.pollIntervalMs') ||
+				e.affectsConfiguration('minimax.claudeCode.allowedModels')
 			) {
 				cachedClaudeCodeIngest?.dispose();
 				cachedClaudeCodeIngest = undefined;

@@ -85,6 +85,7 @@ export interface DashboardMessages {
 	claudeCodeLogPath: string;
 	claudeCodeFilesTracked: string;
 	claudeCodeParseErrors: string;
+	claudeCodeSkippedModels: string;
 	claudeCodeNeverSynced: string;
 	claudeCodeNoData: string;
 	// ---- Tab bar ----
@@ -178,6 +179,7 @@ const en: DashboardMessages = {
 	claudeCodeLogPath: 'Log path',
 	claudeCodeFilesTracked: 'Tracking {0} file(s)',
 	claudeCodeParseErrors: '{0} unparseable line(s) skipped',
+	claudeCodeSkippedModels: '{0} non-MiniMax line(s) skipped',
 	claudeCodeNeverSynced: 'never',
 	claudeCodeNoData: 'No Claude Code usage recorded yet.',
 
@@ -268,6 +270,7 @@ const zh: DashboardMessages = {
 	claudeCodeLogPath: '日志路径',
 	claudeCodeFilesTracked: '正在追踪 {0} 个文件',
 	claudeCodeParseErrors: '已跳过 {0} 行无法解析的内容',
+	claudeCodeSkippedModels: '已跳过 {0} 行非 MiniMax 模型',
 	claudeCodeNeverSynced: '尚未同步',
 	claudeCodeNoData: '暂无 Claude Code 用量记录。',
 

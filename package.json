@@ -314,6 +314,19 @@
           "scope": "application",
           "markdownDescription": "How often the dashboard's Claude Code ingester scans the log directory for new lines, in milliseconds. Default `30000` (30 s). Minimum `5000` (5 s); the lower the value, the more frequently the extension reads from disk."
         },
+        "minimax.claudeCode.allowedModels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "MiniMax-M3",
+            "MiniMax-M2.7",
+            "MiniMax-M2.7-highspeed"
+          ],
+          "scope": "application",
+          "markdownDescription": "Allowlist of model IDs to count in the **Claude Code** section of the dashboard. The Claude Code JSONL log includes every model the Claude Code CLI / VSCode extension talked to (not just MiniMax), so we filter to MiniMax-related models by default. Edit this list to add legacy IDs like `MiniMax-M2.5` / `MiniMax-M2` or to remove models you do not want to count."
+        },
         "minimax.experimental.modelDefPresets": {
           "type": "object",
           "default": {},
