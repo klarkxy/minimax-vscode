@@ -12,6 +12,48 @@ export const CONFIG_SECTION = 'minimax';
 export const DEFAULT_BASE_URL_GLOBAL = 'https://api.minimax.io/anthropic';
 export const DEFAULT_BASE_URL_CHINA = 'https://api.minimaxi.com/anthropic';
 
+/**
+ * The two platform hostnames the user can be talking to. Anything else
+ * (e.g. a user's self-hosted proxy, a test fixture) collapses to
+ * `DEFAULT_PLATFORM_HOST` so the action-button / platform-link
+ * resolvers always have a concrete value to hand back.
+ */
+export const PLATFORM_HOST_GLOBAL = 'api.minimax.io' as const;
+export const PLATFORM_HOST_CHINA = 'api.minimaxi.com' as const;
+export const DEFAULT_PLATFORM_HOST = PLATFORM_HOST_CHINA;
+
+/** Type of the values returned by `resolvePlatformHost`. */
+export type PlatformHost =
+	| typeof PLATFORM_HOST_GLOBAL
+	| typeof PLATFORM_HOST_CHINA;
+
+/**
+ * Map a MiniMax Anthropic-compatible base URL to its platform hostname.
+ *
+ * Used to keep user-facing action links (the "Create API Key" / "Set
+ * API Key" buttons on the 401/402 error toasts, the dashboard's
+ * Token Plan usage widget, etc.) pointed at the right platform — the
+ * previous implementation hard-coded `api.minimaxi.com`, so an
+ * international user with a 402 landed on the China platform.
+ *
+ * Unrecognised hosts (self-hosted proxies, test fixtures, empty
+ * strings) fall back to the default platform, which matches
+ * `package.json#contributes.configuration.minimax.apiBaseUrl.default`.
+ */
+export function resolvePlatformHost(apiBaseUrl: string | undefined): PlatformHost {
+	if (typeof apiBaseUrl !== 'string' || apiBaseUrl.length === 0) {
+		return DEFAULT_PLATFORM_HOST;
+	}
+	const lower = apiBaseUrl.toLowerCase();
+	if (lower.includes(PLATFORM_HOST_GLOBAL)) {
+		return PLATFORM_HOST_GLOBAL;
+	}
+	if (lower.includes(PLATFORM_HOST_CHINA)) {
+		return PLATFORM_HOST_CHINA;
+	}
+	return DEFAULT_PLATFORM_HOST;
+}
+
 /** Legacy: kept for backward compatibility with deepseek-style debugMode. */
 export const LANGUAGE_MODEL_CHAT_SYSTEM_ROLE = 3;
 

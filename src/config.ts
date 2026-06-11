@@ -2,8 +2,10 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import {
 	CONFIG_SECTION,
-	DEFAULT_BASE_URL_GLOBAL,
+	DEFAULT_BASE_URL_CHINA,
 	DEFAULT_CLAUDE_CODE_LOG_PATH,
+	resolvePlatformHost,
+	type PlatformHost,
 } from './consts';
 
 export type DebugMode = 'minimal' | 'metadata' | 'verbose';
@@ -13,7 +15,12 @@ export type DebugMode = 'minimal' | 'metadata' | 'verbose';
  * appends `/v1/messages` automatically, so the configured URL is the host
  * prefix (e.g. `https://api.minimaxi.com/anthropic`).
  *
- * Defaults to the international endpoint when not configured.
+ * Default falls back to `DEFAULT_BASE_URL_CHINA` to match
+ * `package.json#contributes.configuration.minimax.apiBaseUrl.default`.
+ * The endpoint selector (`autoSelectEndpointIfUnset`) overwrites the
+ * setting on first activation for non-Chinese locales, so a fresh
+ * install with an English locale ends up on the global endpoint
+ * before any user code reads the URL.
  */
 export function getBaseUrl(): string {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
@@ -21,7 +28,17 @@ export function getBaseUrl(): string {
 	if (typeof url === 'string' && url.trim().length > 0) {
 		return url.trim();
 	}
-	return DEFAULT_BASE_URL_GLOBAL;
+	return DEFAULT_BASE_URL_CHINA;
+}
+
+/**
+ * Resolve the user's configured `minimax.apiBaseUrl` to the short
+ * platform identifier used by the dashboard's
+ * `coding_plan/remains` fetcher and the 401/402 action buttons. See
+ * `resolvePlatformHost` in `consts.ts` for the matching rules.
+ */
+export function getApiHostForPlatform(): PlatformHost {
+	return resolvePlatformHost(getBaseUrl());
 }
 
 /**

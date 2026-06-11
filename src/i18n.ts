@@ -74,8 +74,9 @@ const zh: Translations = {
 
 	// Errors
 	'error.http.400': '[{0}] 请求体格式错误。请根据错误信息提示修改请求体。',
-	'error.http.401': '[{0}] API Key 错误，认证失败。请检查您的 API Key 是否正确。',
-	'error.http.402': '[{0}] 账号余额不足。请前往订阅页面续费。',
+	'error.http.401': '[{0}] API Key 被拒绝。请确认 Key 与当前配置的端点（{1}）匹配，且未被吊销。',
+	'error.http.402': '[{0}] 当前端点余额不足。若使用 Token Plan Key，请确认 Key 是在当前配置端点（{1}）下签发的。',
+	'error.http.upstreamSuffix': '上游：{0}',
 	'error.http.403': '[{0}] 权限被拒绝。请检查 API Key 的权限范围。',
 	'error.http.408': '[{0}] 请求超时。请稍后重试。',
 	'error.http.413': '[{0}] 请求体过大。请减小 max_tokens / 上下文长度后重试。',
@@ -222,8 +223,9 @@ const en: Translations = {
 
 	// Errors
 	'error.http.400': '[{0}] Bad request. Please review the error message and adjust the request body.',
-	'error.http.401': '[{0}] API key error, authentication failed. Please check your API key.',
-	'error.http.402': '[{0}] Insufficient balance. Please renew your subscription.',
+	'error.http.401': '[{0}] API key rejected. Confirm the key matches the configured endpoint ({1}) and has not been revoked.',
+	'error.http.402': '[{0}] Insufficient balance on this surface. If you are using a Token Plan key, confirm it was issued for the configured endpoint ({1}).',
+	'error.http.upstreamSuffix': 'Upstream: {0}',
 	'error.http.403': '[{0}] Permission denied. Please check the API key scope.',
 	'error.http.408': '[{0}] Request timeout. Please retry later.',
 	'error.http.413': '[{0}] Request payload too large. Reduce max_tokens / context size and retry.',

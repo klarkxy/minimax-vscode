@@ -3,7 +3,7 @@ import { AuthManager } from '../auth';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import { getModels, getVisibleModels } from '../models/registry';
-import { getBaseUrl, getClaudeCodeAllowedModels, getClaudeCodeLogPath } from '../config';
+import { getApiHostForPlatform, getBaseUrl, getClaudeCodeAllowedModels, getClaudeCodeLogPath } from '../config';
 import { chooseCommitModel, generateCommitMessage } from '../git/commitMessage';
 import { toggleM31MContextEnabled } from '../provider/models';
 import { createUsageStore, type UsageStore } from '../usage';
@@ -243,9 +243,14 @@ async function copyMmxInstallPromptForCommand(): Promise<void> {
 }
 
 function detectHost(): 'china' | 'global' {
+	// Defer to the configured `minimax.apiBaseUrl` so a fresh
+	// international install lands on the global platform instead of
+	// the previously-hard-coded `'china'` default. `getApiHostForPlatform`
+	// shares the same resolution rules as the 401/402 action buttons
+	// in `client/error.ts`, so the dashboard's "Token Plan" widget and
+	// the error toasts both agree on which platform the user is on.
 	try {
-		const baseUrl = getBaseUrl();
-		return baseUrl.includes('minimaxi.com') ? 'china' : 'global';
+		return getApiHostForPlatform() === 'api.minimaxi.com' ? 'china' : 'global';
 	} catch {
 		return 'china';
 	}

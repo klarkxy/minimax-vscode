@@ -554,12 +554,35 @@ function isAnthropicApiError(
 }
 
 function extractAnthropicErrorBody(error: InstanceType<typeof Anthropic.APIError>): string {
+	// Re-serialise the SDK's already-parsed envelope so the downstream
+	// `extractServerError` path (which is shared with the raw-`Response`
+	// path in `createHttpError`) can pull out the structured fields.
+	// The previous implementation dropped `error.error.message` and
+	// `error.requestID`, so a 402 like
+	// `{type:"insufficient_balance_error", message:"insufficient balance (1008)"}`
+	// with `request_id="06747ff0…"` collapsed to a generic "Insufficient
+	// balance. Please renew your subscription." toast with no
+	// request_id — the user had nothing to send to MiniMax support.
 	try {
-		const inner = error.error as { type?: string } | undefined;
-		return JSON.stringify({
+		const inner = (error.error ?? {}) as {
+			type?: string;
+			message?: string;
+		};
+		const body: Record<string, unknown> = {
 			type: 'error',
-			error: { type: inner?.type ?? 'api_error', message: error.message },
-		});
+			error: {
+				type: inner.type ?? 'api_error',
+				message: inner.message ?? error.message,
+			},
+		};
+		// The Anthropic SDK exposes the upstream's `request_id` on
+		// `error.requestID` (renamed from snake_case). Forward it so
+		// `extractServerError` can surface it in the diagnostic and the
+		// 401/402 toast.
+		if (typeof error.requestID === 'string' && error.requestID.length > 0) {
+			body.request_id = error.requestID;
+		}
+		return JSON.stringify(body);
 	} catch {
 		return error.message;
 	}

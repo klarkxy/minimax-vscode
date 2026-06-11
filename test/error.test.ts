@@ -133,3 +133,132 @@ test('createUserFacingError: plain Error is rendered as plain text', () => {
 	assert.equal(display.message, 'something broke');
 	assert.equal(display.stack, undefined, 'we do not leak the original stack to the chat');
 });
+
+// ---- Issue #2 regression: 402 surfaces upstream type + request_id --------
+//
+// The MiniMax international gateway returns 402 for Token Plan keys used
+// on the Anthropic-compatible surface, with a body shape like
+// `{ type: "error", error: { type: "insufficient_balance_error",
+//   message: "insufficient balance (1008)" }, request_id: "06747ff0…" }`.
+// The previous code re-serialised the SDK error and dropped both
+// `error.type` and `request_id` — the user only saw a generic
+// "Insufficient balance. Please renew your subscription." toast with
+// nothing to quote when contacting support. These tests pin the new
+// contract.
+
+test('createHttpError: 402 from MiniMax preserves error.type and request_id on the error object', async () => {
+	// The exact body shape from issue #2. Verbatim.
+	const body = JSON.stringify({
+		type: 'error',
+		error: {
+			type: 'insufficient_balance_error',
+			message: 'insufficient balance (1008)',
+		},
+		request_id: '06747ff086b4d8dbe7fdb3f4539c41b3',
+	});
+	const err = await createHttpError(
+		makeResponse(402, body),
+		'https://api.minimax.io/anthropic',
+	);
+	assert.ok(err instanceof MiniMaxRequestError);
+	assert.equal(err.status, 402);
+	assert.equal(err.serverErrorType, 'insufficient_balance_error');
+	assert.equal(err.serverRequestId, '06747ff086b4d8dbe7fdb3f4539c41b3');
+	// The diagnostic channel captures both fields so the "MiniMax: Show
+	// Logs" output and the request-dump writer have enough context to
+	// reproduce the issue.
+	assert.match(err.diagnosticMessage, /serverErrorType=insufficient_balance_error/);
+	assert.match(err.diagnosticMessage, /serverRequestId=06747ff086b4d8dbe7fdb3f4539c41b3/);
+	assert.match(err.diagnosticMessage, /serverMessage=insufficient balance \(1008\)/);
+});
+
+test('createHttpError: 402 toast mentions the configured endpoint host', async () => {
+	// The international user reports the bug. The base URL we're
+	// calling has `api.minimax.io`, so the toast should reference
+	// that host — not the hard-coded `api.minimaxi.com` the previous
+	// implementation rendered for everyone.
+	const body = JSON.stringify({
+		type: 'error',
+		error: { type: 'insufficient_balance_error', message: 'insufficient balance (1008)' },
+		request_id: '06747ff0',
+	});
+	const err = await createHttpError(
+		makeResponse(402, body),
+		'https://api.minimax.io/anthropic',
+	);
+	assert.match(err.userSummary, /api\.minimax\.io/);
+	assert.ok(!err.userSummary.includes('api.minimaxi.com'), 'should not mention the China host');
+});
+
+test('createHttpError: 402 toast includes the upstream detail when present', async () => {
+	const body = JSON.stringify({
+		type: 'error',
+		error: { type: 'insufficient_balance_error', message: 'insufficient balance (1008)' },
+		request_id: '06747ff086b4d8dbe7fdb3f4539c41b3',
+	});
+	const err = await createHttpError(
+		makeResponse(402, body),
+		'https://api.minimax.io/anthropic',
+	);
+	// The toast text should mention both the error type and the
+	// request_id — these are the fields the user can quote to MiniMax
+	// support to get a concrete answer.
+	assert.match(err.userSummary, /insufficient_balance_error/);
+	assert.match(err.userSummary, /insufficient balance \(1008\)/);
+	assert.match(err.userSummary, /request_id=06747ff086b4d8dbe7fdb3f4539c41b3/);
+});
+
+test('createHttpError: 402 toast still surfaces the raw body when the body is non-JSON', async () => {
+	// The gateway in front of MiniMax (nginx, an LB) might return an
+	// HTML error page instead of a JSON envelope. We can't parse out
+	// the structured fields, but the raw text is still useful for
+	// debugging — show it in the upstream segment rather than dropping
+	// it on the floor.
+	const err = await createHttpError(
+		makeResponse(402, '<html>nginx 502</html>'),
+		'https://api.minimax.io/anthropic',
+	);
+	assert.equal(err.serverErrorType, undefined);
+	assert.equal(err.serverRequestId, undefined);
+	assert.match(err.userSummary, /Upstream: <html>nginx 502<\/html>/);
+});
+
+test('createHttpError: 401 also surfaces the upstream type and request_id', async () => {
+	const body = JSON.stringify({
+		type: 'error',
+		error: { type: 'authentication_error', message: 'invalid x-api-key' },
+		request_id: 'abc123',
+	});
+	const err = await createHttpError(
+		makeResponse(401, body),
+		'https://api.minimax.io/anthropic',
+	);
+	assert.equal(err.serverErrorType, 'authentication_error');
+	assert.equal(err.serverRequestId, 'abc123');
+	assert.match(err.userSummary, /api\.minimax\.io/);
+});
+
+test('createHttpError: action-button host follows the configured baseUrl', async () => {
+	// The 401/402 "Create API Key" / "Set API Key" action buttons used
+	// to always point at platform.minimaxi.com — sending international
+	// users to the China platform. After the fix, the host follows
+	// the configured `minimax.apiBaseUrl`.
+	const body = JSON.stringify({
+		type: 'error',
+		error: { type: 'insufficient_balance_error', message: 'oops' },
+	});
+	const err402 = await createHttpError(
+		makeResponse(402, body),
+		'https://api.minimax.io/anthropic',
+	);
+	const display = createUserFacingError(err402);
+	assert.ok(
+		display.message.includes('https://api.minimax.io') ||
+			display.message.includes('https://platform.minimax.io'),
+		`expected the 402 action link to point at the international host, got: ${display.message}`,
+	);
+	assert.ok(
+		!display.message.includes('minimaxi.com'),
+		`expected no China host in the international 402 toast, got: ${display.message}`,
+	);
+});

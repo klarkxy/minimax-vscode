@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { getM3ContextWindow } from '../config';
+import { getBaseUrl, getM3ContextWindow } from '../config';
 import { MINIMAX_TOOLS_LIMIT } from '../consts';
 import type { ModelDefinition, ModelPricing } from '../types';
 
@@ -210,19 +210,23 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 ];
 
 /**
- * Read the configured `minimax.apiBaseUrl`, falling back to the global
- * `https://api.minimax.io/v1` (the default in `package.json`).
+ * Read the configured `minimax.apiBaseUrl`, falling back to the
+ * shared `getBaseUrl()` default. The earlier implementation
+ * had a private hard-coded `'https://api.minimax.io/v1'` fallback
+ * that disagreed with the China default in `package.json`; routing
+ * through `getBaseUrl()` keeps the picker pricing and the chat
+ * request on the same source of truth.
  */
 function readConfiguredBaseUrl(): string {
 	try {
-		const config = vscode.workspace.getConfiguration('minimax');
-		const raw = config.get<string>('apiBaseUrl');
-		if (raw && typeof raw === 'string') return raw;
+		return getBaseUrl();
 	} catch {
-		// getConfiguration may throw if called before the extension is
-		// fully initialised; fall through to the default.
+		// `getBaseUrl` may throw if `vscode.workspace.getConfiguration`
+		// is called before the extension is fully initialised; the
+		// module-level default inside `getBaseUrl` covers that, but
+		// be defensive in case a future change makes the call unsafe.
+		return 'https://api.minimaxi.com/anthropic';
 	}
-	return 'https://api.minimax.io/v1';
 }
 
 /**

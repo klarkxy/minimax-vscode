@@ -1,8 +1,8 @@
 import { t } from '../i18n';
+import { resolvePlatformHost } from '../consts';
 import {
 	MAX_DIAGNOSTIC_FIELD_LENGTH,
 	NETWORK_ERROR_CATEGORY_BY_CODE,
-	OFFICIAL_MINIMAX_API_HOST,
 } from './consts';
 import type {
 	ErrorActionLink,
@@ -52,6 +52,22 @@ export class MiniMaxRequestError extends Error {
 	readonly baseUrl?: string;
 	readonly status?: number;
 	readonly code?: string;
+	/**
+	 * The structured `error.type` from the upstream Anthropic-compatible
+	 * envelope (e.g. `insufficient_balance_error`, `authentication_error`).
+	 * Surfaces in the diagnostic channel so the "MiniMax: Show Logs"
+	 * output preserves the upstream's signal — the high-level toast
+	 * still uses the localised summary, but anyone investigating via
+	 * the request-dump writer or the log file sees the original type.
+	 */
+	readonly serverErrorType?: string;
+	/**
+	 * The upstream's `request_id` (e.g. `06747ff086b4d8dbe7fdb3f4539c41b3`
+	 * from issue #2). MiniMax support asks for this when triaging a
+	 * rejected request; without it, the user can only report "the
+	 * request failed" with no thread to pull on.
+	 */
+	readonly serverRequestId?: string;
 
 	constructor(options: {
 		message: string;
@@ -61,6 +77,8 @@ export class MiniMaxRequestError extends Error {
 		baseUrl?: string;
 		status?: number;
 		code?: string;
+		serverErrorType?: string;
+		serverRequestId?: string;
 		cause?: unknown;
 	}) {
 		super(options.message, { cause: options.cause });
@@ -71,6 +89,8 @@ export class MiniMaxRequestError extends Error {
 		this.baseUrl = options.baseUrl;
 		this.status = options.status;
 		this.code = options.code;
+		this.serverErrorType = options.serverErrorType;
+		this.serverRequestId = options.serverRequestId;
 	}
 }
 
@@ -79,15 +99,20 @@ export async function createHttpError(
 	baseUrl: string,
 ): Promise<MiniMaxRequestError> {
 	const responseText = await response.text();
-	const serverMessage = extractServerMessage(responseText);
-	const userSummary = getHttpErrorMessage(response.status);
+	const server = extractServerError(responseText);
+	const userSummary = getHttpErrorMessage(response.status, {
+		host: resolvePlatformHost(baseUrl),
+		upstream: formatUpstreamDetail(server),
+	});
 	const diagnosticMessage = joinDiagnosticParts(
 		`kind=http`,
 		`status=${response.status}`,
 		`baseUrl=${truncateSingleLine(baseUrl)}`,
 		`statusText=${response.statusText || 'unknown'}`,
-		serverMessage ? `serverMessage=${serverMessage}` : undefined,
-		responseText && responseText !== serverMessage
+		server.message ? `serverMessage=${server.message}` : undefined,
+		server.errorType ? `serverErrorType=${server.errorType}` : undefined,
+		server.requestId ? `serverRequestId=${server.requestId}` : undefined,
+		responseText && responseText !== server.message
 			? `body=${truncateSingleLine(responseText)}`
 			: undefined,
 	);
@@ -99,6 +124,8 @@ export async function createHttpError(
 		baseUrl,
 		status: response.status,
 		code: `HTTP_${response.status}`,
+		serverErrorType: server.errorType,
+		serverRequestId: server.requestId,
 		diagnosticMessage,
 	});
 }
@@ -155,14 +182,30 @@ export function createUserFacingError(error: Error): Error {
 	return displayError;
 }
 
-function getHttpErrorMessage(status: number): string {
+function getHttpErrorMessage(
+	status: number,
+	context?: { host?: string; upstream?: string },
+): string {
+	const base = (key: string) => {
+		const message = t(key, status, context?.host);
+		// Append the upstream detail (error.type / message / request_id)
+		// when available. Done here rather than inside the i18n template
+		// so the "Upstream: " prefix naturally disappears when the
+		// upstream payload doesn't carry the structured fields — which
+		// is the case for non-JSON HTML error pages, e.g. an nginx
+		// 502 in front of the gateway.
+		if (context?.upstream) {
+			return `${message} ${t('error.http.upstreamSuffix', context.upstream)}`;
+		}
+		return message;
+	};
 	switch (status) {
 		case 400:
 			return t('error.http.400', status);
 		case 401:
-			return t('error.http.401', status);
+			return base('error.http.401');
 		case 402:
-			return t('error.http.402', status);
+			return base('error.http.402');
 		case 403:
 			return t('error.http.403', status);
 		case 408:
@@ -237,24 +280,71 @@ function getNetworkErrorCategory(code: string | undefined): NetworkErrorCategory
 	return code.startsWith('HPE_') ? 'protocol' : 'generic';
 }
 
-function extractServerMessage(responseText: string): string | undefined {
+function extractServerError(responseText: string): {
+	message?: string;
+	errorType?: string;
+	requestId?: string;
+} {
 	const trimmed = responseText.trim();
 	if (!trimmed) {
-		return undefined;
+		return {};
 	}
 
+	let parsed: unknown;
 	try {
-		const parsed: unknown = JSON.parse(trimmed);
-		// Anthropic errors: { type: "error", error: { type, message } }
-		const error = getObjectProperty(parsed, 'error');
-		const message =
-			getStringProperty(error, 'message') ??
-			getStringProperty(parsed, 'message') ??
-			(typeof error === 'string' ? error : undefined);
-		return message ? truncateSingleLine(message) : undefined;
+		parsed = JSON.parse(trimmed);
 	} catch {
-		return truncateSingleLine(trimmed);
+		return { message: truncateSingleLine(trimmed) };
 	}
+
+	// Anthropic errors: { type: "error", error: { type, message }, request_id }
+	const error = getObjectProperty(parsed, 'error');
+	const message =
+		getStringProperty(error, 'message') ??
+		getStringProperty(parsed, 'message') ??
+		(typeof error === 'string' ? error : undefined);
+	const errorType =
+		getStringProperty(error, 'type') ?? getStringProperty(parsed, 'type');
+	// Some MiniMax surfaces nest the request id under different keys
+	// (Anthropic uses `request_id`, the platform quota API uses
+	// `request_id` too, but downstream proxies occasionally rename it
+	// to `id` or `requestId`). We accept all three so we don't lose
+	// the value during normalisation.
+	const requestId =
+		getStringProperty(parsed, 'request_id') ??
+		getStringProperty(parsed, 'requestId') ??
+		getStringProperty(error, 'request_id') ??
+		getStringProperty(parsed, 'id');
+	return {
+		message: message ? truncateSingleLine(message) : undefined,
+		errorType: errorType ? truncateSingleLine(errorType) : undefined,
+		requestId: requestId ? truncateSingleLine(requestId) : undefined,
+	};
+}
+
+/**
+ * Format the upstream envelope fields into a single short string for
+ * the toast detail line. The output is rendered inside an i18n
+ * template so we keep it terse — typically
+ * `insufficient_balance_error: insufficient balance (1008) (request_id=06747ff0…)`.
+ * Returns `undefined` when no upstream fields are available so the
+ * i18n template can drop the "Upstream: …" segment cleanly.
+ */
+function formatUpstreamDetail(
+	server: { message?: string; errorType?: string; requestId?: string },
+): string | undefined {
+	const parts: string[] = [];
+	if (server.errorType && server.message) {
+		parts.push(`${server.errorType}: ${server.message}`);
+	} else if (server.errorType) {
+		parts.push(server.errorType);
+	} else if (server.message) {
+		parts.push(server.message);
+	}
+	if (server.requestId) {
+		parts.push(`request_id=${server.requestId}`);
+	}
+	return parts.length > 0 ? parts.join(' (') + (parts.length > 1 ? ')' : '') : undefined;
 }
 
 function getCauseInfo(
@@ -352,18 +442,25 @@ function getHttpErrorLinkKey(status: number): HttpErrorLinkStatusKey | undefined
 
 function getHttpErrorLink(
 	key: HttpErrorLinkStatusKey,
-	_baseUrl: string,
+	baseUrl: string,
 ): ErrorActionLink | undefined {
+	// Resolve the platform host from the configured base URL. Falls
+	// back to the China host when the base URL is empty or unrecognised,
+	// which matches the `minimax.apiBaseUrl` default in `package.json`.
+	// The previous implementation hard-coded `api.minimaxi.com`, so an
+	// international user with a 401/402 landed on the China platform
+	// (issue #2).
+	const host = resolvePlatformHost(baseUrl);
 	if (key === 401) {
 		return {
 			labelKey: 'error.action.setApiKey',
-			url: 'https://platform.minimaxi.com/user-center/payment/token-plan',
+			url: `https://platform.${host}/user-center/payment/token-plan`,
 		};
 	}
 	if (key === 402) {
 		return {
 			labelKey: 'error.action.createApiKey',
-			url: `https://${OFFICIAL_MINIMAX_API_HOST}`,
+			url: `https://${host}`,
 		};
 	}
 	return undefined;

@@ -22,5 +22,3 @@ export const NETWORK_ERROR_CATEGORY_BY_CODE: Record<string, NetworkErrorCategory
 };
 
 export const MAX_DIAGNOSTIC_FIELD_LENGTH = 500;
-
-export const OFFICIAL_MINIMAX_API_HOST = 'api.minimaxi.com';
