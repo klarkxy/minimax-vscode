@@ -208,6 +208,14 @@ test('createHttpError: 402 toast includes the upstream detail when present', asy
 	// The toast text should mention both the error type and the
 	// request_id — these are the fields the user can quote to MiniMax
 	// support to get a concrete answer.
+	//
+	// Markdown escape happens at the OUTERMOST layer
+	// (`formatMarkdownMessage`), NOT in `formatUpstreamDetail`. The
+	// `err.userSummary` field is the pre-format string (raw `(1008)`,
+	// not `\(1008\)`); the chat renderer escapes parens via the
+	// `formatMarkdownMessage` wrap. The `display.message` assertion
+	// for the same scenario is the `createUserFacingError: upstream
+	// [text](url) is rendered as escaped text, not a link` test below.
 	assert.match(err.userSummary, /insufficient_balance_error/);
 	assert.match(err.userSummary, /insufficient balance \(1008\)/);
 	assert.match(err.userSummary, /request_id=06747ff086b4d8dbe7fdb3f4539c41b3/);
@@ -219,6 +227,11 @@ test('createHttpError: 402 toast still surfaces the raw body when the body is no
 	// the structured fields, but the raw text is still useful for
 	// debugging — show it in the upstream segment rather than dropping
 	// it on the floor.
+	//
+	// The escape happens at the outermost layer; the raw userSummary
+	// keeps the literal `<` / `>` characters from the HTML body. The
+	// `display.message` (after `formatMarkdownMessage`) is what gets
+	// the `\<` escape. This test pins the pre-format string.
 	const err = await createHttpError(
 		makeResponse(402, '<html>nginx 502</html>'),
 		'https://api.minimax.io/anthropic',
@@ -253,6 +266,11 @@ test('createHttpError: action-button host follows the configured baseUrl', async
 	// `https://platform.api.minimax.io/...` — an invalid hostname —
 	// because the API host was being pasted into the platform URL
 	// template. This test pins the corrected URL exactly.
+	//
+	// Note: the `escapeMarkdownInline` set includes `:` and `.` (to
+	// break GFM autolink patterns), so the URL appears in the
+	// display.message source as `https\:\/\/platform\.minimax\.io\/...`.
+	// The user sees the same text; only the source has the escapes.
 	const body = JSON.stringify({
 		type: 'error',
 		error: { type: 'insufficient_balance_error', message: 'oops' },
@@ -403,4 +421,167 @@ test('createHttpError: 401/402 userSummary never contains literal "null" for any
 			);
 		}
 	}
+});
+
+// ---- Finding 5: Markdown injection / escapeMarkdownInline ----
+//
+// A hostile or malformed upstream `errorType` / `message` / `requestId`
+// can contain Markdown syntax that renders as interactive content
+// inside the `**...**` userSummary block. Codex's adversarial review
+// surfaced this in Finding 5. The fix is `escapeMarkdownInline` in
+// `src/client/error.ts`, which escapes the GFM inline special-character
+// set (backslash, backtick, asterisk, underscore, less-than, square
+// brackets, parens, tilde) before the upstream components are joined
+// into the toast text.
+
+test('escapeMarkdownInline: covers all GFM inline special characters', async () => {
+	// Direct unit test against the helper, exercised through the
+	// public `createUserFacingError` path. The summary is wrapped in
+	// `**...**` by `formatMarkdownMessage`; for the unbolded version
+	// we observe the surrounding characters in `display.message`.
+	const cases: Array<{ input: string; expected: string }> = [
+		// The 10 chars that make up the inline special set:
+		{ input: 'a\\b', expected: 'a\\\\b' }, // backslash
+		{ input: 'a`b', expected: 'a\\`b' }, // backtick
+		{ input: 'a*b', expected: 'a\\*b' }, // asterisk
+		{ input: 'a_b', expected: 'a\\_b' }, // underscore
+		{ input: 'a<b', expected: 'a\\<b' }, // less-than
+		{ input: 'a[b', expected: 'a\\[b' }, // open bracket
+		{ input: 'a]b', expected: 'a\\]b' }, // close bracket
+		{ input: 'a(b', expected: 'a\\(b' }, // open paren
+		{ input: 'a)b', expected: 'a\\)b' }, // close paren
+		{ input: 'a~b', expected: 'a\\~b' }, // tilde
+	];
+	for (const { input, expected } of cases) {
+		const err = new MiniMaxRequestError({
+			message: 'test',
+			userSummary: input,
+			kind: 'http',
+			status: 500,
+			baseUrl: 'https://api.minimax.io/anthropic',
+		});
+		const display = createUserFacingError(err);
+		assert.ok(
+			display.message.includes(expected),
+			`input ${JSON.stringify(input)} should escape to contain ${JSON.stringify(expected)}, got: ${display.message}`,
+		);
+	}
+});
+
+test('createUserFacingError: upstream [text](url) is rendered as escaped text, not a link', async () => {
+	// Pinned regression for Finding 5: a hostile upstream `message`
+	// containing `[click](http://attacker.example.com)` must NOT
+	// form a real Markdown link inside the `**...**` userSummary
+	// block. After `escapeMarkdownInline`, the brackets and parens
+	// are escaped so the substring is rendered as literal text.
+	const err = await createHttpError(
+		makeResponse(
+			402,
+			JSON.stringify({
+				type: 'error',
+				error: { type: 'x', message: '[phish](http://attacker.example.com)' },
+				request_id: 'abc',
+			}),
+		),
+		'https://api.minimax.io/anthropic',
+	);
+	const display = createUserFacingError(err);
+	// The unescaped substring must NOT appear anywhere in the toast —
+	// if it did, Copilot Chat's Markdown renderer would treat it as a
+	// clickable link next to the trusted "Set API Key" / "Create API
+	// Key" actions.
+	assert.ok(
+		!display.message.includes('[phish](http://attacker.example.com)'),
+		`unescaped link substring must not appear, got: ${display.message}`,
+	);
+	// The escaped form (`\[phish\]\(http://attacker.example.com\)`)
+	// MUST appear — the user can still see the upstream text, just
+	// as literal characters rather than as a link.
+	assert.ok(
+		display.message.includes('\\[phish\\]\\(http://attacker.example.com\\)'),
+		`escaped form must appear, got: ${display.message}`,
+	);
+});
+
+test('createUserFacingError: hostile action-link URL is escaped so it cannot break out of the link', async () => {
+	// The action URL is interpolated into `[label](url)`. A URL
+	// containing `)]` or `](` would close the link early and
+	// potentially form a second link. After `escapeMarkdownInline`,
+	// the URL's `)`, `]`, ` `, `:` and `.` are escaped so the
+	// boundary holds.
+	//
+	// Earlier this test used a URL with a space (`http://evil/)] [evil text`),
+	// which Marked treats as a link-destination terminator anyway
+	// — a false positive on the link count. The new URL has NO
+	// whitespace, so the link target is valid Marked syntax and the
+	// boundary check is meaningful.
+	//
+	// The 401 path emits TWO action links (the platform link from
+	// `getHttpErrorLink(401)` AND the diagnostic override from
+	// `errorActionUrlStore.configureApiKey`). Both use the label
+	// "Set API Key". The pin is: exactly two link-opens appear (no
+	// MORE, no FEWER), and the hostile override URL is present only
+	// in the escaped form.
+	{
+		const { setErrorActionUrl, resetErrorActionUrls } = await import('../src/client/error.js');
+		setErrorActionUrl('configureApiKey', 'http://evil.example/?)]parens');
+		try {
+			const err = new MiniMaxRequestError({
+				message: 'HTTP 401',
+				userSummary: 'x',
+				kind: 'http',
+				status: 401,
+				baseUrl: 'https://api.minimax.io/anthropic',
+			});
+			const display = createUserFacingError(err);
+			const linkOpens = (display.message.match(/\[\*?Set API Key\*?\]/g) || []).length;
+			assert.equal(
+				linkOpens,
+				2,
+				`exactly two "Set API Key" links must form (platform + override), got ${linkOpens} in: ${display.message}`,
+			);
+			// The escaped URL appears in the link target. The escape
+			// function covers the 10-char inline special set; only
+			// the boundary chars `)` and `]` get backslashes here
+			// (the `:` `.` `/` `?` are NOT in the set, so they
+			// appear in the source unescaped). GFM autolink-breaking
+			// for bare URLs in the userSummary is tracked as a
+			// follow-up in LRN-20260611-005.
+			assert.ok(
+				display.message.includes('http://evil.example/?\\)\\]parens'),
+				`escaped URL must appear in link target, got: ${display.message}`,
+			);
+			// The UNESCAPED form must NOT appear.
+			assert.ok(
+				!display.message.includes('http://evil.example/?)]parens'),
+				`unescaped URL must not appear, got: ${display.message}`,
+			);
+		} finally {
+			resetErrorActionUrls();
+		}
+	}
+});
+
+test('createUserFacingError: backtick in upstream message does not open a code span', async () => {
+	// A hostile upstream containing a backtick could open a Markdown
+	// code span, swallowing the rest of the userSummary until the
+	// next backtick. After the escape, the backtick is `\\\`` and
+	// the rendering stays in normal text.
+	const err = await createHttpError(
+		makeResponse(
+			402,
+			JSON.stringify({
+				type: 'error',
+				error: { type: 'x', message: 'see `cmd` for details' },
+			}),
+		),
+		'https://api.minimax.io/anthropic',
+	);
+	const display = createUserFacingError(err);
+	// The escape renders the backtick as a literal backtick in chat,
+	// so the substring `\`cmd\`` (escaped) appears, not the raw form.
+	assert.ok(
+		display.message.includes('\\`cmd\\`'),
+		`backticks must be escaped, got: ${display.message}`,
+	);
 });

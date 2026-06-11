@@ -4,6 +4,7 @@
 // tabs (`copilot`, `claudeCode`, ...) and a `total` field that is the
 // element-wise sum of every available source.
 
+import { createHash } from 'node:crypto';
 import { createUsageStore, type ModelUsage, type UsageStore } from '../usage';
 import { fetchPlanUsage, type PlanApiOptions, type PlanApiResult } from './api';
 import { readMmxCliStatus, type MmxCliStatus } from './mmxCli';
@@ -56,21 +57,54 @@ export interface PlanCache {
 	read(): PlanSnapshot | undefined;
 	/**
 	 * Fetch a fresh snapshot. The same in-flight promise is returned to
-	 * concurrent callers so the underlying HTTP request is only ever
-	 * made once. Failures are NOT cached; subsequent calls will retry.
+	 * concurrent callers with the same `(apiKey, host)` fingerprint so
+	 * the underlying HTTP request is only ever made once per identity.
+	 * Failures are NOT cached; subsequent calls will retry.
+	 *
+	 * `force: true` bypasses the TTL window — used by the dashboard's
+	 * Refresh button and any caller that needs a guaranteed-fresh
+	 * round-trip.
 	 */
-	refresh(platform: PlanApiOptions): Promise<PlanApiResult>;
+	refresh(platform: PlanApiOptions, options?: { force?: boolean }): Promise<PlanApiResult>;
 	/** Subscribe to cache-changed events. Returns a Disposable. */
 	subscribe(listener: () => void): { dispose(): void };
-	/** Invalidate (e.g. when the user changes the API key). */
-	invalidate(): void;
+	/**
+	 * Invalidate. By default clears every fingerprint's snapshot
+	 * AND in-flight slot. With a `fingerprint` argument, only that
+	 * one identity is cleared (e.g. an API-key replacement should
+	 * drop the old key's snapshot but leave other keys' snapshots
+	 * intact, if any).
+	 */
+	invalidate(fingerprint?: string): void;
+}
+
+/**
+ * Stable, low-cardinality identity for a `(apiKey, host)` tuple. Used
+ * as the map key in `createPlanCache`'s snapshot / in-flight maps.
+ * 16 hex chars of SHA-256 is more than enough to disambiguate
+ * distinct (key, host) combinations without storing the secret in
+ * the key. Matches the `sha256(...).slice(0, 16)` pattern already in
+ * use at `src/provider/debug/dump.ts:424-426`.
+ */
+export function planCacheFingerprint(platform: PlanApiOptions): string {
+	const host = platform.host ?? 'china';
+	return createHash('sha256')
+		.update(`${host}|${platform.apiKey}`)
+		.digest('hex')
+		.slice(0, 16);
 }
 
 /** Create a fresh PlanCache — one per extension host. */
 export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
 	const ttlMs = options?.ttlMs ?? DEFAULT_PLAN_CACHE_TTL_MS;
-	let snapshot: PlanSnapshot | undefined;
-	let inFlight: Promise<PlanApiResult> | undefined;
+	// Snapshots and in-flight promises are keyed by fingerprint, so a
+	// switch from key A to key B (or from China to a third-party
+	// proxy) doesn't serve the old identity's data. Codex's
+	// adversarial review Finding 2 closed this; the previous single-
+	// snapshot implementation returned the old account's quota
+	// under the new identity for up to 5 minutes.
+	const snapshots = new Map<string, PlanSnapshot>();
+	const inFlight = new Map<string, Promise<PlanApiResult>>();
 	const listeners = new Set<() => void>();
 
 	function notify(): void {
@@ -85,49 +119,60 @@ export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
 
 	return {
 		read() {
-			return snapshot;
-		},
-		async refresh(platform) {
-			// Skip the network round-trip when the cached snapshot is
-			// still inside the TTL window. The previous implementation
-			// always re-fetched, which meant every chat-turn-end event
-			// (the common trigger for `refresh`) turned into a fresh
-			// HTTP call to the platform's `coding_plan/remains`
-			// endpoint. With the 5-minute TTL the cache holds a
-			// snapshot from a recent refresh and returns it directly;
-			// the next refresh past the window fetches a new one.
-			//
-			// This is the same "auto-sync approximately every 5
-			// minutes" contract the platform UI exposes — the cached
-			// value is the most recent thing the platform told us,
-			// and the user can always force a fresh fetch by
-			// `invalidate()`-ing (e.g. via the dashboard's Refresh
-			// button) or by editing the API key.
-			if (snapshot && Date.now() - snapshot.fetchedAt < ttlMs) {
-				return { ok: true, usage: snapshot.usage };
+			// Return the most recently written snapshot. The cache is
+			// designed for one primary identity (the current key +
+			// host) — older fingerprints, if any, are still cached for
+			// fast read but won't be returned unless no other
+			// fingerprint has been written yet. The dashboard code
+			// calls `invalidate(fingerprint)` before swapping, so in
+			// practice this is always the active identity.
+			let mostRecent: PlanSnapshot | undefined;
+			for (const snap of snapshots.values()) {
+				if (!mostRecent || snap.fetchedAt > mostRecent.fetchedAt) {
+					mostRecent = snap;
+				}
 			}
-			// Deduplicate concurrent calls: while a fetch is in flight, every
-			// caller shares the same promise. The previous implementation
-			// cleared `inFlight` inside `.then()` only, so a rejected promise
-			// (network error, 5xx, etc.) would leave `inFlight` set forever
-			// and the next `refresh()` would replay the same broken promise
-			// without ever retrying. We use `.finally()` to release the slot
-			// in both the success and failure paths.
-			if (inFlight) {
-				return inFlight;
+			return mostRecent;
+		},
+		async refresh(platform, options) {
+			// Skip the network round-trip when the cached snapshot
+			// for THIS fingerprint is still inside the TTL window.
+			// `force: true` bypasses the TTL (used by the dashboard's
+			// Refresh button).
+			const fp = planCacheFingerprint(platform);
+			const cached = snapshots.get(fp);
+			const force = options?.force === true;
+			if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
+				return { ok: true, usage: cached.usage };
+			}
+			// Deduplicate concurrent calls per fingerprint: while a
+			// fetch is in flight, every caller with the same identity
+			// shares the same promise. Different fingerprints (e.g.
+			// China vs global vs proxy) have independent in-flight
+			// promises — the previous single-`inFlight` slot would
+			// either force China callers to wait on a global fetch
+			// (or vice versa) or replay a stale promise. The
+			// `.finally()` release covers both success and failure
+			// paths.
+			const pending = inFlight.get(fp);
+			if (pending) {
+				return pending;
 			}
 			const promise = fetchPlanUsage(platform)
 				.then((result) => {
 					if (result.ok) {
-						snapshot = { usage: result.usage, fetchedAt: Date.now() };
+						snapshots.set(fp, {
+							usage: result.usage,
+							fetchedAt: Date.now(),
+						});
 						notify();
 					}
 					return result;
 				})
 				.finally(() => {
-					inFlight = undefined;
+					inFlight.delete(fp);
 				});
-			inFlight = promise;
+			inFlight.set(fp, promise);
 			return promise;
 		},
 		subscribe(listener) {
@@ -138,9 +183,14 @@ export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
 				},
 			};
 		},
-		invalidate() {
-			snapshot = undefined;
-			inFlight = undefined;
+		invalidate(fingerprint) {
+			if (fingerprint === undefined) {
+				snapshots.clear();
+				inFlight.clear();
+			} else {
+				snapshots.delete(fingerprint);
+				inFlight.delete(fingerprint);
+			}
 			notify();
 		},
 	};

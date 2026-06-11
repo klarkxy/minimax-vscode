@@ -91,6 +91,15 @@ export class DashboardPanel {
 			void this.refresh();
 		});
 		this.authChangeSubscription = deps.auth.onDidChangeApiKey(() => {
+			// An API-key change is a credential-boundary event: even
+			// if the new key is on the same host, the cached snapshot
+			// (and any in-flight promise) belongs to the old key and
+			// must NOT be served under the new identity. Invalidate
+			// the cache before the next refresh so the new (apiKey,
+			// host) fingerprint is fetched fresh. This also closes
+			// the "open panel + new key + same host" stale-snapshot
+			// path Codex's 2nd-review [medium] flagged.
+			deps.planCache.invalidate();
 			void this.refresh();
 		});
 		// The shared plan cache fires on every successful fetch — keep the
@@ -161,8 +170,13 @@ export class DashboardPanel {
 		}
 	}
 
-	/** Forces a fresh fetch + re-render. Used by command palette, etc. */
-	async refresh(): Promise<void> {
+	/**
+	 * Re-render. The plan-cache refresh honours the 5-minute TTL
+	 * unless `force: true` is passed — the dashboard's Refresh
+	 * button does so; the auto-pulse paths (chat turn end, store
+	 * subscription, etc.) don't.
+	 */
+	async refresh(options?: { force?: boolean }): Promise<void> {
 		if (this.inFlight) {
 			return;
 		}
@@ -188,12 +202,22 @@ export class DashboardPanel {
 			// before awaiting `buildDashboardView` so the aggregator can
 			// reuse the snapshot we already have on cache hit, instead of
 			// issuing a second `fetchPlanUsage` round-trip.
+			//
+			// `force: true` is intentionally NOT set here — this is the
+			// auto-pulse path (chat turn end, store subscription, etc.),
+			// and the 5-minute TTL is the desired rate-limit. The
+			// dashboard's explicit Refresh button (see the `case 'refresh'`
+			// handler below) passes `force: true` for guaranteed-fresh.
+			const force = options?.force === true;
 			let planRefreshPromise: Promise<unknown> = Promise.resolve();
 			if (apiKey) {
-				planRefreshPromise = this.deps.planCache.refresh({
-					apiKey,
-					host: this.deps.getHost?.() ?? null,
-				});
+				planRefreshPromise = this.deps.planCache.refresh(
+					{
+						apiKey,
+						host: this.deps.getHost?.() ?? null,
+					},
+					{ force },
+				);
 			}
 			// Refresh the mmx-cli detection in the background. The
 			// cached view above already shows the last-known state, so
@@ -264,7 +288,14 @@ export class DashboardPanel {
 				await this.refresh();
 				return;
 			case 'refresh':
-				await this.refresh();
+				// The dashboard's Refresh button is the user's explicit
+				// "I want a fresh snapshot" gesture. Pass `force: true`
+				// through so the plan cache skips its 5-minute TTL and
+				// issues a guaranteed-fresh round-trip to the platform.
+				// Without this, clicking Refresh inside the TTL was a
+				// no-op (the cache returned the same stale snapshot)
+				// — Codex 2nd-review [medium] flagged this gap.
+				await this.refresh({ force: true });
 				return;
 			case 'close':
 				this.panel.dispose();

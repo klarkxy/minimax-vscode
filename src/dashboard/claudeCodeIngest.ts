@@ -36,6 +36,7 @@
 import * as vscode from 'vscode';
 import { promises as fsp, createReadStream } from 'node:fs';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 import { logger } from '../logger';
 import {
 	CLAUDE_CODE_USAGE_STATS_KEY,
@@ -51,8 +52,22 @@ import {
 
 // ---- Public types ----
 
-/** Cursor schema version — bump if the shape ever changes. */
-export const CLAUDE_CODE_CURSOR_VERSION = 1;
+/** Cursor schema version — bump if the shape ever changes.
+ *
+ * v1 (LRN-20260611-005 superseded): the model allowlist was applied
+ * only to NEW lines (after the stored byte offset). Historical lines
+ * were silently kept in `stats.byModel` regardless of the allowlist,
+ * so the dashboard could not retroactively correct itself when the
+ * user changed the allowlist — Codex's adversarial review Finding 3
+ * closed this gap.
+ *
+ * v2 (current): the cursor carries an `allowedModelsFingerprint`
+ * so the next poll can detect a fingerprint mismatch and reset the
+ * file offsets to 0, re-reading every JSONL line under the new
+ * allowlist. The LRU dedup (by `message.id`) prevents double-
+ * counting of already-recorded rows in the same session.
+ */
+export const CLAUDE_CODE_CURSOR_VERSION = 2;
 
 export interface ClaudeCodeFileCursor {
 	/** Byte offset of the next byte to read. */
@@ -64,7 +79,7 @@ export interface ClaudeCodeFileCursor {
 }
 
 export interface ClaudeCodeIngestCursor {
-	version: 1;
+	version: 2;
 	files: Record<string, ClaudeCodeFileCursor>;
 	lastSyncAt: number;
 	lastErrorAt?: number;
@@ -74,6 +89,15 @@ export interface ClaudeCodeIngestCursor {
 	 *  was not in the configured allowlist. Optional so cursors written
 	 *  by older builds (which had no model filter) keep loading. */
 	skippedModels?: number;
+	/**
+	 * 16-char SHA-256 of the sorted allowlist (joined by `\n`). The
+	 * next read compares this against the current allowlist's
+	 * fingerprint; a mismatch triggers a full re-read from offset 0
+	 * so historical lines are re-evaluated against the new filter.
+	 * Optional so cursors written by v1 (no allowlist) keep loading —
+	 * the mismatch is detected and triggers the same reset.
+	 */
+	allowedModelsFingerprint?: string;
 }
 
 export type ClaudeCodeIngestState =
@@ -268,28 +292,75 @@ class LruSet {
 			if (oldest !== undefined) this.map.delete(oldest);
 		}
 	}
+	/** Drop every entry. Used by `store.reset()` so a Reset click
+	 *  re-counts every JSONL line on the next poll (otherwise the
+	 *  LRU would skip everything it had previously seen, leaving
+	 *  the "reset" visually indistinguishable from "stopped
+	 *  reading your files"). */
+	clear(): void {
+		this.map.clear();
+	}
 }
 
 // ---- Cursor helpers ----
 
-function emptyCursor(now: number): ClaudeCodeIngestCursor {
+/**
+ * 16-char SHA-256 fingerprint of the model allowlist. Sorting
+ * before hashing makes the fingerprint stable across array-order
+ * changes (e.g. two allowlists that differ only in element order
+ * hash to the same value). The empty list has its own fingerprint
+ * (an empty sorted array) so `[]` (no filter) and `[X, Y, Z]`
+ * produce different fingerprints.
+ *
+ * Returns `'*'` for the no-filter case (`null` allowedModels, or
+ * explicit `[]` opt-out) so `readCursor` can distinguish "we
+ * intentionally track everything" from "we are filtering" without
+ * a separate boolean field.
+ */
+function allowedModelsFingerprint(allowedModels: ReadonlySet<string> | null): string {
+	if (allowedModels === null) return '*';
+	const sorted = [...allowedModels].sort();
+	return createHash('sha256').update(sorted.join('\n')).digest('hex').slice(0, 16);
+}
+
+function emptyCursor(now: number, fingerprint?: string): ClaudeCodeIngestCursor {
 	return {
 		version: CLAUDE_CODE_CURSOR_VERSION,
 		files: {},
 		lastSyncAt: 0,
 		parseErrors: 0,
+		allowedModelsFingerprint: fingerprint,
 	};
 }
 
 function readCursor(
 	state: vscode.Memento | undefined,
+	currentFingerprint: string,
 ): ClaudeCodeIngestCursor {
-	if (!state) return emptyCursor(0);
+	if (!state) return emptyCursor(0, currentFingerprint);
 	const raw = state.get<ClaudeCodeIngestCursor | undefined>(
 		CLAUDE_CODE_INGEST_CURSOR_KEY,
 	);
+	// Three reasons to reset the cursor (return emptyCursor):
+	//
+	//  1. No cursor stored (first run).
+	//  2. Stored version doesn't match the current schema version
+	//     (a future bump should re-read from offset 0).
+	//  3. The stored allowlist fingerprint doesn't match the
+	//     currently configured allowlist. Without this check
+	//     (added in LRN-20260611-005), changing the allowlist
+	//     would only affect FUTURE lines — historical lines
+	//     already counted under the old filter would stay in
+	//     `stats.byModel` forever. Codex's adversarial review
+	//     Finding 3 closed this by triggering a full re-read on
+	//     mismatch; the LRU dedup (by message.id) keeps the
+	//     re-evaluation from double-counting already-recorded rows
+	//     in the same session.
 	if (!raw || raw.version !== CLAUDE_CODE_CURSOR_VERSION) {
-		return emptyCursor(0);
+		return emptyCursor(0, currentFingerprint);
+	}
+	if (raw.allowedModelsFingerprint !== currentFingerprint) {
+		return emptyCursor(0, currentFingerprint);
 	}
 	return {
 		version: CLAUDE_CODE_CURSOR_VERSION,
@@ -299,6 +370,7 @@ function readCursor(
 		lastError: raw.lastError,
 		parseErrors: raw.parseErrors ?? 0,
 		skippedModels: raw.skippedModels ?? 0,
+		allowedModelsFingerprint: currentFingerprint,
 	};
 }
 
@@ -408,7 +480,12 @@ export function createClaudeCodeIngest(
 	const partials = new Map<string, string>();
 	const listeners = new Set<(stats: UsageStats) => void>();
 
-	let cursor: ClaudeCodeIngestCursor = readCursor(opts.globalState);
+	// Compute the fingerprint for the currently-resolved allowlist
+	// and use it both for the read comparison and for persisting on
+	// the next `writeCursor` call. See `readCursor` for the
+	// mismatch-detection path.
+	const currentFingerprint = allowedModelsFingerprint(allowedModels);
+	let cursor: ClaudeCodeIngestCursor = readCursor(opts.globalState, currentFingerprint);
 	// `isFirstPoll` flips to `true` when `start()` is called and back
 	// to `false` once the first poll completes. While `true`, the
 	// status reports `'loading'`. Polling is opt-in (tests do not
@@ -690,6 +767,33 @@ export function createClaudeCodeIngest(
 			statsCache.byModel = fresh.byModel;
 			statsCache.daily = fresh.daily;
 			await opts.globalState?.update(CLAUDE_CODE_USAGE_STATS_KEY, statsCache);
+			// Reset clears EVERYTHING — both the in-memory stats and
+			// the per-file byte-offset cursor. Without the cursor
+			// reset, the next poll would skip bytes 0..offset on
+			// every file (the cursor remembered reading them) and
+			// the new empty stats would never record any of them.
+			// LRN-20260611-005 captures the user-visible behaviour
+			// change ("Reset" button is now a full reset, not a
+			// "clear stats but keep cursor" one — it was the latter
+			// historically and confused users who thought the
+			// dashboard had stopped reading their files).
+			//
+			// The LRU dedup (by `message.id`) is also cleared — if
+			// it weren't, the next poll would re-read the file from
+			// offset 0 but skip every old line that was already in
+			// the LRU, leaving the user's "Reset" click visually
+			// indistinguishable from "the ingester stopped
+			// reading your files". LRU is a per-instance dedup
+			// only — clearing it is cheap (it's a Map of size 1024
+			// by default) and never persisted.
+			lru.clear();
+			cursor.files = {};
+			cursor.skippedModels = 0;
+			cursor.parseErrors = 0;
+			cursor.lastError = undefined;
+			cursor.lastErrorAt = undefined;
+			cursor.lastSyncAt = clock.now();
+			await writeCursor(opts.globalState, cursor);
 			notify();
 		},
 		subscribe(listener) {

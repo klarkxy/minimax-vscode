@@ -668,6 +668,85 @@ test('formatCompact (status-bar helper): renders k / M with the same threshold t
 
 // --- createPlanCache --------------------------------------------------
 
+test('createPlanCache: fingerprint-based cache isolates distinct (apiKey, host) pairs', async () => {
+	// Pinned regression for Codex's Finding 2 (and 2nd-review
+	// [medium]): the cache is keyed by a 16-char SHA-256 of
+	// `${host}|${apiKey}`, so a switch from key A to key B (or
+	// China to a third-party proxy) doesn't serve the old
+	// identity's snapshot. Previously, the cache had a single
+	// global snapshot and the TTL happily returned key A's quota
+	// for up to 5 minutes after the user pasted key B.
+	let calls = 0;
+	const fetchImpl = () => {
+		calls += 1;
+		return Promise.resolve(jsonResponse(validPayload));
+	};
+	const cache = createPlanCache({ ttlMs: 60_000 });
+	// First refresh: key A on China.
+	await cache.refresh({ apiKey: 'A', host: 'china', fetchImpl });
+	assert.equal(calls, 1);
+	// Second refresh: key B on China (non-empty key replacement).
+	// Different fingerprint → cache miss → must fetch.
+	await cache.refresh({ apiKey: 'B', host: 'china', fetchImpl });
+	assert.equal(calls, 2, 'key change triggers a fresh fetch (different fingerprint)');
+	// Third refresh: key A on global. Yet another fingerprint.
+	await cache.refresh({ apiKey: 'A', host: 'global', fetchImpl });
+	assert.equal(calls, 3, 'host change triggers a fresh fetch (different fingerprint)');
+	// Repeat the first (key A on China) within the TTL — same
+	// fingerprint, must reuse the snapshot.
+	await cache.refresh({ apiKey: 'A', host: 'china', fetchImpl });
+	assert.equal(calls, 3, 'same fingerprint reuses the snapshot inside the TTL');
+});
+
+test('createPlanCache: force=true bypasses the TTL', async () => {
+	// The dashboard's Refresh button uses `force: true` to guarantee
+	// a fresh round-trip even inside the 5-minute TTL. Without
+	// this, clicking Refresh was a no-op (the cache returned the
+	// same stale snapshot).
+	let calls = 0;
+	const fetchImpl = () => {
+		calls += 1;
+		return Promise.resolve(jsonResponse(validPayload));
+	};
+	const cache = createPlanCache({ ttlMs: 60_000 });
+	await cache.refresh({ apiKey: 'k', host: 'china', fetchImpl });
+	assert.equal(calls, 1);
+	// Same fingerprint, inside the TTL, no force → reuse.
+	await cache.refresh({ apiKey: 'k', host: 'china', fetchImpl });
+	assert.equal(calls, 1, 'TTL hit when no force');
+	// Same fingerprint, inside the TTL, force → re-fetch.
+	await cache.refresh({ apiKey: 'k', host: 'china', fetchImpl }, { force: true });
+	assert.equal(calls, 2, 'force=true bypasses the TTL and re-fetches');
+});
+
+test('createPlanCache: invalidate(fingerprint) clears only that fingerprint', async () => {
+	// The plan cache may carry snapshots for several identities
+	// (e.g. during a quick switch back and forth). Targeted
+	// invalidation lets an API-key change drop the old key's
+	// snapshot without affecting the new key's.
+	let calls = 0;
+	const fetchImpl = () => {
+		calls += 1;
+		return Promise.resolve(jsonResponse(validPayload));
+	};
+	const cache = createPlanCache({ ttlMs: 60_000 });
+	// Warm two fingerprints.
+	await cache.refresh({ apiKey: 'A', host: 'china', fetchImpl });
+	await cache.refresh({ apiKey: 'B', host: 'china', fetchImpl });
+	assert.equal(calls, 2);
+	// Compute the fingerprint for A (the helper is exported).
+	const { planCacheFingerprint } = await import('../src/dashboard/aggregator.js');
+	const fpA = planCacheFingerprint({ apiKey: 'A', host: 'china' });
+	// Targeted invalidate: drops A's snapshot, leaves B's alone.
+	cache.invalidate(fpA);
+	// Re-warming A must re-fetch.
+	await cache.refresh({ apiKey: 'A', host: 'china', fetchImpl });
+	assert.equal(calls, 3, 'A was invalidated and re-fetched');
+	// Re-warming B (same fingerprint, inside TTL) must reuse.
+	await cache.refresh({ apiKey: 'B', host: 'china', fetchImpl });
+	assert.equal(calls, 3, "B's snapshot is still cached and was reused");
+});
+
 test('createPlanCache: refresh deduplicates concurrent calls', async () => {
 	const cache = createPlanCache();
 	let calls = 0;

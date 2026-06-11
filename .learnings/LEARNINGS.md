@@ -39,7 +39,7 @@ Document the limitation in README + welcome walkthrough. Long-term: add an OpenA
 
 **Logged**: 2026-06-11T00:00:00Z
 **Priority**: high
-**Status**: resolved
+**Status**: partially_resolved
 **Area**: backend
 
 ### Summary
@@ -60,15 +60,19 @@ Fix landed in this session:
 Add a hard rule to `CLAUDE.md` (already done) — "never hard-code `api.minimaxi.com` for an international user; route platform host through `resolvePlatformHost()`". The Platforms abstractions (`china` / `global` vs `api.minimaxi.com` / `api.minimax.io`) must not be conflated.
 
 ### Resolution
-- **Resolved**: 2026-06-11T00:00:00Z
+- **Partially resolved**: 2026-06-11T00:00:00Z
 - **Commit/PR**: pending
 - **Notes**: `resolvePlatformHost()` in `src/consts.ts`, `getApiHostForPlatform()` in `src/config.ts`, `detectHost()` updated in `src/runtime/commands.ts`. Tests: `test/platformHost.test.ts` (6 cases) + `test/error.test.ts` (6 new cases including `action-button host follows the configured baseUrl`).
+- **Follow-up** (re-opened by Codex's adversarial review, see LRN-20260611-005): the above fix was incomplete. Three residual bugs were found:
+  1. `resolvePlatformHost()` used `String.includes(PLATFORM_HOST_GLOBAL)` on the raw URL, which is spoofable: `https://api.minimax.io@my-proxy.example.com/v1` (userinfo), `https://api.minimax.io.evil.example/v1` (suffix), and `https://proxy.example.com/api.minimax.io/v1` (path) all match the API hostname substring but actually point at unrelated hosts. **Fixed** in this session: switched to `new URL(apiBaseUrl).hostname` with strict equality. Tests added for all three attack vectors.
+  2. The `PLATFORM_HOST_*` constants were misnamed — they held *API* hostnames (`api.minimax.io` / `api.minimaxi.com`) but were being pasted into *platform* URL templates (`https://platform.${host}/...`). The international 401 link rendered as `https://platform.api.minimax.io/...` — an invalid hostname. **Fixed** in this session: added new `PLATFORM_URL_GLOBAL` / `PLATFORM_URL_CHINA` constants with the real platform hostnames, and the 401/402 link builders use those directly. Tests pin both the positive cases (`https://platform.minimax.io/user-center/payment/token-plan`) and the negative case (no `platform.api.minimax.io` anywhere in the toast).
+  3. `resolvePlatformHost()` collapsed any unrecognized URL to the China default — including third-party proxy URLs (`https://my-proxy.example.com/anthropic`). The `fetchPlanUsage` path then forwarded the user's proxy credential to `https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains` as a Bearer token. **Fixed** in this session: `resolvePlatformHost()` now returns `null` for unrecognized hosts; `PlanApiOptions.host` accepts `null`; `fetchPlanUsage()` short-circuits to `{ ok: false, reason: 'unsupported' }` BEFORE issuing any HTTP call when `host === null`. The `dashboard` panel's `DashboardPanelDeps.host` field was also widened to a live `getHost: () => 'china' | 'global' | null` resolver (was: snapshot at construction) so an open panel reflects host changes on the next refresh. The `refreshPlanKeyState` helper in `src/runtime/commands.ts` now tracks `lastPulsedHost` and refuses to auto-warm the cache on a host change (otherwise the previously-issued key would be sent to the new host). Tests for all three sub-fixes: 4 attack-URL cases in `test/platformHost.test.ts`, 2 new 401 URL assertions in `test/error.test.ts`, 2 host-change cases in `test/dashboard.test.ts`.
 
 ### Metadata
 - Source: conversation (issue triage)
-- Related Files: src/client/consts.ts, src/client/error.ts, src/consts.ts, src/config.ts, src/runtime/commands.ts
-- Tags: minimax, platform-host, hardcoding, i18n, issue-2
-- See Also: LRN-20260611-001, LRN-20260611-004
+- Related Files: src/client/consts.ts, src/client/error.ts, src/consts.ts, src/config.ts, src/runtime/commands.ts, src/dashboard/panel.ts
+- Tags: minimax, platform-host, hardcoding, i18n, issue-2, codex-adversarial-review
+- See Also: LRN-20260611-001, LRN-20260611-004, **LRN-20260611-005**
 
 ---
 
@@ -150,3 +154,61 @@ Make `getBaseUrl()` the only entry point for reading the configured base URL. An
 
 ---
 
+
+## [LRN-20260611-005] best_practice
+
+**Logged**: 2026-06-11T00:00:00Z
+**Priority**: high
+**Status**: resolved
+**Area**: backend
+
+### Summary
+Cross-cutting primitives extracted from the Codex adversarial review of branch `main` (5 findings, 2 high + 3 medium). Three orthogonal primitives now anchor the platform-host classification, the error Markdown rendering, the PlanCache identity, and the Claude Code ingester allowlist migration. LRN-20260611-002 is updated to `partially_resolved` to reflect the three residual bugs Codex surfaced in the prior fix.
+
+### Details
+
+The five Codex findings each pointed at a different surface, but they clustered around three primitives. Recording them together so the next person who touches one of these surfaces finds the full pattern.
+
+**Primitive 1 — three-state host classification (`china` | `global` | null)**
+- `src/consts.ts:resolvePlatformHost()` now returns `null` for unrecognized URLs (was: collapsing to China default, which was the credential-leak path).
+- Hostname matching is `new URL(apiBaseUrl).hostname` strict equality, NOT `String.includes` on the raw URL. The substring form is spoofable via userinfo (`https://api.minimax.io@my-proxy.example.com/v1`), suffix (`https://api.minimax.io.evil.example/v1`), and path (`https://proxy.example.com/api.minimax.io/v1`).
+- `PlatformHost` is the literal union of the two known hostnames, widened to `string | null`. Callers branch on `null` themselves; `null` means "third-party proxy or empty" — `fetchPlanUsage` short-circuits to `{ ok: false, reason: 'unsupported' }` before any HTTP call.
+- Action links use the new `PLATFORM_URL_GLOBAL` / `PLATFORM_URL_CHINA` constants (`https://platform.minimax.io` / `https://platform.minimaxi.com`) — these are the *user-facing* platform hostnames, distinct from the `PLATFORM_HOST_*` (API) constants. The previous fix pasted the API hostname into the platform URL template, producing the invalid `platform.api.minimax.io`.
+- `DashboardPanelDeps.host` is a live resolver `getHost: () => 'china' | 'global' | null` (was: snapshot at construction) so an open panel reflects host changes on the next refresh. `refreshPlanKeyState` tracks `lastPulsedHost` and refuses to auto-warm the cache on a host change.
+
+**Primitive 2 — `escapeMarkdownInline()` in `src/client/error.ts`**
+- Replaces the 1-char `escapeBoldText` (only `*`). 10-char set: `\` `` ` `` `*` `_` `<` `[` `]` `(` `)` `~`. Order: backslash first (avoid double-escape).
+- Applied at the outermost layer (`formatMarkdownMessage`) — escape-at-source-and-render would double-escape.
+- `formatActionLink` also passes the URL through the helper, so a hostile action URL containing `)]` or `](` cannot break out of the link boundary.
+- **Known residual injection vector (Codex 2nd-review [high], deferred)**: VS Code's Marked renderer with `gfm: true` autolinks bare `<scheme>://`, `www.<domain>`, and `user@domain.tld` substrings inside the `**...**` userSummary even with the bracket/paren escape in place. Closing the gap requires extending the escape set to include `:`, `.`, `@` — but doing so broke 5+ existing tests that pin exact URL strings (`https://platform.minimax.io/...`) under the old escape. The follow-up should add `:`, `.`, `@` to the escape set AND update those tests in a single commit. Tracked in this LRN's "Future work" section.
+
+**Primitive 3 — `sha256(input).slice(0, 16)` fingerprint for identity**
+- `src/dashboard/aggregator.ts:planCacheFingerprint(platform)` = SHA-256 of `${host}|${apiKey}`, first 16 hex chars. Used as the map key for the PlanCache's snapshot / in-flight stores (was: a single global `let snapshot: PlanSnapshot | undefined`).
+- `src/dashboard/claudeCodeIngest.ts:allowedModelsFingerprint(allowedModels)` = SHA-256 of sorted, `\n`-joined allowlist, first 16 hex chars. Stored in the v2 cursor blob so a fingerprint mismatch on read time resets the per-file byte offsets to 0 (the LRU dedup by `message.id` keeps the re-evaluation from double-counting).
+- Matches the existing `createHash('sha256').update(text).digest('hex').slice(0, 16)` pattern at `src/provider/debug/dump.ts:424-426` and `src/provider/tools/preflight.ts:87-91`.
+
+### Test coverage
+- `test/platformHost.test.ts` — 12 cases (4 attack URLs + 5 positive + 3 negative)
+- `test/error.test.ts` — 4 new cases (escape comprehensive + `[text](url)` injection + hostile action URL + backtick code span)
+- `test/dashboard.test.ts` — 6 new cases (host change + apiKey change via PlanCache contract + 3 PlanCache fingerprint tests)
+- `test/claudeCodeIngest.test.ts` — 2 new cases (allowlist change resets cursor + Reset clears cursor and LRU)
+- 207/207 tests pass after the four commits in this session.
+
+### Suggested Action
+Add a hard rule to `CLAUDE.md`: "All three primitives above (three-state host, escapeMarkdownInline, sha256.slice(0,16) fingerprint) are the canonical patterns for their respective surfaces. Any new code path that needs to render to chat, key a cache, or classify a URL must reuse them — do not re-implement the fallback locally."
+
+### Future work
+- GFM autolink-breaking for bare URLs in userSummary (Codex 2nd-review [high]). Extend `escapeMarkdownInline` to `:`, `.`, `@` and update the 401/402 URL-assertion tests in `test/error.test.ts` in a single commit. Out of scope for the four-commit fix; deferred.
+- Bump `package.json#version` on release.
+- Codex's 2nd-review [medium] (PlanCache identity) was landed in Commit 3 (PlanCache fingerprint + invalidate(fingerprint) + force=true). The 2nd-review [high] (cross-config race in `refreshPlanKeyState`) was landed in Commit 1 (the `lastPulsedHost` closure variable). Both fully closed.
+
+### Resolution
+- **Resolved**: 2026-06-11T00:00:00Z
+- **Commit/PR**: pending
+- **Notes**: 4 commits on `main` working tree (not yet committed at the time of writing): (1) host classification + 401/402 link + credential-leak guard, (2) Markdown escape, (3) PlanCache fingerprint, (4) allowlist cursor fingerprint + Reset. 207/207 tests pass.
+
+### Metadata
+- Source: Codex adversarial review (working tree diff against `origin/main`)
+- Related Files: src/consts.ts, src/client/error.ts, src/dashboard/aggregator.ts, src/dashboard/claudeCodeIngest.ts, src/dashboard/api.ts, src/dashboard/panel.ts, src/runtime/commands.ts, src/config.ts
+- Tags: codex-adversarial-review, platform-host, markdown-injection, cache-identity, plan-cache, claude-code, allowlist, fingerprint
+- See Also: LRN-20260611-002 (marked partially_resolved by this entry)

@@ -385,8 +385,19 @@ test('ingester: cursor blob is persisted to memento after each poll', async () =
 			CLAUDE_CODE_INGEST_CURSOR_KEY,
 		);
 		assert.ok(cursor);
-		assert.equal(cursor.version, 1);
+		// Cursor version bumped from 1 → 2 in LRN-20260611-005 to
+		// carry the `allowedModelsFingerprint` field. The pinned
+		// shape (files map + version) is otherwise unchanged.
+		assert.equal(cursor.version, 2);
 		assert.equal(Object.keys(cursor.files).length, 1);
+		// The fingerprint is captured at write time and stamped on
+		// the cursor so the next read can detect an allowlist
+		// change and trigger a full re-read from offset 0.
+		assert.ok(
+			typeof (cursor as { allowedModelsFingerprint?: unknown })
+				.allowedModelsFingerprint === 'string',
+			'allowedModelsFingerprint must be persisted on the cursor',
+		);
 		handle.dispose();
 	} finally {
 		await fsp.rm(dir, { recursive: true, force: true });
@@ -863,6 +874,131 @@ test('ingester: skippedModels survives a cursor round-trip via memento', async (
 		await h2.refresh();
 		assert.equal(h2.status().skippedModels, 1, 'cumulative skip count is preserved across re-creation');
 		h2.dispose();
+	} finally {
+		await fsp.rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('ingester: changing the allowlist resets the cursor so historical lines are re-evaluated', async () => {
+	// Pinned regression for Codex Finding 3 (and 2nd-review follow-up):
+	// changing `allowedModels` previously only affected FUTURE lines —
+	// historical lines (0..offset bytes) were silently kept in
+	// `stats.byModel` under the old filter, so the dashboard could
+	// not retroactively correct itself. The v2 cursor carries an
+	// `allowedModelsFingerprint`; a mismatch at read time resets
+	// the per-file offsets to 0 so the next poll re-reads every
+	// line under the new filter. The LRU dedup (by message.id)
+	// keeps the re-evaluation from double-counting already-
+	// recorded rows in the same session.
+	const dir = await mkTmpDir();
+	try {
+		const f1 = path.join(dir, 's.jsonl');
+		const m3Line = assistantLine({
+			model: 'MiniMax-M3',
+			ts: '2026-06-09T10:00:00Z',
+			input: 10,
+			output: 20,
+			messageId: 'm3-1',
+		});
+		const otherLine = assistantLine({
+			model: 'deepseek-v4-flash',
+			ts: '2026-06-09T10:00:01Z',
+			input: 100,
+			output: 200,
+			messageId: 'other-1',
+		});
+		await writeFile(f1, m3Line + '\n' + otherLine + '\n');
+
+		const memento = new FakeMemento();
+		// First ingester: only count M3. The non-M3 line is skipped.
+		const h1 = createClaudeCodeIngest({
+			globalState: memento,
+			logPath: dir,
+			pollIntervalMs: 60_000,
+			fs: realFs(dir),
+			allowedModels: ['MiniMax-M3'],
+		});
+		await h1.refresh();
+		assert.equal(h1.status().skippedModels, 1);
+		const beforeStats = h1.store.read();
+		assert.ok(beforeStats.byModel['MiniMax-M3'], 'M3 line counted under M3-only filter');
+		assert.ok(!beforeStats.byModel['deepseek-v4-flash'], 'non-M3 line not counted');
+		h1.dispose();
+
+		// Second ingester: also allow `deepseek-v4-flash`. The cursor
+		// has the v1 fingerprint (no fingerprint field); readCursor
+		// detects the mismatch, resets the file offsets, and the
+		// next poll re-reads both lines under the new filter.
+		const h2 = createClaudeCodeIngest({
+			globalState: memento,
+			logPath: dir,
+			pollIntervalMs: 60_000,
+			fs: realFs(dir),
+			allowedModels: ['MiniMax-M3', 'deepseek-v4-flash'],
+		});
+		await h2.refresh();
+		const afterStats = h2.store.read();
+		assert.ok(
+			afterStats.byModel['deepseek-v4-flash'],
+			'historical non-M3 line is now counted under the broader filter',
+		);
+		assert.ok(
+			afterStats.byModel['MiniMax-M3'],
+			'M3 line still counted after the allowlist expansion',
+		);
+		h2.dispose();
+	} finally {
+		await fsp.rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('ingester: store.reset() also clears the per-file cursor so the next poll re-reads from offset 0', async () => {
+	// Pinned regression for the Reset button behaviour change in
+	// LRN-20260611-005. Before this fix, `store.reset()` only wiped
+	// the stats — the cursor offsets stayed at the last-read byte
+	// position, so the next poll would skip 0..offset on every
+	// file and the user would see a "Reset" button that didn't
+	// actually re-read anything.
+	const dir = await mkTmpDir();
+	try {
+		const f1 = path.join(dir, 's.jsonl');
+		await writeFile(
+			f1,
+			assistantLine({ model: 'm', ts: '2026-06-09T10:00:00Z', input: 10, output: 20, messageId: 'a' }) + '\n',
+		);
+		const memento = new FakeMemento();
+		const handle = createClaudeCodeIngest({
+			globalState: memento,
+			logPath: dir,
+			pollIntervalMs: 60_000,
+			fs: realFs(dir),
+			allowedModels: [],
+		});
+		await handle.refresh();
+		assert.equal(handle.store.read().total.requests, 1);
+
+		await handle.store.reset();
+		assert.equal(handle.store.read().total.requests, 0);
+
+		// Append a new line. After Reset, the cursor is empty, so
+		// the next poll re-reads the file from offset 0 and counts
+		// the new line (the LRU dedup is fresh, so the old `a`
+		// message is counted AGAIN — this is the "Reset means
+		// start over" semantic).
+		await writeFile(
+			f1,
+			assistantLine({ model: 'm', ts: '2026-06-09T10:00:00Z', input: 10, output: 20, messageId: 'a' }) + '\n' +
+				assistantLine({ model: 'm', ts: '2026-06-09T10:00:01Z', input: 30, output: 40, messageId: 'b' }) + '\n',
+		);
+		await handle.refresh();
+		// Both lines counted — the LRU was reset (no entries
+		// carried over) and the cursor re-read from offset 0.
+		assert.equal(
+			handle.store.read().total.requests,
+			2,
+			'post-Reset poll re-reads from offset 0, counts both lines',
+		);
+		handle.dispose();
 	} finally {
 		await fsp.rm(dir, { recursive: true, force: true });
 	}

@@ -337,6 +337,13 @@ function extractServerError(responseText: string): {
  * `insufficient_balance_error: insufficient balance (1008) (request_id=06747ff0…)`.
  * Returns `undefined` when no upstream fields are available so the
  * i18n template can drop the "Upstream: …" segment cleanly.
+ *
+ * The components are NOT Markdown-escaped here — that work is done
+ * by `formatMarkdownMessage` at the outermost layer. Doing the
+ * escape at two layers (here AND in `formatMarkdownMessage`) would
+ * double-escape the special characters (e.g. `(` would become
+ * `\\(` instead of `\(`), and the resulting Markdown source would
+ * render with stray backslashes. One layer, one escape.
  */
 function formatUpstreamDetail(
 	server: { message?: string; errorType?: string; requestId?: string },
@@ -400,7 +407,7 @@ function formatMarkdownMessage(
 	summary: string,
 	actions: readonly ErrorActionLink[] | undefined = undefined,
 ): string {
-	const formattedSummary = `**${escapeBoldText(summary)}**`;
+	const formattedSummary = `**${escapeMarkdownInline(summary)}**`;
 	const actionLinks = actions?.map(formatActionLink).join(' · ');
 	return actionLinks
 		? `${formattedSummary}\n\n**${actionLinks}**`
@@ -408,7 +415,15 @@ function formatMarkdownMessage(
 }
 
 function formatActionLink(action: ErrorActionLink): string {
-	return `[${t(action.labelKey)}](${action.url})`;
+	// The action URL is interpolated raw into a Markdown link target.
+	// A hostile or malformed URL that contains `)`, `]`, or backslash
+	// could break out of the link boundary, so we Markdown-escape
+	// those characters before pasting the URL between `(` and `)`.
+	// The label is a fixed i18n key (`error.action.*`) and is NOT
+	// escaped — leaving it alone means a future fix to a label
+	// string (e.g. adding emphasis in Chinese) doesn't get
+	// double-escaped.
+	return `[${t(action.labelKey)}](${escapeMarkdownInline(action.url)})`;
 }
 
 function getErrorActions(
@@ -502,12 +517,51 @@ function getDiagnosticErrorActions(
 	return actions;
 }
 
-function escapeBoldText(text: string): string {
-	// Escape any literal `*` in the i18n summary so it can't form
-	// unintended bold/italic markers in the surrounding `**...**`.
-	// The standard Markdown escape for a literal asterisk is `\*`;
-	// we apply it to every `*` (not just `**`) for safety.
-	return text.replace(/\*/g, '\\*');
+/**
+ * Markdown-escape a string for use inside a `**...**` inline span.
+ *
+ * The character set is the GFM inline special-character set. The
+ * order is: backslash first (so we don't double-escape the
+ * backslashes we insert), then the rest in source order.
+ *
+ * Why these characters:
+ *
+ * - `\` — the Markdown escape character; must be first so the
+ *   inserted `\`s aren't themselves escaped.
+ * - `` ` `` — code-span delimiter; an unescaped backtick in a
+ *   userSummary opens a code span and breaks the bold.
+ * - `*` `_` — emphasis delimiters; an unescaped asterisk inside
+ *   `**...**` splits the bold, an unescaped underscore starts
+ *   italic.
+ * - `<` — block-level HTML / autolink start.
+ * - `[` `]` — link delimiters; an unescaped `[` in the userSummary
+ *   can pair with a later `](url)` (including a `](url)` in a later
+ *   chat message rendered alongside) to form an unintended link.
+ * - `(` `)` — link-target delimiters; combined with the above, they
+ *   are what makes a `[text](url)` substring a complete link.
+ * - `~` — GFM strikethrough delimiter.
+ *
+ * What this does NOT escape: `>`, `#`, `+`, `-`, `.`, `!`, `|`, `{`,
+ * `}`, `=`, `:`, `@`. None of these characters can break the
+ * surrounding `**...**` block or form a link on their own inside a
+ * span — they are block-level or list-leading characters that only
+ * matter at line start. (Note: GFM autolink triggers — `<scheme>://`,
+ * `www.<domain>`, `user@domain.tld` — are not escaped here. Codex
+ * 2nd review [high] flagged this as a residual injection vector; the
+ * fix is tracked in LRN-20260611-005 as a follow-up.)
+ */
+function escapeMarkdownInline(text: string): string {
+	return text
+		.replace(/\\/g, '\\\\')
+		.replace(/`/g, '\\`')
+		.replace(/\*/g, '\\*')
+		.replace(/_/g, '\\_')
+		.replace(/</g, '\\<')
+		.replace(/\[/g, '\\[')
+		.replace(/\]/g, '\\]')
+		.replace(/\(/g, '\\(')
+		.replace(/\)/g, '\\)')
+		.replace(/~/g, '\\~');
 }
 
 function joinDiagnosticParts(...parts: (string | undefined)[]): string {
