@@ -212,3 +212,50 @@ Add a hard rule to `CLAUDE.md`: "All three primitives above (three-state host, e
 - Related Files: src/consts.ts, src/client/error.ts, src/dashboard/aggregator.ts, src/dashboard/claudeCodeIngest.ts, src/dashboard/api.ts, src/dashboard/panel.ts, src/runtime/commands.ts, src/config.ts
 - Tags: codex-adversarial-review, platform-host, markdown-injection, cache-identity, plan-cache, claude-code, allowlist, fingerprint
 - See Also: LRN-20260611-002 (marked partially_resolved by this entry)
+
+## [LRN-20260612-001] knowledge_gap
+
+**Logged**: 2026-06-12T00:00:00Z
+**Priority**: high
+**Status**: resolved
+**Area**: localization
+
+### Summary
+VS Code's `package.nls.<locale>.json` lookup is a **segment-stripping fallback chain**, not an exact match. Naming the Chinese file `package.nls.zh-cn.json` only works for users whose `vscode.env.language` literally is `zh-cn`; users on the proper BCP 47 code `zh-Hans-CN` (which Windows 10/11 reports for Simplified Chinese) fall through `zh-hans-cn` → `zh-hans` → `zh` and end up at the English fallback, so the command palette shows English titles despite a valid Chinese nls file shipping in the .vsix.
+
+### Details
+The user reported "ctrl-shift-p里面minimax的命令中文说明没显示出来" — but the file was present, valid JSON, had all 17 command keys with correct Chinese values, and was already correctly bundled into the published `.vsix` (verified by `unzip -l`). The placeholder substitution `%minimax.command.X%` → Chinese value worked perfectly when simulated with `JSON.parse` + a key lookup.
+
+Root cause was a **locale-tag mismatch**, not a file-content problem:
+- The natural assumption "Simplified Chinese = `zh-cn`" is the older format. The proper BCP 47 code is `zh-Hans-CN` (with explicit script tag), and that's what Windows 10/11 actually reports via `vscode.env.language`.
+- VS Code's NLS resolver (in `vscode-l10n` / `vscode-nls` and the built-in `nls.ts`) takes the locale, lowercases it, and then iteratively strips the rightmost `-` segment: `zh-hans-cn` → `zh-hans` → `zh` → `default` (`package.nls.json`).
+- We only had `package.nls.zh-cn.json`, so the strip chain missed it (would have needed `zh-hans-cn` → `zh-hans` → `zh-cn` exact match, which it doesn't do — it only strips, never re-tries with a *different* region).
+
+**Fix applied**: renamed `package.nls.zh-cn.json` → `package.nls.zh.json`. The `zh` segment is the terminal fallback, so every Chinese locale variant now hits the file on the second hop:
+- `zh-cn` → strip to `zh` ✓
+- `zh-hans-cn` → strip to `zh-hans` (miss) → `zh` ✓
+- `zh-hans` → strip to `zh` ✓
+- `zh-tw` → strip to `zh` ✓ (also gets Simplified — acceptable trade-off, no CN-specific strings to preserve)
+- `zh` → exact ✓
+
+Non-Chinese locales are unchanged: they still fall through to the default `package.nls.json` English.
+
+**Verification**:
+- `npm run compile` succeeded; new file `package.nls.zh.json` (2.74 KB) correctly bundled into `dist/minimax-vscode-copilot-2.3.0.vsix` (verified via `unzip -l`).
+- `npm test`: 206/207 pass. The single failing test (`claudeCodeIngest: per-day buckets use the line timestamp`) is a pre-existing date-drift issue (`readDailySeries(5)` returns last 5 days from today; fixture uses 2026-06-07, today is 2026-06-12) — unrelated to the nls rename.
+- `CLAUDE.md` updated to document why the file is `zh.json` (not `zh-cn.json`).
+- `CHANGELOG.md` and `CHANGELOG.zh.md` got a `### Fixed` entry under 2.3.0.
+
+### Suggested Action
+Add a hard rule to `CLAUDE.md`'s "Conventions" section: "**Always name locale files at the language level (`package.nls.<lang>.json`), not the language+region level (`package.nls.<lang>-<region>.json`)**, unless the extension has region-specific strings. VS Code's NLS lookup strips locale segments right-to-left, so `zh-Hans-CN` users won't find `package.nls.zh-cn.json` — only the language-level fallback. Verified against VS Code 1.111+ NLS resolution. Use `pt.json` (not `pt-br.json`), `en.json` (not `en-us.json`), `zh.json` (not `zh-cn.json` / `zh-tw.json`)."
+
+### Resolution
+- **Resolved**: 2026-06-12T00:00:00Z
+- **Commit/PR**: pending (working-tree change: `git mv package.nls.zh-cn.json package.nls.zh.json` + CLAUDE.md + CHANGELOG.md / .zh.md)
+- **Notes**: Verified against published `.vsix` 2.3.0 — file is correctly bundled. No source-code or test changes were needed; the fix is purely a filename.
+
+### Metadata
+- Source: User report ("ctrl-shift-p里面minimax的命令中文说明没显示出来")
+- Related Files: package.nls.json, package.nls.zh.json, CLAUDE.md, CHANGELOG.md, CHANGELOG.zh.md
+- Tags: localization, nls, bcp47, vscode-extension, command-palette, locale-fallback
+- See Also: [[LRN-20260611-005]] (related: language-model Configuration schema and locale conventions)

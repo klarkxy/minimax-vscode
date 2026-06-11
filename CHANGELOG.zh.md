@@ -18,6 +18,10 @@
 
 VS Code 的 `ILanguageModelsService` 已经会把 `chat.utilitySmallModel` 路由到扩展注册的 provider（包括我们）——见 [utilityModelContribution 源码](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/browser/utilityModelContribution.ts)。我们另开炉灶的 commit pipeline 是重复造轮子，且和 Copilot UX 越来越割裂。新路径反而更强：自动支持 `github.copilot.chat.commitMessageGeneration.instructions`（项目级格式）、`github.copilot.chat.localeOverride`（输出语言）、`.github/commit-message-instructions.md`（团队规则文件），这些我们老 pipeline 一直没读。
 
+### 修复
+
+- **命令面板里 MiniMax 命令的中文标题对所有中文 locale 都生效了，不止 `zh-cn`。** 把 `package.nls.zh-cn.json` 改名为 `package.nls.zh.json`。VS Code 的 NLS 查找是按 `-` 从右往左逐段剥掉再匹配的，所以 `zh-Hans-CN`（Windows 10/11 报告的简体中文 BCP 47 标签）会沿着 `zh-hans-cn` → `zh-hans` → `zh` 一直试到底，因为找不到文件最终回退到英文 fallback——结果就是中文用户命令面板里看到的是英文。新名字在第二跳就落到 `zh` 段，所有中文 locale 变体（`zh-cn` / `zh-hans-cn` / `zh-hans` / `zh` …）都能命中。非中文 locale 的行为完全不变。
+
 ## 2.2.0 — README 重排、配置统一、用量看板接入 Claude Code JSONL
 
 ### 界面

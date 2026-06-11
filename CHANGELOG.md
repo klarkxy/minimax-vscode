@@ -17,6 +17,10 @@
 
 VS Code's `ILanguageModelsService` already routes `chat.utilitySmallModel` to extension-registered providers (us included) — see the [utilityModelContribution source](https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/browser/utilityModelContribution.ts). Maintaining a parallel commit-message pipeline duplicated effort and diverged from Copilot's UX. The new path is also strictly more capable: it picks up `github.copilot.chat.commitMessageGeneration.instructions` (per-project format), `github.copilot.chat.localeOverride` (response language), and `.github/commit-message-instructions.md` (team rule file), none of which our bespoke pipeline ever honored.
 
+### Fixed
+
+- **Chinese command titles now show up in the Command Palette for every Chinese locale, not just `zh-cn`.** Renamed `package.nls.zh-cn.json` → `package.nls.zh.json`. VS Code's NLS lookup strips the rightmost locale segment until it finds a match, so `zh-Hans-CN` (the BCP 47 tag Windows 10/11 reports for Simplified Chinese) previously fell through `zh-hans-cn` → `zh-hans` → `zh` and ended up at the English fallback, leaving Chinese users staring at English titles in the command palette. The new name matches the `zh` segment on the second hop for every Chinese locale variant (`zh-cn`, `zh-hans-cn`, `zh-hans`, `zh`, …). Behaviour for non-Chinese locales is unchanged.
+
 ## 2.2.0 — README restyling, config unification, Claude Code JSONL ingest
 
 ### UI
