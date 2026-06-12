@@ -73,8 +73,8 @@ Prices are in **USD** (billed in USD for international users). The picker toolti
 
 | Model | Input | Output | Cache read | Cache write |
 | --- | ---: | ---: | ---: | ---: |
-| **MiniMax M3 (≤512K input)** | $0.60 | $2.40 | $0.12 | — |
-| **MiniMax M3 (>512K input, limited)** | $1.20 | $4.80 | $0.24 | — |
+| **MiniMax M3 (≤512K input)** | $0.30 | $1.20 | $0.06 | — |
+| **MiniMax M3 (>512K input, limited)** | $0.60 | $2.40 | $0.12 | — |
 | **MiniMax M2.7** | $0.30 | $1.20 | $0.06 | $0.375 |
 | **MiniMax M2.7-highspeed** | $0.60 | $2.40 | $0.06 | $0.375 |
 

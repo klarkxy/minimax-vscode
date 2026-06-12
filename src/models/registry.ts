@@ -21,20 +21,19 @@ import type { ModelDefinition, ModelPricing } from '../types';
 type PricingKey = 'm3' | 'm3Large' | 'm27' | 'm27Highspeed';
 
 const PRICING_CNY: Record<PricingKey, ModelPricing> = {
-	/** M3 in the standard ≤512K tier (限 7 天五折 → 原价). */
+	/** M3 in the standard ≤512K tier (永久五折后). */
 	m3: {
-		input: 4.2,
-		output: 16.8,
-		cacheRead: 0.84,
+		input: 2.1,
+		output: 8.4,
+		cacheRead: 0.42,
 		cacheWrite: null,
 		currency: 'CNY',
-		note: '7 天限时五折: 输入 ¥2.10 / 输出 ¥8.40 / 缓存读取 ¥0.42',
 	},
 	/** M3 in the >512K tier (限量供应, 需联系销售). */
 	m3Large: {
-		input: 8.4,
-		output: 33.6,
-		cacheRead: 1.68,
+		input: 4.2,
+		output: 16.8,
+		cacheRead: 0.84,
 		cacheWrite: null,
 		currency: 'CNY',
 		note: '>512K 输入限量供应，需联系销售；预计数日后全量开放',
@@ -57,16 +56,16 @@ const PRICING_CNY: Record<PricingKey, ModelPricing> = {
 
 const PRICING_USD: Record<PricingKey, ModelPricing> = {
 	m3: {
-		input: 0.6,
-		output: 2.4,
-		cacheRead: 0.12,
+		input: 0.3,
+		output: 1.2,
+		cacheRead: 0.06,
 		cacheWrite: null,
 		currency: 'USD',
 	},
 	m3Large: {
-		input: 1.2,
-		output: 4.8,
-		cacheRead: 0.24,
+		input: 0.6,
+		output: 2.4,
+		cacheRead: 0.12,
 		cacheWrite: null,
 		currency: 'USD',
 		note: '>512K input tokens are limited-availability; contact sales. Public rollout expected within days.',
