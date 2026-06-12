@@ -456,3 +456,62 @@ A second rule: "**Removed settings and commands MUST be documented in the next r
 - Related Files: package.json, src/config.ts, README.md, README.zh.md, CHANGELOG.md, CHANGELOG.zh.md
 - Tags: configuration, settings, defaults, documentation-drift, removed-features, vscode-extension, audit, claude-code-ingest
 - See Also: [[LRN-20260612-002]] (different audit — packaging hygiene); [[LRN-20260612-003]] (different audit — endpoint/locale separation)
+
+## [LRN-20260612-005] correction
+
+**Logged**: 2026-06-12T00:00:00Z
+**Priority**: high
+**Status**: resolved
+**Area**: build/release
+
+### Summary
+Marketplace validator rejected v2.3.0 with `The extension contains an entry extension/nul which is unsafe for extraction.` Root cause: a 0-byte file literally named `nul` was committed to the project root (a Windows `>nul` shell-redirection artifact). The Marketplace validator scans VSIX entries for **Windows reserved device names** (`nul`, `con`, `prn`, `aux`, `com1`-`com9`, `lpt1`-`lpt9`) and rejects them on every build host, regardless of OS — a file named `nul` on Linux or macOS still fails validation because end users may extract on Windows.
+
+### Details
+- v2.2.0 shipped cleanly; v2.3.0 was rejected on first publish attempt.
+- vsce's local packaging reported a clean file list (10 files, 108.32 KB) — the `nul` was being bundled silently because `.vscodeignore` had no rule for it.
+- Discovered two packaging leaks at the same time:
+  1. **`nul` (0 B)** at the project root → `extension/nul` in the VSIX → validator reject.
+  2. **`.claude/memory/release-workflow.md`** (1.9 KB) → `extension/.claude/memory/release-workflow.md` in the VSIX. This is local Claude Code memory; not an extension asset, must not ship.
+- The Linux/macOS build host was masking both issues — the local `ls`/`find` from the maintainer's perspective looked normal, and `vsce` only warns on bundle anomalies, it doesn't cross-check against Windows reserved names or against "is this an extension asset?".
+- Second issue (`nul` is not the only reserved name): the same pattern would happen for any of `con` / `prn` / `aux` / `com1`-`com9` / `lpt1`-`lpt9`, or for any file with a leading `~` (Windows 8.3 short-name tail) that could expand to one of those.
+
+**Fix applied**:
+1. `rm -f nul` at the project root.
+2. [.vscodeignore](.vscodeignore) updated with two new deny blocks:
+   - `.claude/**` (defense against future Claude Code memory leaks)
+   - `/nul`, `/con`, `/prn`, `/aux`, `/com[1-9]`, `/lpt[1-9]` (Windows reserved device names at the root only — leading-slash anchors to repo root so we don't accidentally deny a real file in some subdirectory named e.g. `com1`).
+3. Rebuilt the VSIX: 10 files, 108.32 KB. `extension/.claude/memory/release-workflow.md` is gone, `extension/nul` is gone, all 8 SKILL.md / LICENSE / package.* / readme / icon entries are intact.
+
+### Suggested Action
+Add a hard rule to `CLAUDE.md` "Conventions" section:
+
+> **`.vscodeignore` MUST deny (a) every Windows reserved device name at the root, and (b) every working-tree metadata directory (`.claude/`, `.learnings/`, `.vscode/`, etc.) the extension does not ship.** Marketplace validation rejects Windows reserved names regardless of build-host OS, and Claude Code's auto-generated `.claude/memory/*.md` will silently bundle into the VSIX if the path is not denied. The current rule block in `.vscodeignore` is:
+>
+> ```
+> /nul
+> /con
+> /prn
+> /aux
+> /com[1-9]
+> /lpt[1-9]
+> ```
+
+A second rule for `release.yml` / `vsce package`:
+
+> **Before tagging a release, run `vsce ls` and grep the output for Windows reserved names and working-tree metadata paths.** `vsce ls` prints the file list that would be bundled, mirroring what the server-side validator sees. Catching the leak locally is 10× cheaper than uploading and getting a rejection email. Suggested one-liner: `npx vsce ls --no-dependencies | grep -iE '^(extension/)?(nul|con|prn|aux|com[1-9]|lpt[1-9]|\.claude|\.learnings)' && exit 1`.
+
+### Future work
+- Consider a `prepackage` npm script that runs the `vsce ls` + grep check above, so `npm run package` fails locally before CI uploads. Cost: ~200 ms on a typical extension.
+- A pre-commit hook (`husky` or hand-rolled) that rejects any working-tree file whose basename is a Windows reserved name. `git` itself won't catch this because `nul` is a perfectly valid filename on Linux/macOS file systems.
+
+### Resolution
+- **Resolved**: 2026-06-12T00:00:00Z
+- **Commit/PR**: pending (working-tree changes: deleted `nul`, added `.claude/**` + Windows reserved-name block to `.vscodeignore`)
+- **Notes**: After fix, `vsce package` output shows 10 files, no `.claude/`, no `nul`. Ready to re-publish as 2.3.0 (or 2.3.1 if the version was already tagged server-side).
+
+### Metadata
+- Source: Marketplace validation rejection email ("The extension contains an entry extension/nul which is unsafe for extraction.")
+- Related Files: .vscodeignore, nul (deleted), dist/minimax-vscode-copilot-2.3.0.vsix
+- Tags: marketplace-validation, vsce, windows-reserved-names, packaging, vscodeignore, working-tree-hygiene
+- See Also: [[LRN-20260612-002]] (packaging hygiene audit); [[LRN-20260612-001]] (nls filename correctness)

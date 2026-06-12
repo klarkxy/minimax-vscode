@@ -33,10 +33,27 @@ oai-compatible-copilot/**
 docs/**
 test/**
 
+# Local Claude Code memory — must not ship in the VSIX.
+# Previous builds silently bundled .claude/memory/*.md because the path
+# was not denied. Working-tree files, not part of the extension.
+.claude/**
+
 # Local build artefacts
 dist/**
 out-test/**
 **/*.vsix
+
+# Windows reserved device names — the Marketplace validator rejects VSIX
+# entries whose name is a reserved device (nul/con/prn/aux/com1-9/lpt1-9)
+# as "unsafe for extraction", regardless of the build host's OS. This bites
+# when a Windows user accidentally creates e.g. `>nul` and the file lands in
+# the working tree. Catch them at the root with a leading-segment match.
+/nul
+/con
+/prn
+/aux
+/com[1-9]
+/lpt[1-9]
 
 # Bundle the SKILL files that ship with the extension (consumed at
 # runtime by the dashboard's "Install Agent Skill" fallback). They

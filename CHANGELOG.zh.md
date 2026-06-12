@@ -2,6 +2,18 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.3.1 — 清理遗留的 `nul` 文件，加固 `.vscodeignore`
+
+### 修复
+
+- **Marketplace 拒绝了 v2.3.0，理由是 `The extension contains an entry extension/nul which is unsafe for extraction.`** 项目根目录里有一个 0 字节的 `nul` 文件（Windows 上 `>nul` shell 重定向遗留下来的产物）。Marketplace 验证器会扫 VSIX 里所有文件名，把 Windows 保留设备名（`nul` / `con` / `prn` / `aux` / `com1`-`com9` / `lpt1`-`lpt9`）全部 reject，**跟构建主机的操作系统无关**——Linux/macOS 上把一个名为 `nul` 的文件打进去也算违规，因为终端用户在 Windows 上解压时会失败。文件已删除，[.vscodeignore](.vscodeignore) 现在在根目录 deny 完整保留名集合，以后再出现 `>nul` / `>con` 之类的失误也不会再漏出去。
+- **`.claude/memory/release-workflow.md` 被悄悄打进了 VSIX**（1.9 KB 的本地 memory 笔记变成了 `extension/.claude/memory/release-workflow.md`）。这条路径已经加进 [.vscodeignore](.vscodeignore) 拒绝列表。工作区里的文件不是扩展资源。
+
+### 发布流水线
+
+- `release.yml` 现在同时在 `push: tags: ['v*']` 上触发，`publish` job 在 tag push 时也会跑（除了 `release_created == 'true'` 之外）。这意味着手动切版本（`git tag vX.Y.Z && git push origin vX.Y.Z`）走的流程跟 release-please 自动切完全一样：构建、挂到 GitHub Release、（新增）自动发布到 VS Code Marketplace 和 Open VSX。之前 `release.yml` 里**根本没有 `vsce publish` 这一步**——每个版本都得手动走 `rescue.yml`（或者本地 `vsce publish`）推到 marketplace，这正是 v2.3.0 的 `nul` 漏出去没人拦的根因。
+- `rescue.yml` 不变，继续作为"重推现有 tag、不切新版本"的逃生通道。
+
 ## 2.3.0 — 砍掉自研 commit 流水线，改走 Copilot 工具模型路由
 
 > **注意：** 本版删除了一个原本公开的命令和设置。

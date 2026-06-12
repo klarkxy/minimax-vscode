@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.3.1 — Drop stray `nul` file, harden `.vscodeignore`
+
+### Fixed
+
+- **Marketplace validation rejected v2.3.0 with `The extension contains an entry extension/nul which is unsafe for extraction.`** A 0-byte file literally named `nul` had landed in the project root (a Windows `>nul` shell-redirection artifact). The Marketplace validator scans VSIX entries for Windows reserved device names (`nul`, `con`, `prn`, `aux`, `com1`-`com9`, `lpt1`-`lpt9`) and rejects them regardless of the build host's OS — a file named `nul` on Linux/macOS still fails validation because end users may extract on Windows. The file has been deleted and [.vscodeignore](.vscodeignore) now denies the full reserved-name set at the root, so future stray `>nul` / `>con` / etc. artifacts cannot slip through.
+- **`.claude/memory/release-workflow.md` was silently bundled into the VSIX** (1.9 KB internal memory note shipped as `extension/.claude/memory/release-workflow.md`). The path is now in [.vscodeignore](.vscodeignore) deny list. Working-tree files are not extension assets.
+
+### Release workflow
+
+- `release.yml` now also triggers on `push: tags: ['v*']` and the `publish` job fires on tag pushes (in addition to `release_created == 'true'`). This means a manual release cut (`git tag vX.Y.Z && git push origin vX.Y.Z`) flows through the same pipeline as a release-please cut: the workflow builds, attaches to the GitHub Release, and (new) publishes to the VS Code Marketplace and Open VSX automatically. Previously, the marketplace publish step was missing from `release.yml` entirely — every cut had to be hand-published via `rescue.yml` (or `vsce publish` locally), which is exactly how v2.3.0's `nul` leak reached the marketplace uncaught.
+- `rescue.yml` is unchanged and remains the escape hatch for re-publishing an existing tag without cutting a new one.
+
 ## 2.3.0 — Drop custom commit pipeline, route Copilot's utility models
 
 > **Heads-up:** this release removes a previously public command and setting.

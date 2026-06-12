@@ -3,6 +3,13 @@ name: Release
 on:
   push:
     branches: [main]
+    # Trigger on tag pushes too, so manual release cuts
+    # (`git tag vX.Y.Z && git push origin vX.Y.Z`) flow through the same
+    # build + publish pipeline as a release-please cut. Without this,
+    # the publish job below was skipped on manual cuts and every release
+    # had to be hand-published via rescue.yml — which is exactly how the
+    # v2.3.0 `nul` leak reached the marketplace uncaught.
+    tags: ['v*']
 
 concurrency:
   group: release-${{ github.ref }}
@@ -10,7 +17,12 @@ concurrency:
 
 jobs:
   release:
+    # Only the release-please job needs to run on main pushes. On tag
+    # pushes release-please is a no-op (no new commits since the last
+    # release), but the `if: always() && needs.release.outputs...` chain
+    # below still drives the publish job off the tag's own push event.
     runs-on: ubuntu-latest
+    if: github.ref_type == 'branch'
     env:
       # Opt all third-party GitHub Actions in this workflow into Node.js 24
       # before GitHub forces the changeover on 2026-06-16.
@@ -36,7 +48,15 @@ jobs:
 
   publish:
     needs: release
-    if: needs.release.outputs.release_created == 'true'
+    # Fire on either a release-please cut (auto, on main push) or a manual
+    # tag push. On auto cuts the workflow runs twice — once off the main
+    # push (release_created == 'true') and once off release-please's own
+    # tag push (startsWith(ref, 'refs/tags/v')) — but the second run's
+    # marketplace publish is a no-op thanks to `vsce publish --skip-duplicate`
+    # and the GitHub Release re-attach replaces the existing asset.
+    if: |
+      needs.release.outputs.release_created == 'true' ||
+      startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     env:
       # Opt all third-party GitHub Actions in this workflow into Node.js 24
@@ -44,14 +64,14 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
     environment: production
     concurrency:
-      group: publish-${{ needs.release.outputs.tag_name }}
+      group: publish-${{ github.ref_name }}
       cancel-in-progress: false
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.release.outputs.tag_name }}
+          ref: ${{ github.ref_name }}
 
       - uses: actions/setup-node@v4
         with:
@@ -75,13 +95,26 @@ jobs:
           fi
           echo "path=${files[0]}" >> "$GITHUB_OUTPUT"
 
+      - name: Publish to VS Code Marketplace
+        # `--skip-duplicate` makes the second run of an auto cut (off the
+        # release-please-pushed tag) a no-op, so the auto-cut + tag-push
+        # double-fire described in the publish-job `if:` comment is safe.
+        run: npm exec -- vsce publish --packagePath "${{ steps.vsix.outputs.path }}" --skip-duplicate
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX
+        run: npm exec -- ovsx publish --skip-duplicate "${{ steps.vsix.outputs.path }}"
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
       - name: Attach VSIX to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.release.outputs.tag_name }}
+          tag_name: ${{ github.ref_name }}
           files: ${{ steps.vsix.outputs.path }}
           fail_on_unmatched_files: true
 
       - name: Show release info
         run: |
-          echo "Released ${{ needs.release.outputs.tag_name }}"
+          echo "Released ${{ github.ref_name }}"
