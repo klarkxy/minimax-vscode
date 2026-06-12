@@ -22,6 +22,20 @@
 - **mmx-cli 状态检测** — 面板显示官方 MiniMax CLI / auth / SKILL 是否就绪；可一键复制安装 prompt 到剪贴板。
 - **诊断能力** — 每请求分类、缓存命中统计、verbose 模式把每条请求 dump 到磁盘。
 
+## 数据
+
+VSCode Marketplace 安装量随时间变化，每天由 [`.github/workflows/installs.yml`](.github/workflows/installs.yml) 自动刷新。实时数据见[市场页](https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode-copilot)。
+
+<!-- installs:start -->
+```mermaid
+xychart-beta
+    title "Marketplace installs"
+    x-axis [2026-06-12]
+    y-axis "Installs" 0 --> 581
+    line [528]
+```
+<!-- installs:end -->
+
 ## 快速开始
 
 ### 环境要求
@@ -35,7 +49,7 @@
 
 1. 从 [VS Code 市场](https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode-copilot) 安装（或 `npm run package` 从源码打 `.vsix`）。
 2. 命令面板跑 **MiniMax: 设置 API Key**，粘贴 Token Plan Key。
-3. 打开 Copilot Chat，选 **MiniMax M3**（或 M2.7 / M2.7-highspeed）。
+3. 打开 Copilot cChat，选 **MiniMax M3**（或 M2.7 / M2.7-highspeed）。
 4. （可选）跑 **MiniMax: 设置 Copilot 工具模型**，把 Source Control ✨ 按钮路由到 MiniMax。
 
 ### 端点

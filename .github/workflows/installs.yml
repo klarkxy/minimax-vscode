@@ -1,0 +1,34 @@
+name: Refresh marketplace installs chart
+
+on:
+  # Daily at 00:00 UTC. Adjust if marketplace latency becomes a problem.
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+# Default token has read-only on `contents`; we need to push the refreshed
+# data and re-rendered chart back to main.
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Poll Marketplace Gallery API and rewrite chart
+        run: node scripts/refresh-installs.mjs
+
+      - name: Commit refreshed data + chart
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'chore(installs): refresh marketplace install count'
+          file_pattern: |
+            data/installs.json
+            README.md
+            README.zh.md

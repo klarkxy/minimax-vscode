@@ -12,9 +12,9 @@
 </p>
 
 <p align="center">
-  <a href="./README.md"><b>English</b></a>
+  <a href="https://github.com/klarkxy/minimax-vscode/blob/main/README.md"><b>English</b></a>
   ·
-  <a href="./README.zh.md">简体中文</a>
+  <a href="https://github.com/klarkxy/minimax-vscode/blob/main/README.zh.md">简体中文</a>
 </p>
 
 <p align="center">
@@ -32,6 +32,20 @@
 - **Usage dashboard** — today / 7-day / 30-day views, 30-day bar chart, per-model breakdown, platform `coding_plan/remains`, and Claude Code JSONL ingest.
 - **mmx-cli status detection** — dashboard shows whether the official MiniMax CLI / auth / SKILL is set up; copy the install prompt to the clipboard.
 - **Diagnostics** — per-request classifier, cache-hit stats, verbose mode dumps every request to disk.
+
+## Stats
+
+Marketplace install count, refreshed daily via [`.github/workflows/installs.yml`](.github/workflows/installs.yml). Live count on the [marketplace page](https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode-copilot).
+
+<!-- installs:start -->
+```mermaid
+xychart-beta
+    title "Marketplace installs"
+    x-axis [2026-06-12]
+    y-axis "Installs" 0 --> 581
+    line [528]
+```
+<!-- installs:end -->
 
 ## Getting Started
 
