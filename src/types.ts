@@ -186,6 +186,8 @@ export interface ModelPricing {
 	note?: string;
 }
 
+export type PriceCategory = 'low' | 'medium' | 'high' | 'very_high';
+
 export interface ModelDefinition {
 	id: string;
 	name: string;
@@ -228,6 +230,11 @@ export interface ModelDefinition {
 		supportsAdaptive: boolean;
 	};
 	pricing: ModelPricing;
+	/**
+	 * Rough price tier for the VS Code model picker's cost column.
+	 * Copilot Chat uses this to categorise models (e.g. 'low', 'medium').
+	 */
+	priceCategory?: PriceCategory;
 	/**
 	 * Optional per-model sampling overrides. When set, the values are
 	 * passed to the API as-is. The Anthropic `thinking: { type:

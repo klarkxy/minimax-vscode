@@ -181,6 +181,7 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 			supportsAdaptive: true,
 		},
 		pricingKey: 'm3',
+		priceCategory: 'medium',
 	},
 	{
 		id: 'MiniMax-M2.7',
@@ -189,8 +190,8 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		version: '2.7',
 		detail: 'Self-iterating coding model (~60 TPS)',
 		contextLength: 204_800,
-		maxInputTokens: 204_800,
-		maxOutputTokens: 204_800,
+		maxInputTokens: 131_072,
+		maxOutputTokens: 73_728,
 		capabilities: {
 			toolCalling: MINIMAX_TOOLS_LIMIT,
 			imageInput: true,
@@ -201,6 +202,7 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 			supportsAdaptive: false,
 		},
 		pricingKey: 'm27',
+		priceCategory: 'low',
 	},
 	{
 		id: 'MiniMax-M2.7-highspeed',
@@ -209,8 +211,8 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		version: '2.7-highspeed',
 		detail: 'M2.7 high-speed: same quality, faster (~100 TPS)',
 		contextLength: 204_800,
-		maxInputTokens: 204_800,
-		maxOutputTokens: 204_800,
+		maxInputTokens: 131_072,
+		maxOutputTokens: 73_728,
 		capabilities: {
 			toolCalling: MINIMAX_TOOLS_LIMIT,
 			imageInput: true,
@@ -221,6 +223,7 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 			supportsAdaptive: false,
 		},
 		pricingKey: 'm27Highspeed',
+		priceCategory: 'low',
 	},
 ];
 

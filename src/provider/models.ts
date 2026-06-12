@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { CONFIG_SECTION } from '../consts';
 import { t } from '../i18n';
-import type { ModelDefinition } from '../types';
+import type { ModelDefinition, PriceCategory } from '../types';
 
 /**
  * Thinking-capable models advertise a binary `thinking` switch on the
@@ -41,11 +41,30 @@ export type ModelConfigurationOptions = vscode.ProvideLanguageModelChatResponseO
 	readonly configuration?: Record<string, unknown>;
 };
 
-export type ModelPickerChatInformation = vscode.LanguageModelChatInformation & {
-	readonly isUserSelectable: boolean;
-	readonly statusIcon?: vscode.ThemeIcon;
-	readonly configurationSchema?: vscode.LanguageModelConfigurationSchema;
-};
+/**
+ * Cost metadata fields read by Copilot Chat's model picker to render
+ * the price column. Mirror of deepseek-v4-for-copilot's ModelCostInformation.
+ *
+ * - inputCost  ← pricing.input (non-cached input per million tokens)
+ * - outputCost ← pricing.output
+ * - cacheCost  ← pricing.cacheRead (cached input per million tokens)
+ * - priceCategory emitted only with concrete pricing; omitted when
+ *   any component is missing or null so the picker shows nothing
+ *   rather than misleading partial data.
+ */
+export interface ModelCostInformation {
+	readonly inputCost?: string;
+	readonly outputCost?: string;
+	readonly cacheCost?: string;
+	readonly priceCategory?: PriceCategory;
+}
+
+export type ModelPickerChatInformation = vscode.LanguageModelChatInformation &
+	ModelCostInformation & {
+		readonly isUserSelectable: boolean;
+		readonly statusIcon?: vscode.ThemeIcon;
+		readonly configurationSchema?: vscode.LanguageModelConfigurationSchema;
+	};
 
 export function toChatInfo(
 	m: ModelDefinition,
@@ -89,6 +108,7 @@ export function toChatInfo(
 		...(m.thinking.supportsAdaptive
 			? { configurationSchema: buildThinkingEnabledSchema() }
 			: {}),
+		...toModelCostInfo(m),
 	};
 }
 
@@ -108,6 +128,25 @@ function formatPricingTooltip(m: ModelDefinition): string {
 		lines.push('', pricing.note);
 	}
 	return lines.join('\n');
+}
+
+/**
+ * Build the cost metadata that Copilot Chat renders in the model picker's
+ * price column. Populated from the resolved per-million-token prices so
+ * the picker shows a live cost summary, matching the deepseek pattern.
+ */
+function toModelCostInfo(m: ModelDefinition): ModelCostInformation {
+	const { pricing, priceCategory } = m;
+	if (pricing.input === null || pricing.output === null) {
+		return {};
+	}
+	const symbol = pricing.currency === 'USD' ? '$' : '¥';
+	return {
+		...(priceCategory ? { priceCategory } : {}),
+		inputCost: `${symbol}${pricing.input}`,
+		outputCost: `${symbol}${pricing.output}`,
+		cacheCost: pricing.cacheRead !== null ? `${symbol}${pricing.cacheRead}` : undefined,
+	};
 }
 
 function formatNumber(n: number): string {
