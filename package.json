@@ -62,11 +62,6 @@
         "category": "MiniMax"
       },
       {
-        "command": "minimax.setVisionModel",
-        "title": "%minimax.command.setVisionModel%",
-        "category": "MiniMax"
-      },
-      {
         "command": "minimax.showLogs",
         "title": "%minimax.command.showLogs%",
         "category": "MiniMax"
@@ -87,11 +82,6 @@
         "category": "MiniMax"
       },
       {
-        "command": "minimax.showPricing",
-        "title": "%minimax.command.showPricing%",
-        "category": "MiniMax"
-      },
-      {
         "command": "minimax.useForCopilotCommitMessages",
         "title": "%minimax.command.useForCopilotCommitMessages%",
         "category": "MiniMax"
@@ -99,21 +89,6 @@
       {
         "command": "minimax.toggleM31MContext",
         "title": "%minimax.command.toggleM31MContext%",
-        "category": "MiniMax"
-      },
-      {
-        "command": "minimax.showUsage",
-        "title": "%minimax.command.showUsage%",
-        "category": "MiniMax"
-      },
-      {
-        "command": "minimax.resetUsage",
-        "title": "%minimax.command.resetUsage%",
-        "category": "MiniMax"
-      },
-      {
-        "command": "minimax.showProviderStatus",
-        "title": "%minimax.command.showProviderStatus%",
         "category": "MiniMax"
       },
       {
@@ -170,11 +145,18 @@
           "scope": "application",
           "markdownDescription": "Programming text models (M2.7 / M2.7-highspeed / M3) for Token Plan. M3 is the latest native-multimodal frontier coding model (officially 1M context; effective 512K until the >512K tier is fully rolled out). MiniMax no longer recommends M2.5 and earlier."
         },
+        "minimax.maxOutputTokens": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "Maximum number of **output** tokens per response (sent as `max_tokens` in the Anthropic request body). `0` (default) lets the model decide; the upstream API is responsible for any per-model ceiling. Set a positive integer to cap the output yourself; the value is sent verbatim and any 4xx from the upstream is surfaced as-is. **This is the output cap, not the context window** — see `minimax.enableM31MContext` for the input/context window."
+        },
         "minimax.maxTokens": {
           "type": "number",
           "default": 0,
           "minimum": 0,
-          "markdownDescription": "Maximum number of output tokens. `0` (default) lets the model decide; the upstream API is responsible for any per-model ceiling. Set a positive integer to cap the output yourself; the value is sent verbatim and any 4xx from the upstream is surfaced as-is."
+          "markdownDescription": "**Deprecated:** renamed to `minimax.maxOutputTokens` for clarity. The value is still read as a fallback when `minimax.maxOutputTokens` is unset, so existing `settings.json` entries keep working. This key will be removed in 3.0.",
+          "deprecationMessage": "Renamed to `minimax.maxOutputTokens`."
         },
         "minimax.enableM31MContext": {
           "type": "boolean",
@@ -199,31 +181,11 @@
         },
         "minimax.modelIdOverrides": {
           "type": "object",
-          "default": {
-            "MiniMax-M3": "MiniMax-M3",
-            "MiniMax-M2.7": "MiniMax-M2.7",
-            "MiniMax-M2.7-highspeed": "MiniMax-M2.7-highspeed",
-            "MiniMax-M2.5": "MiniMax-M2.5",
-            "MiniMax-M2.5-highspeed": "MiniMax-M2.5-highspeed",
-            "MiniMax-M2.1": "MiniMax-M2.1",
-            "MiniMax-M2.1-highspeed": "MiniMax-M2.1-highspeed",
-            "MiniMax-M2": "MiniMax-M2"
-          },
-          "markdownDescription": "Override the API model ID for each picker model ID. Useful when routing through a third-party proxy that uses different model names.",
+          "default": {},
+          "markdownDescription": "Map a Copilot picker model ID to the actual API model ID the upstream endpoint expects. The default `{}` means 'no override' — the picker ID is sent to the API verbatim. Useful when routing through a third-party proxy that uses different model names (e.g. `{\"MiniMax-M3\": \"provider-internal-m3-001\"}`). Mappings for IDs not in the picker are silently ignored. To re-add a historical model (M2.5 / M2.1 / M2) to the picker itself, also add it to `minimax.visibleModels`.",
           "additionalProperties": {
             "type": "string"
           }
-        },
-        "minimax.visionModel": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Language model chat ID used to describe image attachments for non-multimodal MiniMax models. Leave empty to auto-detect. Has no effect on `MiniMax-M3` which receives images directly."
-        },
-        "minimax.visionPrompt": {
-          "type": "string",
-          "editPresentation": "multilineText",
-          "default": "Describe all image attachments in this message.\n\nIf there is one image, describe it directly.\nIf there are multiple images:\n1. Describe each image separately, preserving their order.\n2. Then provide a combined description explaining the overall context and relationships across the images.\n\nReturn one concise factual description suitable for inserting into a text-only chat prompt. Include visible text, objects, UI elements, people, and relevant context. Do not invent details.",
-          "markdownDescription": "Prompt sent to the vision proxy when describing image attachments for non-multimodal MiniMax models."
         },
         "minimax.experimental.stabilizeToolList": {
           "type": "boolean",
@@ -295,10 +257,15 @@
           "default": [
             "MiniMax-M3",
             "MiniMax-M2.7",
-            "MiniMax-M2.7-highspeed"
+            "MiniMax-M2.7-highspeed",
+            "MiniMax-M2.5",
+            "MiniMax-M2.5-highspeed",
+            "MiniMax-M2.1",
+            "MiniMax-M2.1-highspeed",
+            "MiniMax-M2"
           ],
           "scope": "application",
-          "markdownDescription": "Allowlist of model IDs to count in the **Claude Code** section of the dashboard. The Claude Code JSONL log includes every model the Claude Code CLI / VSCode extension talked to (not just MiniMax), so we filter to MiniMax-related models by default. Edit this list to add legacy IDs like `MiniMax-M2.5` / `MiniMax-M2` or to remove models you do not want to count."
+          "markdownDescription": "Allowlist of model IDs to count in the **Claude Code** section of the dashboard. The Claude Code JSONL log includes every model the Claude Code CLI / VSCode extension talked to (not just MiniMax), so we filter to MiniMax-related models by default. Edit this list to add or remove model IDs; the in-code fallback in `getClaudeCodeAllowedModels()` mirrors this list and is used when the setting is missing or malformed."
         },
         "minimax.experimental.modelDefPresets": {
           "type": "object",
@@ -347,7 +314,7 @@
             "title": "%minimax.walkthrough.pickInChat.title%",
             "description": "%minimax.walkthrough.pickInChat.description%",
             "completionEvents": [
-              "onCommand:minimax.showProviderStatus"
+              "onCommand:minimax.openDashboard"
             ]
           },
           {

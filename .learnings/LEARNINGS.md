@@ -259,3 +259,200 @@ Add a hard rule to `CLAUDE.md`'s "Conventions" section: "**Always name locale fi
 - Related Files: package.nls.json, package.nls.zh.json, CLAUDE.md, CHANGELOG.md, CHANGELOG.zh.md
 - Tags: localization, nls, bcp47, vscode-extension, command-palette, locale-fallback
 - See Also: [[LRN-20260611-005]] (related: language-model Configuration schema and locale conventions)
+
+## [LRN-20260612-002] best_practice
+
+**Logged**: 2026-06-12T00:00:00Z
+**Priority**: medium
+**Status**: resolved
+**Area**: build / packaging
+
+### Summary
+`vsce package` does NOT ignore files that the project's `.gitignore` ignores — it only honors `.vscodeignore`. Anything that lives in the repo root and isn't explicitly listed (or pattern-matched) in `.vscodeignore` ends up inside the published `.vsix` and ships to end users. Developer-facing artifacts (CLAUDE.md, .learnings/, scratch directories) MUST be added to `.vscodeignore` explicitly, even though git never tracks the .vsix itself.
+
+### Details
+After the LRN-20260612-001 nls fix, I ran `npx vsce package --no-dependencies` and the resulting VSIX file tree included:
+```
+├─ CLAUDE.md [17.47 KB]   ← project architecture doc for AI assistants
+└─ .learnings/
+   ├─ ERRORS.md [0.05 KB]
+   ├─ FEATURE_REQUESTS.md [0.06 KB]
+   └─ LEARNINGS.md [22.2 KB]
+```
+The user flagged "有些东西没必要打包进去吧？" — and they were right: `CLAUDE.md` and `.learnings/` are internal AI-assistant documentation, not user-facing. They had been added to the repo at the root (alongside LICENSE, README, etc.) so they coexisted with files vsce *should* pick up, but `vsce` doesn't know that distinction.
+
+The fix is mechanical: add `CLAUDE.md` and `.learnings/**` to `.vscodeignore`. Verified by re-packaging: VSIX shrunk from 131.88 KB / 14 files to 117.65 KB / 10 files. The `skills/minimax-cli/SKILL.md` is **intentionally** kept — the dashboard's "Install Agent Skill" fallback reads it at runtime (see the existing `!skills/**` whitelist in `.vscodeignore`).
+
+**Why this matters**:
+1. **Disk / bandwidth**: A 40 KB bloat on every install isn't huge but it's pure noise for end users.
+2. **Information leakage**: `CLAUDE.md` documents the project's internal architecture, the diagnostic channel, the `MmxCliCache` internals, the credential-leak hardening — none of which end users should see (and arguably the marketplace is a worse place to leak it than a public GitHub repo). `.learnings/` includes `FEATURE_REQUESTS.md` which mentions known limitations; this should not become a de-facto user-facing changelog.
+3. **Trust surface**: Even an internal doc that's harmless to leak today can contain a future credential, a debug command, or a private endpoint that becomes a security incident when it's in the `.vsix` on 10,000 machines.
+
+### Suggested Action
+Add to `CLAUDE.md` Conventions section: "**`vsce package` only honors `.vscodeignore`, not `.gitignore`.** Any file at the repo root that isn't user-facing (internal architecture docs, AI-assistant memory, scratch references) MUST be listed in `.vscodeignore` or it ships in the .vsix. Run `npx vsce package --no-dependencies` and inspect the `INFO Files included in the VSIX:` tree before tagging a release — if you see `CLAUDE.md`, `.learnings/`, or any non-runtime doc, the ignore list is incomplete."
+
+### Future work
+- Add a CI step that runs `vsce package` on every PR and diffs the file list against a known-good baseline (catches accidental inclusions before they reach the marketplace).
+- The `**/*.map` exclusion in `.vscodeignore` correctly blocks sourcemaps, but esbuild's `out/extension.js.map` should be re-verified after each `npm run build` to make sure no production sourcemap ever lands in the marketplace bundle.
+
+### Resolution
+- **Resolved**: 2026-06-12T00:00:00Z
+- **Commit/PR**: pending (working-tree change: `.vscodeignore` +2 lines)
+- **Notes**: Verified — re-packaged .vsix is 10 files / 117.65 KB. No source/test changes.
+
+### Metadata
+- Source: User review of `npx vsce package` output ("有些东西没必要打包进去吧？")
+- Related Files: .vscodeignore, .learnings/LEARNINGS.md, .learnings/ERRORS.md, .learnings/FEATURE_REQUESTS.md, CLAUDE.md
+- Tags: packaging, vsce, vscodeignore, marketplace, info-leak, build-hygiene
+- See Also: [[LRN-20260612-001]] (same packaging pass, different bug)
+
+## [LRN-20260612-003] knowledge_gap
+
+**Logged**: 2026-06-12T00:00:00Z
+**Priority**: high
+**Status**: resolved
+**Area**: localization / host classification
+
+### Summary
+Three independent "host classification" bugs all stem from the same root cause: **the codebase has two parallel notions of "is this a China endpoint?"** and only one of them is hardened. The hardened one (`resolvePlatformHost()`) lives in `src/consts.ts`; the unhardened copies are `isChinaBaseUrl()` in `src/models/registry.ts` (uses `baseUrl.includes('minimaxi.com')`) and an inline `baseUrl.includes('minimaxi.com')` in `showPricing()` in `src/runtime/commands.ts`. A fourth class of bug — **locale-keyed host strings in i18n** — was hiding in `auth.prompt` and `pricing.note` and shipped the wrong platform link to half the user base.
+
+### Details
+The user asked for a comprehensive audit of "国内版 vs 国际版" distinction across the codebase. A `Grep` for `minimaxi\.com|minimax\.io` produced 100+ hits; after classifying by category (API host / platform host / marketing site / docs URL / inline comment) the real bugs were:
+
+**Bug A — spoofable `String.includes()` in `isChinaBaseUrl()`** ([src/models/registry.ts:93-95](src/models/registry.ts#L93-L95)):
+```ts
+export function isChinaBaseUrl(baseUrl: string): boolean {
+    return baseUrl.includes('minimaxi.com');
+}
+```
+The exact same spoofable pattern LRN-20260611-005 documented for the 401/402 action buttons. Userinfo `https://api.minimax.io@proxy.example.com/v1` does not match `minimaxi.com` substring, but the symmetric `https://api.minimaxi.com@proxy.example.com/v1` DOES match. A user with a `minimax.apiBaseUrl` containing `minimaxi.com` as a *userinfo* (or path component, or as a sub-domain) would silently be classified as china. The `pickPricingTable()` consumer uses this to pick CNY vs USD prices, and `showPricing()` uses the same function for the CN flag — both are mis-classified.
+
+**Bug B — duplicate inline `.includes()` in `showPricing()`** ([src/runtime/commands.ts:489](src/runtime/commands.ts#L489)):
+```ts
+const isChina = baseUrl.includes('minimaxi.com');
+const flag = isChina ? '🇨🇳' : '🌐';
+```
+Identical to Bug A, inlined (presumably to avoid importing `isChinaBaseUrl`). The CN flag in the Show Pricing doc header would be wrong for any spoofed URL.
+
+**Bug C — locale-keyed i18n strings ship the wrong platform to the wrong user** ([src/i18n.ts:44, 112, 191, 261-262](src/i18n.ts#L44)):
+```ts
+auth.prompt zh: 请输入 MiniMax Token Plan API Key（从 platform.minimaxi.com 获取）。
+auth.prompt en: Enter your MiniMax Token Plan API key (from platform.minimax.io).
+pricing.note zh: 价格取自 platform.minimaxi.com/docs/guides/pricing-paygo。
+pricing.note en: Prices scraped from platform.minimax.io/docs/guides/pricing-paygo.
+```
+The i18n is keyed by **locale** (zh / en), but the platform host is a function of the **endpoint**, not the locale. Failure modes:
+- Chinese-locale user on international endpoint (`api.minimax.io`): prompt says "from platform.minimaxi.com". They click the link, can't log in, no Token Plan on a CN account. Silent misdirection.
+- English-locale user on China endpoint: same problem in reverse.
+- Third-party-proxy user (e.g. self-hosted Anthropic gateway): always sees one of the two official platforms hard-coded, which they can't reach.
+
+**Bug D — wrong URL in a JSDoc comment** ([src/dashboard/mmxCli.ts:444-446](src/dashboard/mmxCli.ts#L444-L446)):
+The comment on `MMX_INSTALL_PROMPT_EN` says "international-site equivalent of MMX_INSTALL_PROMPT_ZH (platform.minimax.io/docs/...)". But `MMX_INSTALL_PROMPT_ZH` is the **Chinese** prompt, sourced from `platform.minimaxi.com/docs/token-plan/minimax-cli` (line 417, line 429). The comment said `platform.minimax.io`. The first time someone copies this URL to grep the canonical source, they'd point at the wrong docs page. Not a runtime bug, but a trap for future maintainers.
+
+### Fix applied (all in this session)
+1. **New helpers in `src/consts.ts`**:
+   - `resolvePlatformUrl(apiBaseUrl): string | null` — maps API host to platform URL (`https://platform.minimaxi.com` / `https://platform.minimax.io` / `null` for unrecognised).
+   - `displayPlatformUrl(apiBaseUrl): string` — `resolvePlatformUrl()` for known hosts, raw `baseUrl` for unrecognised (so proxy users see *their* URL), empty string for undefined/null/empty.
+   - `resolvePricingDocsUrl(apiBaseUrl): string | null` — `resolvePlatformUrl() + /docs/guides/pricing-paygo`.
+2. **`client/error.ts` simplified** to use `resolvePlatformUrl()` (was duplicating the platform-URL construction inline for 401 and 402 — 20 lines of code removed).
+3. **`isChinaBaseUrl()` hardened** to `resolvePlatformHost(baseUrl) === PLATFORM_HOST_CHINA`. The previous LRN-20260611-005 hardening covered only the 401/402 action button path; this fix extends it to the pricing-table and show-pricing-flag paths.
+4. **`commands.ts:showPricing()` inline `.includes()` replaced** with `isChinaBaseUrl()`.
+5. **`auth.prompt` and `pricing.note` made parametric** in both locales — they take `{0}` for the platform URL, which the caller (`auth.ts:promptForApiKey`, `commands.ts:showPricing`) resolves via `displayPlatformUrl()` / `resolvePricingDocsUrl()`. `auth.ts:promptForApiKey(baseUrl)` now requires a `baseUrl` parameter (was implicit before).
+6. **`mmxCli.ts` JSDoc URL fixed** to `platform.minimaxi.com` (matches the actual `MMX_INSTALL_PROMPT_ZH` source on line 417/429). The `mmxInstallPrompt()` JSDoc also rewritten — it now correctly describes that the function takes a pre-resolved enum, and the actual host resolution happens upstream in `runtime/commands.ts:detectHost()` via `getApiHostForPlatform()` (which uses the hardened helper).
+7. **16 new tests in `test/platformHost.test.ts`** covering all four helpers, including spoofing-vector regression cases for `isChinaBaseUrl` (userinfo / suffix / path) that mirror the existing `resolvePlatformHost` test cases. 26/26 pass in that file; 222/223 pass overall (one pre-existing `claudeCodeIngest` date-drift failure from the prior session is unrelated).
+
+### Suggested Action
+Add a hard rule to `CLAUDE.md` Conventions: "**Host classification must go through `resolvePlatformHost()` (or its boolean wrapper `isChinaBaseUrl()`).** Never inline `baseUrl.includes('minimaxi.com')` / `String.includes` / `String.startsWith` / `String.endsWith` for endpoint detection — those are the LRN-20260611-005 / LRN-20260612-003 credential-leak class of bug. Use the helper, even for one-line booleans. Add a CI step that greps the source for `\.includes\(['"]minimaxi` / `\.includes\(['"]minimax` and fails the build if any non-test, non-comment hit appears."
+
+A second rule: "**i18n strings that reference platform hosts MUST be parametric (`{0}` placeholder), not locale-keyed.** The platform host is a function of `minimax.apiBaseUrl`, not of `vscode.env.language`. The previous `auth.prompt` zh / en pair hard-coded different platforms and shipped the wrong one to half the user base. The caller resolves the host via `displayPlatformUrl()` (or `resolvePricingDocsUrl()` for the pricing note) and passes it as the placeholder argument."
+
+### Future work
+- Add a CI step (`grep -rE "\.includes\(['\"]minimaxi` src/`) to fail the build on inline substring host matching — LRN-20260611-005 and LRN-20260612-003 together are two regressions of the same root cause; a build-time guardrail would prevent a third.
+- Consider deprecating `PLATFORM_HOST_GLOBAL` / `PLATFORM_HOST_CHINA` in favor of typed booleans (`isChinaBaseUrl` / `isGlobalBaseUrl`) — but the three-state return type of `resolvePlatformHost()` (CN / GLOBAL / null) is useful for the "third-party proxy" branch, so keep that.
+- The CHANGELOG entry from 2.2.0 documents the old `apiBaseUrl.contains('minimaxi.com')` heuristic; the 2.3.0 Fixed entry calls out the hardening. No need to retroactively edit the 2.2.0 entry.
+
+### Resolution
+- **Resolved**: 2026-06-12T00:00:00Z
+- **Commit/PR**: pending (working-tree changes across `src/consts.ts`, `src/client/error.ts`, `src/models/registry.ts`, `src/runtime/commands.ts`, `src/auth.ts`, `src/provider/index.ts`, `src/dashboard/mmxCli.ts`, `src/i18n.ts`, `test/platformHost.test.ts`, `CHANGELOG.md`, `CHANGELOG.zh.md`)
+- **Notes**: 222/223 tests pass. The single failure is the pre-existing `claudeCodeIngest: per-day buckets use the line timestamp` date-drift bug from the earlier session, unrelated.
+
+### Metadata
+- Source: User review request ("全面检查一下国内版和国际版是否完整区分正确，是否有串位的情况")
+- Related Files: src/consts.ts, src/client/error.ts, src/models/registry.ts, src/runtime/commands.ts, src/auth.ts, src/provider/index.ts, src/dashboard/mmxCli.ts, src/i18n.ts, test/platformHost.test.ts, CHANGELOG.md, CHANGELOG.zh.md
+- Tags: localization, nls, host-classification, url-spoofing, i18n-keying, locale-vs-endpoint, vscode-extension, audit, credential-leak
+- See Also: [[LRN-20260611-005]] (original host-classification hardening — this LRN extends the same pattern to two more call sites that were missed); [[LRN-20260612-001]] (nls file naming — same audit pass, different bug)
+
+## [LRN-20260612-004] knowledge_gap
+
+**Logged**: 2026-06-12T00:00:00Z
+**Priority**: medium
+**Status**: resolved
+**Area**: configuration / settings
+
+### Summary
+A configuration audit (`minimax.*` settings across `package.json`, `src/config.ts`, and the consumer graph) surfaced three independent issues: (a) **a default mismatch between `package.json` and `src/config.ts`** for `minimax.claudeCode.allowedModels` — the Settings UI shows 3 models, the code uses 8; (b) **a useless identity-map default** for `minimax.modelIdOverrides` that scares users and breaks the moment a new model is added; (c) **stale documentation** — both READMEs and both CHANGELOGs still reference the `minimax.thinking.enabled` setting and the **MiniMax: Toggle M3 Thinking Mode** command that were removed in commit `7e36a4e` ("Remove leftover `minimax.thinking.enabled` setting and the associated `toggleM3Thinking` command — thinking mode is dropdown-only") but never got their README/CHANGELOG entries updated.
+
+### Details
+The user asked for a comprehensive audit of "are any of the current settings unnecessary?". The audit enumerated all 16 `minimax.*` settings from `package.json#contributes.configuration`, cross-referenced each with `src/config.ts` typed accessors and `src/**` consumers, and then categorised findings into **bug-class** (defaults disagree / removed-but-documented) and **redundancy-class** (defaults that pretend to be configuration).
+
+**Finding 1 — `minimax.claudeCode.allowedModels` default disagrees with the JS fallback**
+- `package.json#contributes.configuration.minimax.claudeCode.allowedModels.default` was 3 models: `["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.7-highspeed"]`.
+- `src/config.ts:DEFAULT_CLAUDE_CODE_ALLOWED_MODELS` was 8 models (those 3 + M2.5, M2.5-highspeed, M2.1, M2.1-highspeed, M2).
+- `getClaudeCodeAllowedModels()` reads the setting; if it's missing or `[]`, it falls back to `DEFAULT_CLAUDE_CODE_ALLOWED_MODELS`. Empty array also collapses to the default. The package.json default is **only seen by the Settings UI** — when the user opens the setting, they see 3 models; if they wipe the list and re-save (or if a future migration re-applies the default), they get the wrong 3-model list. The actual code path always uses 8.
+- `CLAUDE.md` explicitly says: "**No defaults sneak in here; they're declared in `package.json#contributes.configuration` and surface in the Settings UI.**" This is the kind of "defaults sneak in" violation the rule was written to prevent.
+- **Fix**: synced the package.json default to the 8-model list. Both surfaces now agree; behaviour is unchanged for users who never touched the setting (because the in-code default was already 8), but the Settings UI now shows the correct default.
+
+**Finding 2 — `minimax.modelIdOverrides` has a useless identity-map default**
+- `package.json#contributes.configuration.minimax.modelIdOverrides.default` was 8 entries, each mapping a model ID to itself (e.g. `"MiniMax-M3": "MiniMax-M3"`).
+- `src/config.ts:getApiModelId(vscodeModelId)` reads the setting; if a key is missing or empty, it returns the input ID. So the identity map is **functionally identical to `{}`** — a no-op.
+- Why is this bad?
+  1. **Intimidating Settings UI**: the user opens the JSON object setting and sees 8 entries they assume they need to edit. They don't — it's a no-op.
+  2. **Drift hazard**: when a new model is added (e.g. M4 in 6 months), the package.json default stays at the old 8 IDs, so M4 has no entry in the default. The user setting reads as if it's "configured" but the new model is silently treated as un-overridden. With `{}` default the user only sees mappings they actually configured.
+  3. **README "settings" table says `_identity_`** as the default — which is true but misleading; a clearer description is "no override; picker ID is sent verbatim".
+- **Fix**: changed the package.json default to `{}` and rewrote the `markdownDescription` to explain when / why the user would want to add entries. `getApiModelId()` already handles `null` and `{}` correctly via the `overrides?.[vscodeModelId]?.trim() ?? vscodeModelId` chain.
+
+**Finding 3 — README + CHANGELOG reference the removed `minimax.thinking.enabled` setting and `MiniMax: Toggle M3 Thinking Mode` command**
+- Commit `7e36a4e` (2.2.0, 2026-06-09) explicitly removed both: the diff includes a 6-line removal of `minimax.thinking.enabled` from `package.json#contributes.configuration` and the corresponding command. The commit message says: "Remove leftover `minimax.thinking.enabled` setting and the associated `toggleM3Thinking` command — thinking mode is dropdown-only."
+- The thinking toggle now lives in the per-model picker dropdown (`options.modelConfiguration[THINKING_ENABLED_KEY]` in `src/provider/models.ts`), not a global setting or command.
+- But the 2.2.0 CHANGELOG entry **never added a "Removed" section** for this. Worse, both READMEs still mention the removed surface:
+  - `README.md:123-124` and `README.md:241` describe `minimax.thinking.enabled` + the Toggle M3 Thinking Mode command.
+  - `README.zh.md:113-114` and `README.zh.md:229` say the same.
+- **Why is this bad**: a user upgrading from 2.1.9 reads the README, looks for the setting, can't find it, assumes it's a bug. Or worse — they set `minimax.thinking.enabled: false` in their `settings.json` and silently get **no effect** (the code doesn't read it anymore; there's no warning, no migration).
+- **Fix**: 
+  - `README.md` and `README.zh.md`: rewrote the "Thinking mode" section to say thinking is dropdown-only (no global setting, no command), and removed the "Toggle M3 Thinking Mode" row from the command table.
+  - `CHANGELOG.md` and `CHANGELOG.zh.md`: added a Migration note to 2.2.0 explicitly calling out the removal, telling upgraders from 2.1.9 they can delete `minimax.thinking.enabled: false` from their `settings.json`.
+- **What I did NOT change**: 2.1.9's CHANGELOG entry that describes the original `minimax.thinking.enabled` setting is **historical** and must be preserved. The new Migration note in 2.2.0 is the right place to tell users the setting is gone.
+
+### Other settings audited (and why they are kept)
+- `minimax.apiBaseUrl` — required to even call the API.
+- `minimax.apiKey` — SecretStorage fallback for CI/automation. Documented use case.
+- `minimax.visibleModels` — picker filtering. Used.
+- `minimax.maxTokens` — output cap. Used.
+- `minimax.enableM31MContext` — M3 1M context toggle. Used.
+- `minimax.debugMode` — used by `getDebugLoggingEnabled` and `getRequestDumpEnabled`.
+- `minimax.visionModel` / `minimax.visionPrompt` — escape hatches for the M2.x vision proxy. The default prompt is long, but it gives OCR/accessibility users a place to customise. Keep.
+- `minimax.experimental.stabilizeToolList` — used.
+- `minimax.sampling` — per-model sampling. Used.
+- `minimax.dashboard.includeClaudeCode` — used.
+- `minimax.claudeCode.logPath` / `minimax.claudeCode.pollIntervalMs` — used.
+- `minimax.experimental.modelDefPresets` — used.
+
+### Suggested Action
+Add a hard rule to `CLAUDE.md` Conventions: "**`package.json#contributes.configuration` defaults and the in-code fallbacks in `src/config.ts` MUST be a single source of truth.** When a setting has an in-code fallback constant (e.g. `DEFAULT_CLAUDE_CODE_ALLOWED_MODELS`), the package.json `default` field should mirror it exactly. Add a unit test or a CI step that parses `package.json`, walks every `properties.*.default`, and asserts (a) the same value is reachable in the corresponding `getXxx()` accessor and (b) the accessor never silently disagrees with the Settings-UI value. The previous CLAUDE.md rule "No defaults sneak in here; they're declared in `package.json`" should be tightened to make the cross-file invariant explicit."
+
+A second rule: "**Removed settings and commands MUST be documented in the next release's CHANGELOG with a Migration note.** Grep for old setting / command names in the README and CHANGELOG before tagging — if any survive, they either need to be re-implemented (in which case the removal is a revert, not a release note) or removed from the docs (in which case the release note should explicitly call out the removal so upgraders can clean their `settings.json`)."
+
+### Future work
+- Add a CI guardrail that runs `git diff` of README / CHANGELOG and runs a regex over the changed lines looking for `minimax\.<old-key>` patterns and the literal command names; fail if any old removed key is still mentioned without an explicit `(removed in 2.X)` annotation.
+- For the `visionPrompt` setting: consider whether the 100-char default is worth the Settings UI footprint. If we keep it, the user sees a giant text-box default in Settings — many will be confused. Either move it under `minimax.experimental.*` (signal "advanced escape hatch") or just inline it as a const and let `getVisionPrompt()` only read user overrides. Same shape of decision as the now-removed `thinking.enabled`.
+
+### Resolution
+- **Resolved**: 2026-06-12T00:00:00Z
+- **Commit/PR**: pending (working-tree changes: `package.json` defaults for two settings, README.md / README.zh.md "Thinking mode" sections + command table, CHANGELOG.md / CHANGELOG.zh.md 2.2.0 Migration block)
+- **Notes**: 222/223 tests pass. The single failure is the pre-existing `claudeCodeIngest: per-day buckets use the line timestamp` date-drift bug from the earlier session, unrelated.
+
+### Metadata
+- Source: User review request ("审查一下目前所有的设置，是否有没必要的")
+- Related Files: package.json, src/config.ts, README.md, README.zh.md, CHANGELOG.md, CHANGELOG.zh.md
+- Tags: configuration, settings, defaults, documentation-drift, removed-features, vscode-extension, audit, claude-code-ingest
+- See Also: [[LRN-20260612-002]] (different audit — packaging hygiene); [[LRN-20260612-003]] (different audit — endpoint/locale separation)

@@ -19,7 +19,10 @@ VS Code's `ILanguageModelsService` already routes `chat.utilitySmallModel` to ex
 
 ### Fixed
 
-- **Chinese command titles now show up in the Command Palette for every Chinese locale, not just `zh-cn`.** Renamed `package.nls.zh-cn.json` → `package.nls.zh.json`. VS Code's NLS lookup strips the rightmost locale segment until it finds a match, so `zh-Hans-CN` (the BCP 47 tag Windows 10/11 reports for Simplified Chinese) previously fell through `zh-hans-cn` → `zh-hans` → `zh` and ended up at the English fallback, leaving Chinese users staring at English titles in the command palette. The new name matches the `zh` segment on the second hop for every Chinese locale variant (`zh-cn`, `zh-hans-cn`, `zh-hans`, `zh`, …). Behaviour for non-Chinese locales is unchanged.
+- **Removed four commands (`Show Provider Status`, `Show Usage`, `Reset Usage`, `Show Pricing`)** that were redundant with the **Usage Dashboard** (`MiniMax: Open Usage Dashboard`). The pricing table is now inlined in the README (CNY and USD tables side-by-side) instead of rendered on demand via the `Show Pricing` command. The `status.*`, `usage.*`, and `pricing.*` i18n keys (except `status.thinking`, `usage.resetDone`, and `pricing.unlisted` which remain in use) are removed from `src/i18n.ts`. Renamed `package.nls.zh-cn.json` → `package.nls.zh.json`. VS Code's NLS lookup strips the rightmost locale segment until it finds a match, so `zh-Hans-CN` (the BCP 47 tag Windows 10/11 reports for Simplified Chinese) previously fell through `zh-hans-cn` → `zh-hans` → `zh` and ended up at the English fallback, leaving Chinese users staring at English titles in the command palette. The new name matches the `zh` segment on the second hop for every Chinese locale variant (`zh-cn`, `zh-hans-cn`, `zh-hans`, `zh`, …). Behaviour for non-Chinese locales is unchanged.
+- **Host classification is now spoof-proof end-to-end.** `isChinaBaseUrl()` (used by `pickPricingTable()` to pick the CNY vs USD price table and the Show Pricing flag) and the inline `baseUrl.includes('minimaxi.com')` check in `showPricing()` were both substring-matching the raw URL, the same spoofable pattern LRN-20260611-005 documented for the 401/402 action buttons. A user with `minimax.apiBaseUrl = 'https://api.minimax.io@my-proxy.example.com/v1'` would have been silently classified as international even though their real request goes to the proxy host. Both call sites now go through the hardened `resolvePlatformHost()` helper (which uses `new URL().hostname` strict equality). The 401/402 action buttons were also simplified to share the new `resolvePlatformUrl()` / `displayPlatformUrl()` helpers. No behaviour change for valid `api.minimaxi.com` / `api.minimax.io` URLs.
+- **`auth.prompt` and `pricing.note` no longer ship the wrong platform to the wrong user.** Both strings were locale-keyed (`zh-cn` → `platform.minimaxi.com`, `en` → `platform.minimax.io`), so a Chinese-locale user on the international endpoint got a `platform.minimaxi.com` link they couldn't log in to, and vice versa. Both now take the platform URL as a `{0}` placeholder; the caller resolves it from the configured `minimax.apiBaseUrl` via `displayPlatformUrl()`. Third-party-proxy users get the configured URL verbatim instead of a hard-coded platform link.
+- **Renamed `minimax.maxTokens` → `minimax.maxOutputTokens`** to disambiguate from `minimax.enableM31MContext` (which controls the *input* context window, not the output cap). The new key is read first; the old `minimax.maxTokens` is kept as a deprecated fallback so existing `settings.json` entries continue to work, and is marked `deprecationMessage` in the JSON schema. The old key will be removed in 3.0.
 
 ## 2.2.0 — README restyling, config unification, Claude Code JSONL ingest
 
@@ -114,6 +117,13 @@ VS Code's `ILanguageModelsService` already routes `chat.utilitySmallModel` to ex
   first poll reads all files from byte 0.
 - On uninstall the two new keys are inert and are eventually
   garbage-collected by VS Code.
+- **The `minimax.thinking.enabled` setting and the `MiniMax: Toggle
+  M3 Thinking Mode` command are gone.** The thinking on/off switch
+  is now per-model in the Copilot Chat picker dropdown (sent
+  verbatim as `thinking: { type: "disabled" | "adaptive" }` to the
+  Anthropic-compatible surface). Users upgrading from 2.1.9 with
+  `minimax.thinking.enabled: false` in their `settings.json` can
+  delete the line — it has no effect in 2.2.0+.
 
 ### Fixes
 

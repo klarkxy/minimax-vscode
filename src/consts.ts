@@ -93,6 +93,65 @@ export function resolvePlatformHost(apiBaseUrl: string | undefined | null): Plat
 	return null;
 }
 
+/**
+ * Map a MiniMax Anthropic-compatible base URL to the user-facing
+ * platform URL (`https://platform.minimax.io` for international,
+ * `https://platform.minimaxi.com` for China). The 401/402
+ * "Set API Key" / "Create API Key" action buttons and the
+ * `auth.prompt` / `pricing.note` i18n strings both render this URL
+ * for the user, so getting the endpoint wrong here ships the user
+ * off to a platform they don't have an account on.
+ *
+ * Returns `null` for unrecognised hosts / malformed URLs — callers
+ * MUST handle the `null` case (e.g. fall back to a generic prompt
+ * that doesn't claim a specific platform, or skip the action button
+ * entirely). Uses the same hardened URL parser as `resolvePlatformHost`,
+ * so spoofing vectors (userinfo `https://api.minimax.io@evil.com`,
+ * suffix `https://api.minimax.io.evil.example`, path
+ * `https://proxy.example/api.minimax.io/v1`) all return `null` —
+ * see `resolvePlatformHost` for the rationale.
+ */
+export function resolvePlatformUrl(apiBaseUrl: string | undefined | null): string | null {
+	const host = resolvePlatformHost(apiBaseUrl);
+	if (host === PLATFORM_HOST_CHINA) return PLATFORM_URL_CHINA;
+	if (host === PLATFORM_HOST_GLOBAL) return PLATFORM_URL_GLOBAL;
+	return null;
+}
+
+/**
+ * Resolve a base URL to a user-facing string suitable for embedding
+ * in a prompt or note. The mapping is:
+ *
+ * - `api.minimax.io` → `https://platform.minimax.io` (international)
+ * - `api.minimaxi.com` → `https://platform.minimaxi.com` (China)
+ * - anything else → the raw `apiBaseUrl` (third-party proxies, etc.)
+ *
+ * Unrecognised hosts return the raw URL so the user sees exactly
+ * what they configured — better than showing them a wrong platform
+ * link.
+ *
+ * Used by `auth.prompt` (the API-key input box prompt) and
+ * `pricing.note` (the Show Pricing doc footer) — both of which used
+ * to hard-code one of the two platform hosts regardless of the
+ * user's actual endpoint, sending the wrong-half user to a platform
+ * they don't have an account on.
+ */
+export function displayPlatformUrl(apiBaseUrl: string | undefined | null): string {
+	return resolvePlatformUrl(apiBaseUrl) ?? apiBaseUrl ?? '';
+}
+
+/**
+ * Resolve the official pricing docs URL for a given base URL — the
+ * `https://platform.<host>/docs/guides/pricing-paygo` page the
+ * `pricing.note` string links to. Returns `null` for unrecognised
+ * hosts; the caller can fall back to `displayPlatformUrl(apiBaseUrl)`
+ * to show the user's configured URL verbatim.
+ */
+export function resolvePricingDocsUrl(apiBaseUrl: string | undefined | null): string | null {
+	const platformUrl = resolvePlatformUrl(apiBaseUrl);
+	return platformUrl ? `${platformUrl}/docs/guides/pricing-paygo` : null;
+}
+
 /** Legacy: kept for backward compatibility with deepseek-style debugMode. */
 export const LANGUAGE_MODEL_CHAT_SYSTEM_ROLE = 3;
 

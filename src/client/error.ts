@@ -1,9 +1,5 @@
 import { t } from '../i18n';
-import {
-	PLATFORM_URL_CHINA,
-	PLATFORM_URL_GLOBAL,
-	resolvePlatformHost,
-} from '../consts';
+import { resolvePlatformHost, resolvePlatformUrl } from '../consts';
 import {
 	MAX_DIAGNOSTIC_FIELD_LENGTH,
 	NETWORK_ERROR_CATEGORY_BY_CODE,
@@ -477,23 +473,14 @@ function getHttpErrorLink(
 	// namespaces are explicit.
 	//
 	// When the configured URL is a third-party proxy (or empty /
-	// unrecognised), `resolvePlatformHost` returns `null` and we
+	// unrecognised), `resolvePlatformUrl` returns `null` and we
 	// return `undefined` — the 401/402 falls through to the
 	// diagnostic-only actions (no broken link, and the user's proxy
 	// key is never sent to a MiniMax endpoint via the dashboard's
 	// `fetchPlanUsage` either; see `dashboard/api.ts`).
-	const host = resolvePlatformHost(baseUrl);
-	if (host === 'api.minimaxi.com') {
-		const url = `${PLATFORM_URL_CHINA}/user-center/payment/token-plan`;
-		if (key === 401) {
-			return { labelKey: 'error.action.setApiKey', url };
-		}
-		if (key === 402) {
-			return { labelKey: 'error.action.createApiKey', url };
-		}
-	}
-	if (host === 'api.minimax.io') {
-		const url = `${PLATFORM_URL_GLOBAL}/user-center/payment/token-plan`;
+	const platformUrl = resolvePlatformUrl(baseUrl);
+	if (platformUrl) {
+		const url = `${platformUrl}/user-center/payment/token-plan`;
 		if (key === 401) {
 			return { labelKey: 'error.action.setApiKey', url };
 		}

@@ -18,7 +18,15 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolvePlatformHost } from '../src/consts.js';
+import {
+	PLATFORM_URL_CHINA,
+	PLATFORM_URL_GLOBAL,
+	displayPlatformUrl,
+	resolvePlatformHost,
+	resolvePlatformUrl,
+	resolvePricingDocsUrl,
+} from '../src/consts.js';
+import { isChinaBaseUrl } from '../src/models/registry.js';
 
 test('resolvePlatformHost: international endpoint → api.minimax.io', () => {
 	assert.equal(resolvePlatformHost('https://api.minimax.io/anthropic'), 'api.minimax.io');
@@ -124,4 +132,187 @@ test('resolvePlatformHost: malformed URLs return null', () => {
 	assert.equal(resolvePlatformHost('not-a-url'), null);
 	assert.equal(resolvePlatformHost('://broken'), null);
 	assert.equal(resolvePlatformHost('https://'), null);
+});
+
+// --------------------------------------------------------------------------
+// resolvePlatformUrl — maps a base URL to the user-facing *platform* URL.
+// Distinct from resolvePlatformHost (which returns the API hostname
+// `api.minimax.io`); the user-visible link is `https://platform.minimax.io`.
+// Note the `platform.` prefix — pasting the API hostname into the platform
+// template produced the invalid `platform.api.minimax.io` URL in an earlier
+// version, see LRN-20260611-005.
+// --------------------------------------------------------------------------
+
+test('resolvePlatformUrl: china endpoint → platform.minimaxi.com', () => {
+	assert.equal(
+		resolvePlatformUrl('https://api.minimaxi.com/anthropic'),
+		PLATFORM_URL_CHINA,
+	);
+});
+
+test('resolvePlatformUrl: global endpoint → platform.minimax.io', () => {
+	assert.equal(
+		resolvePlatformUrl('https://api.minimax.io/anthropic'),
+		PLATFORM_URL_GLOBAL,
+	);
+});
+
+test('resolvePlatformUrl: unrecognised / malformed / empty → null', () => {
+	// Symmetric to resolvePlatformHost: third-party proxies get
+	// `null` so the caller can decide (e.g. suppress the action
+	// button, fall back to the raw baseUrl, etc.). The default-to-
+	// China behaviour of an earlier draft was a credential-leak
+	// vector for proxy users; the 401/402 action button must not
+	// point at a MiniMax platform for an unrecognised URL.
+	assert.equal(resolvePlatformUrl('http://localhost:8080/anthropic'), null);
+	assert.equal(resolvePlatformUrl('https://proxy.example.com/v1'), null);
+	assert.equal(resolvePlatformUrl(undefined), null);
+	assert.equal(resolvePlatformUrl(''), null);
+	assert.equal(resolvePlatformUrl('not-a-url'), null);
+});
+
+test('resolvePlatformUrl: spoofed URL (userinfo / suffix / path) → null', () => {
+	// Mirrors the resolvePlatformHost spoofing tests — the URL
+	// parser strips userinfo (`@`), treats the rest as the real
+	// host, and rejects suffix/path spoofs via strict hostname
+	// equality. So a maliciously-crafted URL claiming
+	// `api.minimax.io` in the userinfo or path positions does NOT
+	// get the China/GLOBAL platform link — `null` falls through
+	// and the caller renders no platform link at all.
+	assert.equal(
+		resolvePlatformUrl('https://api.minimax.io@my-proxy.example.com/v1'),
+		null,
+	);
+	assert.equal(
+		resolvePlatformUrl('https://api.minimax.io.evil.example/v1'),
+		null,
+	);
+	assert.equal(
+		resolvePlatformUrl('https://proxy.example.com/api.minimax.io/v1'),
+		null,
+	);
+});
+
+// --------------------------------------------------------------------------
+// displayPlatformUrl — UX helper used by the i18n `auth.prompt` and
+// `pricing.note` strings. Returns the platform URL for known hosts and
+// the raw baseUrl for unrecognised / malformed input so the user can
+// still see what they configured.
+// --------------------------------------------------------------------------
+
+test('displayPlatformUrl: known china host → PLATFORM_URL_CHINA', () => {
+	assert.equal(
+		displayPlatformUrl('https://api.minimaxi.com/anthropic'),
+		PLATFORM_URL_CHINA,
+	);
+});
+
+test('displayPlatformUrl: known global host → PLATFORM_URL_GLOBAL', () => {
+	assert.equal(
+		displayPlatformUrl('https://api.minimax.io/anthropic'),
+		PLATFORM_URL_GLOBAL,
+	);
+});
+
+test('displayPlatformUrl: third-party proxy → raw baseUrl (NOT China default)', () => {
+	// The whole point of the helper: a self-hosted Anthropic-
+	// compatible proxy user gets to see *their* URL in the prompt,
+	// not a hard-coded `platform.minimaxi.com` they can't actually
+	// log in to. The previous `auth.prompt` for the Chinese locale
+	// always said `platform.minimaxi.com` regardless of which
+	// endpoint the user had configured — that's the locale/endpoint
+	// mismatch the LRN-20260612-003 fix addresses.
+	const proxy = 'https://my-anthropic-proxy.example.com/v1';
+	assert.equal(displayPlatformUrl(proxy), proxy);
+});
+
+test('displayPlatformUrl: undefined / null / empty → empty string', () => {
+	// The i18n `t()` call is `t('auth.prompt', displayPlatformUrl(baseUrl))`;
+	// an empty `baseUrl` produces `''`, which the template renders as
+	// empty parens — better than throwing, and better than falling back
+	// to one of the two platform URLs.
+	assert.equal(displayPlatformUrl(undefined), '');
+	assert.equal(displayPlatformUrl(null), '');
+	assert.equal(displayPlatformUrl(''), '');
+});
+
+// --------------------------------------------------------------------------
+// resolvePricingDocsUrl — same shape as resolvePlatformUrl but the result
+// is the `/docs/guides/pricing-paygo` page, which the `pricing.note` Show
+// Pricing footer links to.
+// --------------------------------------------------------------------------
+
+test('resolvePricingDocsUrl: china host → platform.minimaxi.com/docs/guides/pricing-paygo', () => {
+	assert.equal(
+		resolvePricingDocsUrl('https://api.minimaxi.com/anthropic'),
+		'https://platform.minimaxi.com/docs/guides/pricing-paygo',
+	);
+});
+
+test('resolvePricingDocsUrl: global host → platform.minimax.io/docs/guides/pricing-paygo', () => {
+	assert.equal(
+		resolvePricingDocsUrl('https://api.minimax.io/anthropic'),
+		'https://platform.minimax.io/docs/guides/pricing-paygo',
+	);
+});
+
+test('resolvePricingDocsUrl: third-party proxy → null (caller falls back to displayPlatformUrl)', () => {
+	assert.equal(
+		resolvePricingDocsUrl('https://my-anthropic-proxy.example.com/v1'),
+		null,
+	);
+});
+
+// --------------------------------------------------------------------------
+// isChinaBaseUrl — was `baseUrl.includes('minimaxi.com')` (spoofable).
+// Now built on resolvePlatformHost, so all the spoofing vectors
+// (userinfo / suffix / path) classify as `false`.
+// --------------------------------------------------------------------------
+
+test('isChinaBaseUrl: china endpoint → true', () => {
+	assert.equal(isChinaBaseUrl('https://api.minimaxi.com/anthropic'), true);
+});
+
+test('isChinaBaseUrl: global endpoint → false', () => {
+	assert.equal(isChinaBaseUrl('https://api.minimax.io/anthropic'), false);
+});
+
+test('isChinaBaseUrl: spoofed URL is NOT classified as china (regression for LRN-20260611-005)', () => {
+	// The previous implementation was literally
+	// `return baseUrl.includes('minimaxi.com')`, which is
+	// spoofable. The hardened version uses `resolvePlatformHost`
+	// (which uses `new URL().hostname` strict equality) and returns
+	// `false` for every spoofing vector. The `pickPricingTable()`
+	// consumer reads `true` to mean "render CNY prices", so getting
+	// this wrong silently mis-prices the user in the wrong currency.
+	assert.equal(
+		isChinaBaseUrl('https://api.minimax.io@my-proxy.example.com/v1'),
+		false,
+	);
+	assert.equal(
+		isChinaBaseUrl('https://api.minimaxi.com@my-proxy.example.com/v1'),
+		false,
+	);
+	assert.equal(
+		isChinaBaseUrl('https://api.minimaxi.com.evil.example/v1'),
+		false,
+	);
+	assert.equal(
+		isChinaBaseUrl('https://proxy.example.com/api.minimaxi.com/v1'),
+		false,
+	);
+});
+
+test('isChinaBaseUrl: case-insensitive match', () => {
+	assert.equal(isChinaBaseUrl('HTTPS://API.MINIMAXI.COM/anthropic'), true);
+	assert.equal(isChinaBaseUrl('https://API.MINIMAX.IO/anthropic'), false);
+});
+
+test('isChinaBaseUrl: malformed / empty / self-hosted → false', () => {
+	// Self-hosted proxies are not china; the helper must not
+	// default-to-true (which would render CNY prices for a
+	// USD-only proxy user).
+	assert.equal(isChinaBaseUrl(''), false);
+	assert.equal(isChinaBaseUrl('not-a-url'), false);
+	assert.equal(isChinaBaseUrl('http://localhost:8080/anthropic'), false);
 });

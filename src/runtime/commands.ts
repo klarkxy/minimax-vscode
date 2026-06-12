@@ -2,8 +2,7 @@ import * as vscode from 'vscode';
 import { AuthManager } from '../auth';
 import { t } from '../i18n';
 import { logger } from '../logger';
-import { getModels, getVisibleModels } from '../models/registry';
-import { getApiHostForPlatform, getBaseUrl, getClaudeCodeAllowedModels, getClaudeCodeLogPath } from '../config';
+import { getApiHostForPlatform, getClaudeCodeAllowedModels, getClaudeCodeLogPath } from '../config';
 import { toggleM31MContextEnabled } from '../provider/models';
 import { createUsageStore, type UsageStore } from '../usage';
 import { DashboardPanel } from '../dashboard/panel';
@@ -185,9 +184,6 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('minimax.openRequestDumpsFolder', () => {
 			void openRequestDumpsFolder();
 		}),
-		vscode.commands.registerCommand('minimax.showPricing', () => {
-			void showPricing();
-		}),
 		vscode.commands.registerCommand('minimax.useForCopilotCommitMessages', () => {
 			void useForCopilotCommitMessages();
 		}),
@@ -197,15 +193,6 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 			// about the 2× billing rate and the need for sales-granted
 			// >512K access before flipping on; off is unconditional.
 			void toggleM31MContextEnabled();
-		}),
-		vscode.commands.registerCommand('minimax.showUsage', () => {
-			void showUsage();
-		}),
-		vscode.commands.registerCommand('minimax.resetUsage', () => {
-			void resetUsage();
-		}),
-		vscode.commands.registerCommand('minimax.showProviderStatus', () => {
-			void showProviderStatus(auth);
 		}),
 		vscode.commands.registerCommand('minimax.openDashboard', () => {
 			if (!cachedAuth || !cachedUsage || !cachedContext) {
@@ -484,225 +471,9 @@ async function openClaudeCodeLogFolder(): Promise<void> {
 	);
 }
 
-async function showPricing(): Promise<void> {
-	const baseUrl = getBaseUrl();
-	const isChina = baseUrl.includes('minimaxi.com');
-	const flag = isChina ? '🇨🇳' : '🌐';
-	const headerRow = `| ${t('pricing.header.model')} | ${t('pricing.header.input')} | ${t('pricing.header.output')} | ${t('pricing.header.cacheRead')} | ${t('pricing.header.cacheWrite')} |`;
-	const sep = `| --- | ---: | ---: | ---: | ---: |`;
-
-	const models = getModels(baseUrl);
-	const rows = models.map((m) => {
-		const { input, output, cacheRead, cacheWrite, currency } = m.pricing;
-		const symbol = currency === 'USD' ? '$' : '¥';
-		const fmt = (n: number | null) => (n === null ? t('pricing.unlisted') : `${symbol}${n.toFixed(2)}`);
-		return `| ${m.id} | ${fmt(input)} | ${fmt(output)} | ${fmt(cacheRead)} | ${fmt(cacheWrite)} |`;
-	});
-
-	const notes = models.filter((m) => m.pricing.note).map(
-		(m) => `- **${m.id}**: ${m.pricing.note}`,
-	);
-
-	const lines: string[] = [
-		`# ${flag} ${t('pricing.title')}`,
-		'',
-		t('pricing.providers', 'Anthropic Messages', baseUrl),
-		'',
-		headerRow,
-		sep,
-		...rows,
-	];
-
-	if (notes.length > 0) {
-		lines.push('', '## Notes', '', ...notes);
-	}
-
-	lines.push('', `> ${t('pricing.note')}`);
-
-	const doc = await vscode.workspace.openTextDocument({
-		content: lines.join('\n'),
-		language: 'markdown',
-	});
-	await vscode.window.showTextDocument(doc, { preview: true });
-}
-
 function contextGlobalStorage(): vscode.Uri {
 	if (!cachedContext) {
 		throw new Error('Extension context not initialised');
 	}
 	return cachedContext.globalStorageUri;
-}
-
-function formatNumber(n: number): string {
-	return n.toLocaleString('en-US');
-}
-
-async function showUsage(): Promise<void> {
-	const store = cachedUsage;
-	if (!store) {
-		void vscode.window.showWarningMessage(t('usage.empty'));
-		return;
-	}
-	const stats = store.read();
-	const total = stats.total;
-	const lines: string[] = [];
-	lines.push(`# ${t('usage.title')}`);
-	lines.push('');
-	if (total.requests === 0) {
-		lines.push(t('usage.empty'));
-	} else {
-		lines.push(
-			t(
-				'usage.line.total',
-				formatNumber(total.inputTokens),
-				formatNumber(total.outputTokens),
-				formatNumber(total.requests),
-			),
-		);
-		if (total.cacheReadTokens > 0 || total.cacheWriteTokens > 0) {
-			lines.push(
-				t(
-					'usage.line.cache',
-					formatNumber(total.cacheReadTokens),
-					formatNumber(total.cacheWriteTokens),
-				),
-			);
-		}
-		const perModel = Object.entries(stats.byModel);
-		if (perModel.length > 0) {
-			lines.push('');
-			lines.push('## Models');
-			for (const [id, usage] of perModel) {
-				lines.push(
-					t(
-						'usage.line.model',
-						id,
-						formatNumber(usage.inputTokens),
-						formatNumber(usage.outputTokens),
-						formatNumber(usage.requests),
-					),
-				);
-			}
-		} else {
-			lines.push('', t('usage.modelEmpty'));
-		}
-	}
-	lines.push('');
-	lines.push(t('usage.line.startedAt', stats.startedAt));
-	lines.push(t('usage.line.updatedAt', stats.updatedAt));
-
-	// Append a clearly-labelled Claude Code section so the markdown
-	// report covers both the extension's own usage and the Claude
-	// Code JSONL-derived usage. Independent data source — kept in its
-	// own block so a reader can tell them apart at a glance.
-	const cc = cachedClaudeCodeIngest;
-	if (cc) {
-		const ccStats = cc.store.read();
-		lines.push('');
-		lines.push('## Claude Code (separate source)');
-		const ccTotal = ccStats.total;
-		if (ccTotal.requests === 0) {
-			lines.push(t('claudeCode.showUsageEmpty'));
-		} else {
-			lines.push(
-				t(
-					'usage.line.total',
-					formatNumber(ccTotal.inputTokens),
-					formatNumber(ccTotal.outputTokens),
-					formatNumber(ccTotal.requests),
-				),
-			);
-			if (ccTotal.cacheReadTokens > 0 || ccTotal.cacheWriteTokens > 0) {
-				lines.push(
-					t(
-						'usage.line.cache',
-						formatNumber(ccTotal.cacheReadTokens),
-						formatNumber(ccTotal.cacheWriteTokens),
-					),
-				);
-			}
-			const ccPerModel = Object.entries(ccStats.byModel);
-			if (ccPerModel.length > 0) {
-				lines.push('');
-				for (const [id, usage] of ccPerModel) {
-					lines.push(
-						t(
-							'usage.line.model',
-							id,
-							formatNumber(usage.inputTokens),
-							formatNumber(usage.outputTokens),
-							formatNumber(usage.requests),
-						),
-					);
-				}
-			}
-		}
-		const ccStatus = cc.status();
-		lines.push('');
-		lines.push(`- Log path: \`${ccStatus.logPath}\``);
-		lines.push(`- Files tracked: ${ccStatus.filesTracked}`);
-		if (ccStatus.parseErrors > 0) {
-			lines.push(`- Parse errors: ${ccStatus.parseErrors}`);
-		}
-	}
-
-	const doc = await vscode.workspace.openTextDocument({
-		content: lines.join('\n'),
-		language: 'markdown',
-	});
-	await vscode.window.showTextDocument(doc, { preview: true });
-}
-
-async function resetUsage(): Promise<void> {
-	const store = cachedUsage;
-	if (!store) {
-		return;
-	}
-	await store.reset();
-	vscode.window.showInformationMessage(t('usage.resetDone'));
-}
-
-async function showProviderStatus(auth: AuthManager): Promise<void> {
-	const ext = vscode.extensions.getExtension('klarkxy.minimax-vscode-copilot');
-	const hasKey = await auth.hasApiKey();
-	const visible = getVisibleModels();
-	const stats = cachedUsage?.read();
-	const lastModel = stats
-		? Object.entries(stats.byModel).sort(
-				(a, b) => (b[1].requests ?? 0) - (a[1].requests ?? 0),
-			)[0]
-		: undefined;
-	const total = stats?.total;
-	const lines: string[] = [];
-	lines.push(`# ${t('status.title')}`);
-	lines.push('');
-	if (ext) {
-		const pkg = ext.packageJSON as { version?: string; displayName?: string } | undefined;
-		const version = pkg?.version ?? '?';
-		const name = pkg?.displayName ?? 'MiniMax Copilot';
-		lines.push(t('status.active', name, version));
-	} else {
-		lines.push(t('status.inactive'));
-	}
-	lines.push('');
-	lines.push(hasKey ? t('status.apiKeySet') : t('status.apiKeyMissing'));
-	lines.push(t('status.visibleModels', formatNumber(visible.length)));
-	if (total && total.requests > 0) {
-		lines.push(
-			t('status.lastUsage', formatNumber(total.inputTokens), formatNumber(total.outputTokens)),
-		);
-		if (lastModel) {
-			lines.push(t('usage.line.model', lastModel[0], formatNumber(lastModel[1].inputTokens), formatNumber(lastModel[1].outputTokens), formatNumber(lastModel[1].requests)));
-		}
-	} else {
-		lines.push(t('status.usageEmpty'));
-	}
-	lines.push('');
-	lines.push(t('usage.line.startedAt', stats?.startedAt ?? new Date().toISOString()));
-
-	const doc = await vscode.workspace.openTextDocument({
-		content: lines.join('\n'),
-		language: 'markdown',
-	});
-	await vscode.window.showTextDocument(doc, { preview: true });
 }

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { AuthManager } from '../auth';
-import { getStabilizeToolListEnabled } from '../config';
+import { getBaseUrl, getStabilizeToolListEnabled } from '../config';
 import { t } from '../i18n';
 import { getVisibleModels } from '../models/registry';
 import { createUsageStore, type UsageStore } from '../usage';
@@ -16,7 +16,6 @@ import { resolveConversationSegment } from './segment';
 import { streamChatCompletion } from './stream';
 import { DEFAULT_CHARS_PER_TOKEN, estimateTokenCount } from './tokens';
 import { processToolFlow } from './tools/flow';
-import { createVisionModelGetter, setVisionProxyModel } from './vision/index';
 
 /**
  * MiniMax Chat Provider — implements vscode.LanguageModelChatProvider so
@@ -46,9 +45,6 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 	get chatTurnNotifier(): ChatTurnNotifier {
 		return this._chatTurnNotifier;
 	}
-
-	/** Vision proxy: resolver + cached model. */
-	private readonly vision = createVisionModelGetter();
 
 	/**
 	 * Adaptive chars-per-token ratio, calibrated from actual usage data.
@@ -85,12 +81,13 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 				// boolean is flipped via the `minimax.toggleM31MContext`
 				// command (which pops a modal warning first).
 				//
-				// `minimax.maxTokens`, `minimax.sampling`, and
-				// `minimax.experimental.*` are also watched so the
-				// picker reflects any per-model cap, sampling
-				// override, or experimental knob the user flipped
-				// — without these, a session would need to be
-				// re-created to pick up the new value.
+				// `minimax.maxOutputTokens` (renamed in 2.3.0, with
+				// `minimax.maxTokens` kept as a deprecated fallback),
+				// `minimax.sampling`, and `minimax.experimental.*` are
+				// also watched so the picker reflects any per-model
+				// cap, sampling override, or experimental knob the
+				// user flipped — without these, a session would need
+				// to be re-created to pick up the new value.
 				if (
 					e.affectsConfiguration('minimax.apiKey') ||
 					e.affectsConfiguration('minimax.visibleModels') ||
@@ -98,6 +95,7 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 					e.affectsConfiguration('minimax.debugMode') ||
 					e.affectsConfiguration('minimax.modelIdOverrides') ||
 					e.affectsConfiguration('minimax.enableM31MContext') ||
+					e.affectsConfiguration('minimax.maxOutputTokens') ||
 					e.affectsConfiguration('minimax.maxTokens') ||
 					e.affectsConfiguration('minimax.sampling') ||
 					e.affectsConfiguration('minimax.experimental.stabilizeToolList') ||
@@ -105,15 +103,8 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 				) {
 					this.onDidChangeLanguageModelChatInformationEmitter.fire();
 				}
-
-				// `minimax.visionModel` changes invalidate the cached
-				// vision-proxy model handle so the next request picks
-				// up the new model.
-				if (e.affectsConfiguration('minimax.visionModel')) {
-					this.vision.reset();
-				}
-			}),
-			// Multi-window: SecretStorage changes don't fire onDidChangeConfiguration.
+				}),
+				// Multi-window: SecretStorage changes don't fire onDidChangeConfiguration.
 			// When another window sets/clears the API key, refresh this window's
 			// model picker so the warning state stays in sync.
 			context.secrets.onDidChange((e) => {
@@ -127,7 +118,11 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 	// ---- Public commands ----
 
 	async configureApiKey(): Promise<void> {
-		const saved = await this.authManager.promptForApiKey();
+		// Pass the configured base URL so the input-box prompt text
+		// shows the platform URL the user actually needs to visit
+		// (CN vs global), instead of hard-coding one platform per
+		// locale and shipping the wrong half to the other half.
+		const saved = await this.authManager.promptForApiKey(getBaseUrl());
 		if (saved) {
 			this.onDidChangeLanguageModelChatInformationEmitter.fire();
 		}
@@ -158,11 +153,6 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 			// Non-fatal: the model picker may already be empty.
 			void error;
 		}
-	}
-
-	/** See provider/vision */
-	async setVisionProxyModel(): Promise<void> {
-		await setVisionProxyModel();
 	}
 
 	// ---- LanguageModelChatProvider ----
@@ -232,7 +222,6 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 				options,
 				token,
 				cacheDiagnostics: this.cacheDiagnostics,
-				getVisionModel: () => this.vision.get(),
 			});
 
 			return await streamChatCompletion({

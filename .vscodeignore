@@ -22,6 +22,8 @@ CHANGELOG.zh.md
 LICENSE_zh
 .gitignore
 TODO.md
+CLAUDE.md
+.learnings/**
 
 # Reference / scratch directories that must not be shipped
 deepseek-v4-for-copilot/**

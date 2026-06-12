@@ -10,9 +10,6 @@ export async function registerProvider(
 	context.subscriptions.push(
 		vscode.commands.registerCommand('minimax.setApiKey', () => provider.configureApiKey()),
 		vscode.commands.registerCommand('minimax.clearApiKey', () => provider.clearApiKey()),
-		vscode.commands.registerCommand('minimax.setVisionModel', () =>
-			provider.setVisionProxyModel(),
-		),
 		vscode.lm.registerLanguageModelChatProvider('minimax', provider),
 	);
 

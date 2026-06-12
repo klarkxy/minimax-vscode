@@ -6,7 +6,7 @@ import type { ModelDefinition } from '../types';
 /**
  * Thinking-capable models advertise a binary `thinking` switch on the
  * Anthropic-compatible endpoint (see the docs at
- * https://platform.minimaxi.com/docs/api-reference/text-anthropic-api):
+ * https://platform.minimax.io/docs/api-reference/text-anthropic-api):
  *   - `adaptive` — keep the default reasoning trace
  *   - `disabled` — turn the typed `thinking` block off (M3 only;
  *     M2.x will keep thinking on regardless, per the docs)
@@ -193,7 +193,7 @@ export function getConfiguredThinkingEffort(
  * Toggling off is unconditional — once off, the picker immediately
  * returns to the safe 512K default.
  *
- * [pp]: https://platform.minimaxi.com/docs/guides/pricing-paygo
+ * [pp]: https://platform.minimax.io/docs/guides/pricing-paygo
  *
  * Returns the new boolean value.
  */

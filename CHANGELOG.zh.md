@@ -20,7 +20,10 @@ VS Code 的 `ILanguageModelsService` 已经会把 `chat.utilitySmallModel` 路�
 
 ### 修复
 
-- **命令面板里 MiniMax 命令的中文标题对所有中文 locale 都生效了，不止 `zh-cn`。** 把 `package.nls.zh-cn.json` 改名为 `package.nls.zh.json`。VS Code 的 NLS 查找是按 `-` 从右往左逐段剥掉再匹配的，所以 `zh-Hans-CN`（Windows 10/11 报告的简体中文 BCP 47 标签）会沿着 `zh-hans-cn` → `zh-hans` → `zh` 一直试到底，因为找不到文件最终回退到英文 fallback——结果就是中文用户命令面板里看到的是英文。新名字在第二跳就落到 `zh` 段，所有中文 locale 变体（`zh-cn` / `zh-hans-cn` / `zh-hans` / `zh` …）都能命中。非中文 locale 的行为完全不变。
+- **移除了四个与「用量面板」重复的命令（`Show Provider Status`、`Show Usage`、`Reset Usage`、`Show Pricing`）。** 价格表改为直接写在 README 中（CNY 和 USD 双表并排），不再通过 `Show Pricing` 命令即时渲染。移除 `src/i18n.ts` 中不再使用的 `status.*`、`usage.*`、`pricing.*` i18n key（保留仍在用的 `status.thinking`、`usage.resetDone`、`pricing.unlisted`）。 把 `package.nls.zh-cn.json` 改名为 `package.nls.zh.json`。VS Code 的 NLS 查找是按 `-` 从右往左逐段剥掉再匹配的，所以 `zh-Hans-CN`（Windows 10/11 报告的简体中文 BCP 47 标签）会沿着 `zh-hans-cn` → `zh-hans` → `zh` 一直试到底，因为找不到文件最终回退到英文 fallback——结果就是中文用户命令面板里看到的是英文。新名字在第二跳就落到 `zh` 段，所有中文 locale 变体（`zh-cn` / `zh-hans-cn` / `zh-hans` / `zh` …）都能命中。非中文 locale 的行为完全不变。
+- **端点分类在所有代码路径上都不再被伪造。** `isChinaBaseUrl()`（`pickPricingTable()` 用来选 CNY 还是 USD 价表，也用于 Show Pricing 的国旗标记）和 `showPricing()` 里 inline 的 `baseUrl.includes('minimaxi.com')` 都是在原始 URL 上做子串匹配——这正是 LRN-20260611-005 标记的可伪造模式。如果有人把 `minimax.apiBaseUrl` 设成 `https://api.minimax.io@my-proxy.example.com/v1`，请求其实发到 proxy 主机，但代码会按"国际"分类。两个调用点都改成走加固过的 `resolvePlatformHost()`（用 `new URL().hostname` 严格相等）。401/402 按钮也顺便简化成共用新的 `resolvePlatformUrl()` / `displayPlatformUrl()` helper。对合法的 `api.minimaxi.com` / `api.minimax.io` URL 行为完全不变。
+- **`auth.prompt` 和 `pricing.note` 不再把"对方平台"的链接发给"己方用户"。** 这两个字符串之前是**按 locale 锁定**的（`zh-cn` → `platform.minimaxi.com`，`en` → `platform.minimax.io`），结果是中文 locale 用户配国际端点时拿到 `platform.minimaxi.com`（没有账号登不上去），反之亦然。两个字符串都加 `{0}` 占位符，由 caller（`auth.ts:promptForApiKey`）根据 `minimax.apiBaseUrl` 通过 `displayPlatformUrl()` 解析后传入。第三方代理用户拿到的是自己配的原始 URL，不再是被硬编码到某一半的平台链接。
+- **`minimax.maxTokens` 重命名为 `minimax.maxOutputTokens`** —— 之前的名字跟 `minimax.enableM31MContext`（控制**输入**上下文窗口，而不是输出上限）容易混。代码读新 key，旧 `minimax.maxTokens` 留作 deprecated fallback，老 `settings.json` 条目继续生效；旧 key 在 JSON schema 里加了 `deprecationMessage`，3.0 时彻底删除。
 
 ## 2.2.0 — README 重排、配置统一、用量看板接入 Claude Code JSONL
 
@@ -53,6 +56,7 @@ VS Code 的 `ILanguageModelsService` 已经会把 `chat.utilitySmallModel` 路�
 - 新增的两个 Memento key（`minimax-vscode.claudeCodeUsageStats`、`minimax-vscode.claudeCodeIngestCursor`）都是**纯增量**的。原有的 `USAGE_STATS_KEY` 数据完全不受影响。
 - **不需要数据回填**——首次运行时游标是空的，第一次轮询从字节 0 开始读全量。
 - 卸载扩展后这两个新 key 是惰性的，会被 VS Code 定期回收。
+- **`minimax.thinking.enabled` 设置和 `MiniMax: 切换 M3 思考模式` 命令被移除。** 思考开关现在是 **Copilot Chat 模型选择器**里 M3 的下拉菜单（per-model configuration），选中的值原样作为 `thinking: { type: "disabled" | "adaptive" }` 送到 Anthropic 兼容端点。从 2.1.9 升级上来的用户如果 `settings.json` 里还有 `minimax.thinking.enabled: false`，可以删掉那一行——2.2.0+ 已经完全不读这个 key 了。
 
 ### 修复
 

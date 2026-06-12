@@ -150,14 +150,16 @@ test('convertMessages: image part on M3 is forwarded as base64', () => {
 	assert.equal(source.data, 'aGVsbG8taW1hZ2U=');
 });
 
-test('convertMessages: image part on text-only M2.7 is dropped (vision proxy is expected to handle it)', () => {
+test('convertMessages: image part on M2.7 is forwarded (imageInput: true now)', () => {
 	const result = convertMessages(
 		[userImage('data', 'image/png')],
 		M27_ID,
 	);
-	// M2.7 has imageInput: false, so the image part is silently dropped.
-	// A user message with only an image is filtered out by the converter.
-	assert.equal(result.messages.length, 0);
+	// M2.7 now has imageInput: true (vision proxy was removed in 2.3.0),
+	// so the image block is sent to the API directly, just like M3.
+	assert.equal(result.messages.length, 1);
+	const blocks = result.messages[0].content as Array<Record<string, unknown>>;
+	assert.equal(blocks[0].type, 'image');
 });
 
 test('convertMessages: text + image on M3 keeps both blocks in order', () => {

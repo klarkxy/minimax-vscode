@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { API_KEY_SECRET } from './consts';
+import { API_KEY_SECRET, displayPlatformUrl } from './consts';
 import { t } from './i18n';
 
 /**
@@ -57,10 +57,19 @@ export class AuthManager {
 
 	/**
 	 * Prompt user to enter API key via input box.
+	 *
+	 * `baseUrl` is the user's configured `minimax.apiBaseUrl` (NOT
+	 * necessarily a known MiniMax host — third-party proxies are
+	 * allowed). It's only used to pick the platform URL that goes
+	 * into the input box prompt text. Pass the configured value
+	 * verbatim; `displayPlatformUrl()` will map known hosts to
+	 * `platform.minimax.io` (international) or
+		 * `platform.minimaxi.com` (China) and fall back
+	 * to the raw URL for unrecognised hosts.
 	 */
-	async promptForApiKey(): Promise<boolean> {
+	async promptForApiKey(baseUrl: string): Promise<boolean> {
 		const apiKey = await vscode.window.showInputBox({
-			prompt: t('auth.prompt'),
+			prompt: t('auth.prompt', displayPlatformUrl(baseUrl)),
 			placeHolder: t('auth.placeholder'),
 			password: true,
 			ignoreFocusOut: true,

@@ -41,22 +41,18 @@ const zh: Translations = {
 
 	// API Key
 	'auth.apiKeyRequiredDetail': '请先配置 API Key',
-	'auth.prompt': '请输入 MiniMax Token Plan API Key（从 platform.minimaxi.com 获取）。',
+	// {0} = the resolved platform URL (e.g. `https://platform.minimaxi.com`),
+	// or the raw `minimax.apiBaseUrl` when the configured endpoint is a
+	// third-party proxy. Do NOT hard-code `platform.minimaxi.com` here —
+	// international users with the China-flavored prompt or vice versa
+	// would land on a platform they don't have an account on.
+	'auth.prompt': '请输入 MiniMax Token Plan API Key（从 {0} 获取）。',
 	'auth.placeholder': 'eyJ... 或 sk-...',
 	'auth.emptyValidation': 'API Key 不能为空',
 	'auth.saved': 'API Key 已安全保存。',
 	'auth.removed': 'API Key 已移除。',
 	'auth.notConfigured': 'API Key 未配置，请在命令面板运行 "MiniMax: 设置 API Key"。',
 
-	// Vision
-	'vision.vendorLabel': '提供商：{0}',
-	'vision.noModel': '当前环境中没有可用的非 MiniMax 视觉代理模型。',
-	'vision.pickPlaceholder': '选择用于描述图片的模型',
-	'vision.current': '当前',
-	'vision.proxyUsing': '视觉代理：{0}',
-	'vision.notFound': '未找到视觉模型 "{0}"',
-	'vision.unavailable': '无可用视觉模型，图片已忽略。',
-	'vision.proxyError': '视觉代理异常：',
 
 	// Request
 	'request.toolsLimitExceeded':
@@ -102,15 +98,7 @@ const zh: Translations = {
 	'error.unknown': 'MiniMax 请求失败：{0}',
 
 	// Pricing (per million tokens, ¥)
-	'pricing.title': 'MiniMax 模型价格（每百万 token，人民币）',
-	'pricing.header.model': '模型',
-	'pricing.header.input': '输入',
-	'pricing.header.output': '输出',
-	'pricing.header.cacheRead': '缓存读取',
-	'pricing.header.cacheWrite': '缓存写入',
 	'pricing.unlisted': '见官方',
-	'pricing.note': '价格取自 platform.minimaxi.com/docs/guides/pricing-paygo。Token Plan 订阅另计。',
-	'pricing.providers': '使用 Anthropic 兼容协议 ({0})，通过 {1} 接入。',
 
 	// Extension
 	'extension.activateFailed': 'MiniMax 激活失败，请运行 "MiniMax: 显示日志" 查看详情。',
@@ -133,24 +121,9 @@ const zh: Translations = {
 	'commit.setupComplete': '已将 {0} 写入 {1} 个 chat.* 设置。重启 Copilot Chat 后生效。',
 
 	// Usage / status
-	'usage.title': 'MiniMax 用量统计',
 	'usage.empty': '暂未产生任何请求。打开 Copilot Chat，选用一个 MiniMax 模型并发送消息即可。',
-	'usage.line.total': '总输入 {0} · 总输出 {1} · 请求数 {2}',
-	'usage.line.cache': '缓存读取 {0} · 缓存写入 {1}',
-	'usage.line.startedAt': '开始时间：{0}',
-	'usage.line.updatedAt': '更新时间：{0}',
-	'usage.line.model': '· {0}：输入 {1} / 输出 {2} / 请求 {3}',
-	'usage.resetDone': '已清空用量统计。',
-	'usage.modelEmpty': '暂无模型分项用量。',
-	'status.title': 'MiniMax 状态',
-	'status.active': '扩展已激活：{0}（{1}）',
 	'status.thinking': '思考模式',
-	'status.inactive': '扩展已停用。',
-	'status.apiKeySet': 'API Key 已配置。',
-	'status.apiKeyMissing': '未配置 API Key。运行 "MiniMax: Set API Key"。',
-	'status.visibleModels': '可见模型 {0} 个。',
-	'status.lastUsage': '最近一次请求输入 {0} token、输出 {1} token。',
-	'status.usageEmpty': '尚未发起任何请求。',
+	'usage.resetDone': '已清空用量统计。',
 
 	// mmx-cli — the extension only copies the official install
 	// prompt to the clipboard. The user decides what to do next.
@@ -180,7 +153,7 @@ const en: Translations = {
 	'm31m.toggledOff': 'M3 context window restored to the safe 512K default (`minimax.enableM31MContext = false`).',
 	'm31m.warning.title': 'Lift MiniMax-M3 context window to 1M',
 	'm31m.warning.body':
-		'This raises the **MiniMax-M3** entry in the model picker from the safe 512K default up to the official 1,000,000-token cap.\n\nMake sure all of the following apply:\n• Your MiniMax account has been granted the **>512K input tier** by sales — without it the upstream API will return HTTP 400 for requests above 512K.\n• You understand that the >512K portion is billed at **2× the per-token rate** (see the [pricing page](https://platform.minimaxi.com/docs/guides/pricing-paygo)).\n• Token Plan quota also deducts at the 2× rate.\n\nIf unsure, leave it off — you can flip it on later at any time.',
+		'This raises the **MiniMax-M3** entry in the model picker from the safe 512K default up to the official 1,000,000-token cap.\n\nMake sure all of the following apply:\n• Your MiniMax account has been granted the **>512K input tier** by sales — without it the upstream API will return HTTP 400 for requests above 512K.\n• You understand that the >512K portion is billed at **2× the per-token rate** (see the [pricing page](https://platform.minimax.io/docs/guides/pricing-paygo)).\n• Token Plan quota also deducts at the 2× rate.\n\nIf unsure, leave it off — you can flip it on later at any time.',
 	'm31m.warning.confirm': 'I understand, enable 1M',
 	'm31m.warning.cancel': 'Cancel',
 	'm31m.error.alreadyOn': 'M3 is already in 1M context mode.',
@@ -188,7 +161,12 @@ const en: Translations = {
 
 	// API Key
 	'auth.apiKeyRequiredDetail': 'Set an API key first',
-	'auth.prompt': 'Enter your MiniMax Token Plan API key (from platform.minimax.io).',
+	// {0} = the resolved platform URL (e.g. `https://platform.minimax.io`),
+	// or the raw `minimax.apiBaseUrl` when the configured endpoint is a
+	// third-party proxy. Do NOT hard-code `platform.minimax.io` here —
+	// Chinese-locale users with the international-flavored prompt or
+	// vice versa would land on a platform they don't have an account on.
+	'auth.prompt': 'Enter your MiniMax Token Plan API key (from {0}).',
 	'auth.placeholder': 'eyJ... or sk-...',
 	'auth.emptyValidation': 'API key cannot be empty',
 	'auth.saved': 'API key saved securely.',
@@ -197,15 +175,6 @@ const en: Translations = {
 		'API key not configured. Run "MiniMax: Set API Key" from the command palette.',
 
 
-	// Vision
-	'vision.vendorLabel': 'Vendor: {0}',
-	'vision.noModel': 'No non-MiniMax vision proxy model is available.',
-	'vision.pickPlaceholder': 'Choose a model to describe images',
-	'vision.current': 'current',
-	'vision.proxyUsing': 'Vision proxy: {0}',
-	'vision.notFound': 'Vision model "{0}" not found',
-	'vision.unavailable': 'No vision model available, images ignored.',
-	'vision.proxyError': 'Vision proxy error:',
 
 	// Request
 	'request.toolsLimitExceeded':
@@ -251,16 +220,7 @@ const en: Translations = {
 	'error.unknown': 'MiniMax request failed: {0}',
 
 	// Pricing (per million tokens, currency follows the user's apiBaseUrl)
-	'pricing.title': 'MiniMax model pricing (per million tokens, USD)',
-	'pricing.header.model': 'Model',
-	'pricing.header.input': 'Input',
-	'pricing.header.output': 'Output',
-	'pricing.header.cacheRead': 'Cache read',
-	'pricing.header.cacheWrite': 'Cache write',
 	'pricing.unlisted': 'see official',
-	'pricing.note':
-		'Prices scraped from platform.minimax.io/docs/guides/pricing-paygo. Token Plan subscription is billed separately.',
-	'pricing.providers': 'Uses the Anthropic-compatible protocol ({0}) via {1}.',
 
 	// Extension
 	'extension.activateFailed': 'MiniMax activation failed. Run "MiniMax: Show Logs" for details.',
@@ -283,24 +243,9 @@ const en: Translations = {
 	'commit.setupComplete': 'Wrote {0} to {1} chat.* setting(s). Restart Copilot Chat for the change to take effect.',
 
 	// Usage / status
-	'usage.title': 'MiniMax usage',
 	'usage.empty': 'No requests have been made yet. Open Copilot Chat, pick a MiniMax model, and send a message.',
-	'usage.line.total': 'Total input {0} · output {1} · requests {2}',
-	'usage.line.cache': 'Cache read {0} · cache write {1}',
-	'usage.line.startedAt': 'Since: {0}',
-	'usage.line.updatedAt': 'Updated: {0}',
-	'usage.line.model': '· {0}: input {1} / output {2} / requests {3}',
-	'usage.resetDone': 'Usage statistics have been reset.',
-	'usage.modelEmpty': 'No per-model usage recorded yet.',
-	'status.title': 'MiniMax status',
-	'status.active': 'Extension active: {0} ({1})',
 	'status.thinking': 'Thinking Mode',
-	'status.inactive': 'Extension is deactivated.',
-	'status.apiKeySet': 'API key configured.',
-	'status.apiKeyMissing': 'No API key. Run "MiniMax: Set API Key".',
-	'status.visibleModels': '{0} models exposed in the picker.',
-	'status.lastUsage': 'Last request used input {0} tokens, output {1} tokens.',
-	'status.usageEmpty': 'No requests have been made yet.',
+	'usage.resetDone': 'Usage statistics have been reset.',
 
 	// mmx-cli — the extension only copies the official install
 	// prompt to the clipboard. The user decides what to do next.

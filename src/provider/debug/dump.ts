@@ -9,7 +9,6 @@ import { logger } from '../../logger';
 import type { MiniMaxRequest } from '../../types';
 import { parseReplayMarkerData, REPLAY_MARKER_MIME } from '../replay';
 import type { ConversationSegment } from '../segment';
-import type { VisionResolutionStats } from '../vision/index';
 import {
 	classifyMiniMaxRequest,
 	classifyProviderRequest,
@@ -56,8 +55,6 @@ export interface DumpMiniMaxRequestOptions {
 	inputMessages: readonly vscode.LanguageModelChatRequestMessage[];
 	resolvedMessages: readonly vscode.LanguageModelChatRequestMessage[];
 	requestOptions: vscode.ProvideLanguageModelChatResponseOptions;
-	visionModelId?: string;
-	visionStats?: VisionResolutionStats;
 }
 
 export interface DumpProviderInputOptions {
@@ -184,9 +181,6 @@ export function dumpMiniMaxRequest(
 				requestOptions: options.requestOptions,
 				messages: options.inputMessages,
 				toolSummary: summarizeTools(options.requestOptions.tools),
-				vision: options.visionModelId
-					? { modelId: options.visionModelId, stats: options.visionStats }
-					: undefined,
 			}),
 		);
 		logger.info(
@@ -237,7 +231,6 @@ interface DumpObservationInput {
 	requestOptions: vscode.ProvideLanguageModelChatResponseOptions;
 	messages: readonly vscode.LanguageModelChatRequestMessage[];
 	toolSummary: ToolSummary;
-	vision?: { modelId: string; stats?: VisionResolutionStats };
 }
 
 function createDumpObservation(input: DumpObservationInput): Record<string, unknown> {
@@ -253,7 +246,6 @@ function createDumpObservation(input: DumpObservationInput): Record<string, unkn
 		model: input.model,
 		paths: input.paths,
 		tools: input.toolSummary,
-		vision: input.vision,
 		messageCount: input.messages.length,
 		firstMessageChars: getMessageText(input.messages[0]).length,
 		latestUserChars: getLatestUserText(input.messages).length,
@@ -324,7 +316,6 @@ function createInputSnapshot(
 		tools: summarizeTools(options.requestOptions.tools),
 		messages: options.inputMessages.map(summariseMessage),
 		systemPromptHead: msg0Text.slice(0, HASH_WINDOW_CHARS),
-		vision: options.visionStats,
 	};
 }
 
@@ -356,9 +347,7 @@ function createResolvedSnapshot(
 		basename: context.basename,
 		timestamp: context.timestamp,
 		requestKind: context.requestKind,
-		visionModelId: options.visionModelId,
-		visionStats: options.visionStats,
-		messages: options.resolvedMessages.map(summariseMessage),
+						messages: options.resolvedMessages.map(summariseMessage),
 	};
 }
 

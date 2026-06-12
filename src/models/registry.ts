@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 import { getBaseUrl, getM3ContextWindow } from '../config';
-import { MINIMAX_TOOLS_LIMIT } from '../consts';
+import {
+	MINIMAX_TOOLS_LIMIT,
+	PLATFORM_HOST_CHINA,
+	resolvePlatformHost,
+} from '../consts';
 import type { ModelDefinition, ModelPricing } from '../types';
 
 /**
@@ -89,9 +93,20 @@ export function isChineseLocale(language: string = vscode.env.language): boolean
 	return lower === 'zh' || lower.startsWith('zh-') || lower.startsWith('zh_');
 }
 
-/** True if `baseUrl` points to the China platform. */
+/**
+ * True if `baseUrl` points to the China Anthropic-compatible API host.
+ *
+ * Uses `resolvePlatformHost` for strict hostname equality (NOT raw-URL
+ * `String.includes`) so spoofing vectors like
+ * `https://api.minimax.io@my-proxy.example.com/v1` (userinfo),
+ * `https://api.minimax.io.evil.example/v1` (suffix), and
+ * `https://proxy.example.com/api.minimax.io/v1` (path) all return
+ * `false`. The previous `baseUrl.includes('minimaxi.com')` was
+ * substring-matching the raw URL, which is the LRN-20260611-005
+ * credential-leak class of bug.
+ */
 export function isChinaBaseUrl(baseUrl: string): boolean {
-	return baseUrl.includes('minimaxi.com');
+	return resolvePlatformHost(baseUrl) === PLATFORM_HOST_CHINA;
 }
 
 /** Pick the CNY vs USD price table for a given baseUrl + locale. */
@@ -122,7 +137,7 @@ export function pickPricingTable(baseUrl: string): Record<PricingKey, ModelPrici
  * through the command (rather than editing `settings.json` directly)
  * is what makes the warning visible to the user.
  *
- * [pp]: https://platform.minimaxi.com/docs/guides/pricing-paygo
+ * [pp]: https://platform.minimax.io/docs/guides/pricing-paygo
  *
  * Note on M2.7: the official spec is 204,800 context. We do not split
  * it into input vs. output caps because the docs do not publish such a
@@ -178,7 +193,7 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		maxOutputTokens: 204_800,
 		capabilities: {
 			toolCalling: MINIMAX_TOOLS_LIMIT,
-			imageInput: false,
+			imageInput: true,
 			thinking: true,
 		},
 		thinking: {
@@ -198,7 +213,7 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		maxOutputTokens: 204_800,
 		capabilities: {
 			toolCalling: MINIMAX_TOOLS_LIMIT,
-			imageInput: false,
+			imageInput: true,
 			thinking: true,
 		},
 		thinking: {

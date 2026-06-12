@@ -1,7 +1,8 @@
 // mmx-cli detection ONLY.
 //
 // The official Token Plan onboarding doc
-// (platform.minimaxi.com/docs/token-plan/minimax-cli) describes a
+// (platform.minimaxi.com/docs/token-plan/minimax-cli — Chinese-
+// language source; the install steps are language-agnostic) describes a
 // three-step flow that the user (or their AI agent) drives from
 // outside the extension. The extension's job here is just to report
 // the three statuses on the dashboard:
@@ -414,7 +415,8 @@ export async function readMmxCliStatus(mmxPath?: string): Promise<MmxCliStatus> 
 //
 // The only mutating-ish thing the extension offers: a copy-to-clipboard
 // of the verbatim prompt from the official docs
-// (platform.minimaxi.com/docs/token-plan/minimax-cli), in the
+// (platform.minimaxi.com/docs/token-plan/minimax-cli — Chinese-
+// language source), in the
 // language that matches the user's configured endpoint. The prompt
 // references the API key only as the literal `sk-xxxxx` placeholder;
 // the user is expected to fill in their real key themselves before
@@ -427,6 +429,7 @@ export type MmxPromptHost = 'china' | 'global';
 /**
  * The Chinese install prompt — copied verbatim from
  *   https://platform.minimaxi.com/docs/token-plan/minimax-cli
+ * (Chinese-language source; the steps are language-agnostic)
  * (the "通过Agent安装" section). Sourced from the official docs so
  * any tweak the MiniMax team makes to the prompt there propagates
  * to us on the next round of copy-paste.
@@ -442,8 +445,12 @@ const MMX_INSTALL_PROMPT_ZH = [
 ].join('\n');
 
 /**
- * The English install prompt — the international-site equivalent of
- * MMX_INSTALL_PROMPT_ZH (platform.minimax.io/docs/token-plan/minimax-cli).
+ * The English install prompt — the English translation of
+ * MMX_INSTALL_PROMPT_ZH. The verbatim source is the same doc on
+ * the China platform
+ * (platform.minimaxi.com/docs/token-plan/minimax-cli); the install
+ * steps are language-agnostic so the English version is just the
+ * English translation of the same three-step flow.
  */
 const MMX_INSTALL_PROMPT_EN = [
 	'Please help me connect to MiniMax CLI (https://github.com/MiniMax-AI/cli), follow these three steps to complete installation and configuration:',
@@ -458,7 +465,13 @@ const MMX_INSTALL_PROMPT_EN = [
 /**
  * Return the install prompt whose language matches the configured
  * endpoint. The default is the international (English) prompt; the
- * Chinese prompt is returned for hosts that contain `minimaxi.com`.
+ * Chinese prompt is returned for the `china` platform. Note: this
+ * function takes a pre-resolved `'china' | 'global'` enum — the
+ * actual `minimax.apiBaseUrl` → `china/global` resolution happens
+ * upstream in `runtime/commands.ts:detectHost()` via the hardened
+ * `getApiHostForPlatform()` helper (which uses
+ * `resolvePlatformHost()` for strict hostname equality, not raw-URL
+ * substring matching).
  */
 export function mmxInstallPrompt(host: MmxPromptHost = 'global'): string {
 	return host === 'china' ? MMX_INSTALL_PROMPT_ZH : MMX_INSTALL_PROMPT_EN;

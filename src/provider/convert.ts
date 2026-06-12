@@ -31,7 +31,7 @@ const SUPPORTED_VIDEO_MIME_TYPES = new Set([
 
 /**
  * M3 request-body limits documented at
- * https://platform.minimaxi.com/docs/api-reference/text-anthropic-api
+ * https://platform.minimax.io/docs/api-reference/text-anthropic-api
  *   - inline image: ≤ 10 MB
  *   - inline video (base64/url): ≤ 50 MB
  *   - whole request body: ≤ 64 MB

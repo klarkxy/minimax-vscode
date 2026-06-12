@@ -6,7 +6,7 @@ import { CONFIG_SECTION } from '../consts';
 import { t } from '../i18n';
 import { findModelById } from '../models/registry';
 import type { ConvertedConversation, MiniMaxRequest, MiniMaxTool } from '../types';
-import { convertMessages, convertTools, countMessageChars } from './convert';
+import { convertMessages, countMessageChars } from './convert';
 import {
 	classifyMiniMaxRequest,
 	createCacheDiagnosticsRecorder,
@@ -21,7 +21,6 @@ import type { ConversationSegment } from './segment';
 import { prepareRequestTools } from './tools/request';
 import { logger } from '../logger';
 import { safeStringify } from '../json';
-import { bypassVisionResolution, resolveImageMessages } from './vision/index';
 
 export interface PreparedChatRequest {
 	client: MiniMaxClient;
@@ -42,7 +41,6 @@ export interface PreparedChatRequest {
 	requestKind: RequestKind;
 	segment: ConversationSegment;
 	replayMarkerMetadata: ReplayMarkerMetadata;
-	visionMarkerTextChars?: number;
 }
 
 export interface PrepareChatRequestOptions {
@@ -54,7 +52,6 @@ export interface PrepareChatRequestOptions {
 	options: vscode.ProvideLanguageModelChatResponseOptions;
 	token: vscode.CancellationToken;
 	cacheDiagnostics: CacheDiagnosticsRecorder;
-	getVisionModel: () => Promise<vscode.LanguageModelChat | undefined>;
 }
 
 export async function prepareChatRequest({
@@ -66,7 +63,6 @@ export async function prepareChatRequest({
 	options,
 	token,
 	cacheDiagnostics,
-	getVisionModel,
 }: PrepareChatRequestOptions): Promise<PreparedChatRequest> {
 	const apiKey = await authManager.getApiKey();
 	if (!apiKey) {
@@ -104,35 +100,7 @@ export async function prepareChatRequest({
 	const isThinkingEnabled = thinkingEffort === 'adaptive';
 	const configuredMaxTokens = getMaxTokens();
 
-	// If the target model accepts image input natively (e.g. MiniMax-M3,
-	// `imageInput: true`), skip the vision proxy entirely. The proxy
-	// only exists to convert images into text descriptions for the
-	// text-only M2.x family; running it before a multimodal model
-	// would (a) waste a round-trip and (b) silently destroy the image
-	// whenever the proxy is unavailable, replacing it with
-	// `[Image Description unavailable]`.
-	const supportsImages = modelDef?.capabilities.imageInput ?? false;
-	const supportsVideos = modelDef?.capabilities.videoInput ?? false;
-	const visionResolution = supportsImages
-		? bypassVisionResolution(messages)
-		: await resolveImageMessages(messages, token, getVisionModel);
-	if (supportsImages) {
-		logger.info(
-			`[MiniMax] Vision proxy bypassed — ${modelInfo.id} supports image input natively; ` +
-				`${countInputImages(messages)} image part(s) will be sent as base64 directly.`,
-		);
-	}
-	if (supportsVideos) {
-		const videoCount = countInputVideos(messages);
-		if (videoCount > 0) {
-			logger.info(
-				`[MiniMax] ${modelInfo.id} supports video input natively; ` +
-					`${videoCount} video part(s) will be sent as base64 directly.`,
-			);
-		}
-	}
-	const resolvedMessages = visionResolution.messages;
-	const converted = convertMessages(resolvedMessages, modelInfo.id);
+	const converted = convertMessages(messages, modelInfo.id);
 	const tools = prepareRequestTools(modelDef?.capabilities.toolCalling, options);
 
 	const totalRequestChars = countMessageChars(converted);
@@ -188,10 +156,8 @@ export async function prepareChatRequest({
 		thinkingEffort,
 		maxTokens: effectiveMaxTokens,
 		inputMessages: messages,
-		resolvedMessages,
+		resolvedMessages: messages,
 		requestOptions: options,
-		visionModelId: visionResolution.visionModelId,
-		visionStats: visionResolution.stats,
 	});
 
 	const diagnosticsRun = cacheDiagnostics.beginRequest();
@@ -221,8 +187,7 @@ export async function prepareChatRequest({
 		cacheDiagnostics: diagnosticsRun,
 		requestKind,
 		segment,
-		replayMarkerMetadata: visionResolution.replayMarkerMetadata,
-		visionMarkerTextChars: visionResolution.stats.markerVisionTextChars || undefined,
+		replayMarkerMetadata: { thinkingBlocks: undefined },
 	};
 }
 
@@ -292,7 +257,7 @@ function readUserExtra(modelId: string): Record<string, unknown> | undefined {
  * Build the `thinking` block for a MiniMax Anthropic-compatible request.
  *
  * Per the official MiniMax OpenAPI spec
- * (https://platform.minimaxi.com/docs/api-reference/text/api/openapi-chat-anthropic.json),
+ * (https://platform.minimax.io/docs/api-reference/text/api/openapi-chat-anthropic.json),
  * the only legal values are `"disabled"` and `"adaptive"`. There is **no**
  * `enabled` value, no `budget_tokens` field, and no query-string knob —
  * sending any of those is what triggered the gateway's 404 page.
@@ -521,21 +486,21 @@ function enforceInlineAttachmentSizeLimits(converted: ConvertedConversation): vo
 }
 
 /**
- * Per-model request-body caps from the MiniMax Anthropic-API docs. M3 is
- * the only model in the picker that accepts inline media at all, so we
- * only need a 64 MB entry; the M2.x branch is here for callers that
- * still point at historical models via `modelIdOverrides`.
+ * Per-model request-body caps from the MiniMax Anthropic-API docs. All
+ * picker models (M3, M2.7, M2.7-highspeed) accept inline media and are
+ * subject to the 64 MB ceiling. The 32 MB fallback exists for callers
+ * that still point at historical models via `modelIdOverrides`.
  */
 function MAX_REQUEST_BODY_BYTES_FOR_MODEL(modelId: string): number {
-	if (modelId === 'MiniMax-M3') return 64 * 1024 * 1024;
+	if (modelId === 'MiniMax-M3' || modelId === 'MiniMax-M2.7' || modelId === 'MiniMax-M2.7-highspeed') return 64 * 1024 * 1024;
 	return 32 * 1024 * 1024;
 }
 
 /**
- * Per-attachment caps from the MiniMax Anthropic-API docs. M3 is the
- * only picker model that accepts inline media, but the constants live
- * here as a single source of truth that the `convert.ts` MIME table
- * is sized against.
+ * Per-attachment caps from the MiniMax Anthropic-API docs. All picker
+ * models (M3, M2.7, M2.7-highspeed) accept inline media, so the
+ * constants here are the single source of truth that the
+ * `convert.ts` MIME table is sized against.
  */
 const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_INLINE_VIDEO_BYTES = 50 * 1024 * 1024;

@@ -78,13 +78,33 @@ export function getRequestDumpEnabled(): boolean {
 }
 
 /**
- * Resolve the configured max output tokens limit.
- * Returns `undefined` when set to 0 (API default — no limit).
+ * Resolve the configured max output tokens limit. Returns `undefined`
+ * when set to 0 (API default — no limit).
+ *
+ * Reads `minimax.maxOutputTokens` first. Falls back to the legacy
+ * `minimax.maxTokens` key for backward compatibility (the setting
+ * was renamed in 2.3.0 because the old name was easily confused
+ * with `minimax.enableM31MContext`, which controls the input
+ * context window). The legacy key will be removed in 3.0.
  */
 export function getMaxTokens(): number | undefined {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-	const value = config.get<number>('maxTokens', 0);
-	return value > 0 ? value : undefined;
+	// Prefer the new key. If the user hasn't set the new key
+	// (`config.get` returns its `0` default), fall through to the
+	// legacy key. We distinguish "unset" from "explicitly 0" by
+	// checking `inspect()`: an "unset" key has no
+	// `globalValue` / `workspaceValue` / `workspaceFolderValue`.
+	const inspection = config.inspect<number>('maxOutputTokens');
+	const newIsSet =
+		inspection?.globalValue !== undefined ||
+		inspection?.workspaceValue !== undefined ||
+		inspection?.workspaceFolderValue !== undefined;
+	if (newIsSet) {
+		const value = config.get<number>('maxOutputTokens', 0);
+		return value > 0 ? value : undefined;
+	}
+	const legacy = config.get<number>('maxTokens', 0);
+	return legacy > 0 ? legacy : undefined;
 }
 
 /**
