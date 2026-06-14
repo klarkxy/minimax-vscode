@@ -27,17 +27,27 @@ export async function fetchInstall() {
 		'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery',
 		{
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+			// The Gallery API now requires an explicit api-version; without it
+			// the request is rejected with HTTP 400 "VssVersionNotSpecifiedException".
+			// `7.2-preview.1` is the latest preview that still exposes `statistics`.
+			headers: {
+				'Content-Type': 'application/json',
+				Accept: 'application/json; api-version=7.2-preview.1',
+			},
 			body: JSON.stringify({
 				filters: [{ criteria: [{ filterType: 7, value: EXT_ID }] }],
-				flags: 0x1, // IncludeStatistics
+				// Flag bits: 0x1=IncludeVersions, 0x100=IncludeStatistics.
+				// The script only needs statistics, so omit versions to keep the
+				// payload small. Note: 0x1 is NOT IncludeStatistics — that was a
+				// pre-existing bug masked by the 400 error.
+				flags: 0x100,
 			}),
 		},
 	);
 	if (!r.ok) throw new Error(`Marketplace API HTTP ${r.status}`);
 	const data = await r.json();
 	const stats = data?.results?.[0]?.extensions?.[0]?.statistics ?? [];
-	const install = stats.find(s => s.name === 'install')?.value;
+	const install = stats.find(s => s.statisticName === 'install')?.value;
 	if (typeof install !== 'number') {
 		throw new Error(`install statistic missing (got: ${JSON.stringify(stats)})`);
 	}

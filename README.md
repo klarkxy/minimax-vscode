@@ -41,9 +41,9 @@ Marketplace install count, refreshed daily via [`.github/workflows/installs.yml`
 ```mermaid
 xychart-beta
     title "Marketplace installs"
-    x-axis [2026-06-12]
-    y-axis "Installs" 0 --> 581
-    line [528]
+    x-axis [2026-06-12, 2026-06-14]
+    y-axis "Installs" 0 --> 620
+    line [528, 563]
 ```
 <!-- installs:end -->
 

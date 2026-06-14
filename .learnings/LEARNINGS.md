@@ -515,3 +515,64 @@ A second rule for `release.yml` / `vsce package`:
 - Related Files: .vscodeignore, nul (deleted), dist/minimax-vscode-copilot-2.3.0.vsix
 - Tags: marketplace-validation, vsce, windows-reserved-names, packaging, vscodeignore, working-tree-hygiene
 - See Also: [[LRN-20260612-002]] (packaging hygiene audit); [[LRN-20260612-001]] (nls filename correctness)
+
+---
+
+## [LRN-20260614-001] knowledge_gap
+
+**Logged**: 2026-06-14T00:00:00Z
+**Priority**: high
+**Status**: resolved
+**Area**: ci / scripts
+
+### Context
+The `Refresh marketplace installs chart` GitHub Action (`installs.yml`, scheduled daily at 00:00 UTC) failed on its first two scheduled runs (run IDs 27451079077 and 27483593188) with `Marketplace API HTTP 400`. The script at `scripts/refresh-installs.mjs` had shipped two days earlier and was known to "work" — but in fact had been broken since the first commit; the first run was the first time it was ever executed against the live API.
+
+### Discovery
+Inspecting the response body of a manual replay (`curl -X POST .../extensionquery` with the script's exact payload) returned:
+
+```json
+{ "typeKey": "VssVersionNotSpecifiedException",
+  "message": "No api-version was supplied for the \"POST\" request..." }
+```
+
+Three independent defects were present in `fetchInstall()`:
+
+1. **Missing `api-version`**: the Marketplace Gallery API now rejects any request without an `api-version` qualifier (in the `Accept` header or as `?api-version=...`). The script's `Accept: application/json` no longer suffices; the working form is `Accept: application/json; api-version=7.2-preview.1`.
+2. **Wrong flag bit**: the script sent `flags: 0x1` with a `// IncludeStatistics` comment, but `0x1` is `IncludeVersions`, not `IncludeStatistics`. The actual `IncludeStatistics` bit is `0x100` (= 256). With the 400 masking the response, the bug was invisible.
+3. **Wrong field name**: even with the correct flags, the response uses `s.statisticName`, not `s.name`. The lookup `stats.find(s => s.name === 'install')` would have returned `undefined` and triggered the "install statistic missing" error.
+
+I confirmed the correct flag bit empirically with a one-shot loop:
+
+```bash
+for flag in 0 1 256 512 1024 2048 4096 0x80 0x100 0x200 0x400; do
+  curl -sS -X POST .../extensionquery ... -d "{..., \"flags\":$flag}" \
+    | jq '.results[0].extensions[0].statistics'
+done
+```
+
+Only `256` (= `0x100`) and combinations containing it returned the `statistics` array.
+
+### Why the bug slipped past review
+The unit test file at `test/refresh-installs.test.ts` covers `appendPoint`, `renderMermaid`, `updateReadme`, and `loadHistory` — but does **not** import or test `fetchInstall`. So a network-touching function that was the entire point of the script had zero coverage. The first CI run that the script ever saw was the daily scheduled run on the GitHub-hosted runner.
+
+### Fix
+- [scripts/refresh-installs.mjs:25-45](scripts/refresh-installs.mjs#L25-L45): three-line correctness fix (api-version header, flag value, field name), with inline comments naming the bit layout so the next reader doesn't have to re-derive it.
+- [test/refresh-installs.test.ts](test/refresh-installs.test.ts): added three regression tests that mock `globalThis.fetch` via `t.mock.method()` — happy path verifying the header + flag + field name, non-OK status, and missing statistic.
+- Bumped [data/installs.json](data/installs.json) with today's 2026-06-14 reading (563) so the chart and history are in sync locally and on the next CI run.
+
+### Future work
+- **Always add a mocked-network test for any script whose only non-pure behaviour is `fetch`.** `fetchInstall` is the perfect example: 5 lines of test, 3 bugs caught. The pattern `t.mock.method(globalThis, 'fetch', ...)` works cleanly under Node's built-in test runner and survives esbuild's CJS bundling.
+- **Pin the API version in a constant** (`const API_VERSION = '7.2-preview.1'`) rather than inlining the literal — when the preview goes GA the diff becomes a one-liner, and the bit-flag/header comments can reference the constant.
+- Consider a smoke-test GitHub Action that hits the Marketplace API once a week just to detect version drift earlier than the next scheduled install-refresh failure.
+
+### Resolution
+- **Resolved**: 2026-06-14T00:00:00Z
+- **Commit/PR**: pending (working-tree changes in scripts/refresh-installs.mjs, test/refresh-installs.test.ts, data/installs.json, README.md, README.zh.md)
+- **Notes**: Replay against the fixed script: `install = 563`, history length = 2, both READMEs updated. Next scheduled run (2026-06-15T00:00:00Z) should be the first end-to-end verification on the runner.
+
+### Metadata
+- Source: GitHub Actions failure log (run 27483593188, "Marketplace API HTTP 400")
+- Related Files: scripts/refresh-installs.mjs, test/refresh-installs.test.ts, data/installs.json, .github/workflows/installs.yml
+- Tags: marketplace-api, vsce, gallery, ci, regression-test, fetch-mocking, bit-flags
+- See Also: [[LRN-20260612-001]] (similar lesson: pre-existing bug masked by CI gap)

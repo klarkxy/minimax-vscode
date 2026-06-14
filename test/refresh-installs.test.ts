@@ -12,6 +12,7 @@ import {
 	renderMermaid,
 	updateReadme,
 	loadHistory,
+	fetchInstall,
 } from '../scripts/refresh-installs.mjs';
 
 test('renderMermaid returns a placeholder when history is empty', () => {
@@ -119,4 +120,59 @@ test('loadHistory returns the parsed array when the file exists', async () => {
 	const h = await loadHistory(file);
 	assert.deepEqual(h, [{ date: '2026-06-10', install: 100 }]);
 	await rm(dir, { recursive: true, force: true });
+});
+
+test('fetchInstall reads the install statistic and sends the api-version header', async (t) => {
+	// Regression: the script used to send no api-version (→ HTTP 400), used
+	// flags=0x1 which only enables versions (not statistics), and looked up
+	// `s.name` instead of the actual `s.statisticName` field.
+	const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+	const mock = t.mock.method(globalThis, 'fetch', async (url: any, init: any) => {
+		calls.push({ url: String(url), init });
+		return new Response(
+			JSON.stringify({
+				results: [
+					{
+						extensions: [
+							{
+								statistics: [
+									{ statisticName: 'install', value: 587 },
+									{ statisticName: 'updateCount', value: 631 },
+								],
+							},
+						],
+					},
+				],
+			}),
+			{ status: 200, headers: { 'Content-Type': 'application/json' } },
+		);
+	});
+	t.after(() => mock.mock.restore());
+
+	const n = await fetchInstall();
+	assert.equal(n, 587);
+	assert.equal(calls.length, 1);
+	const { url, init } = calls[0];
+	assert.match(url, /extensionquery/);
+	const headers = init?.headers as Record<string, string>;
+	assert.match(headers.Accept, /api-version=7\.2-preview\.1/);
+	const body = JSON.parse(String(init?.body));
+	assert.equal(body.flags, 0x100, 'flags must include IncludeStatistics (0x100), not just versions (0x1)');
+});
+
+test('fetchInstall throws a descriptive error when the API returns non-OK', async (t) => {
+	const mock = t.mock.method(globalThis, 'fetch', async () => new Response('bad', { status: 400 }));
+	t.after(() => mock.mock.restore());
+	await assert.rejects(() => fetchInstall(), /Marketplace API HTTP 400/);
+});
+
+test('fetchInstall throws when the install statistic is missing', async (t) => {
+	const mock = t.mock.method(globalThis, 'fetch', async () =>
+		new Response(
+			JSON.stringify({ results: [{ extensions: [{ statistics: [{ statisticName: 'ratingcount', value: 1 }] }] }] }),
+			{ status: 200 },
+		),
+	);
+	t.after(() => mock.mock.restore());
+	await assert.rejects(() => fetchInstall(), /install statistic missing/);
 });
