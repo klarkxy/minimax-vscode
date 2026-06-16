@@ -26,6 +26,24 @@ const quickPicks: unknown[] = [];
 const informationMessages: string[] = [];
 const errorMessages: string[] = [];
 const warningMessages: string[] = [];
+/**
+ * Records every URI passed to `vscode.env.openExternal` so tests can
+ * assert on the scheme (e.g. that an "open the dump folder" command
+ * hands `file://` to the shell, not a `vscode-userdata://` URI that
+ * Windows would reject with a "open with what app?" dialog). The
+ * previous hard-coded `() => Promise.resolve(true)` made it impossible
+ * to assert on the URI scheme — the bug where `Uri.joinPath` produced
+ * a non-`file://` URI shipped to production unnoticed.
+ */
+const openExternalCalls: Array<{ uri: UriLike; scheme: string }> = [];
+/**
+ * Records every command registered via `vscode.commands.registerCommand`
+ * so tests can invoke the callback directly. The default behaviour
+ * mirrors the real VS Code API: the returned `Disposable` has a no-op
+ * `dispose()`. Production code never reads the return value, so the
+ * dummy disposable is fine.
+ */
+const registeredCommands = new Map<string, (...args: unknown[]) => unknown>();
 
 export const mockState = {
 	outputChannels,
@@ -39,8 +57,22 @@ export const mockState = {
 		informationMessages.length = 0;
 		errorMessages.length = 0;
 		warningMessages.length = 0;
+		openExternalCalls.length = 0;
+		registeredCommands.clear();
 	},
 };
+
+/** Test-only accessor for the openExternal call log. */
+export function getOpenExternalCalls(): ReadonlyArray<{ uri: UriLike; scheme: string }> {
+	return openExternalCalls;
+}
+
+/** Test-only accessor for the registerCommand log. */
+export function getRegisteredCommand(
+	id: string,
+): ((...args: unknown[]) => unknown) | undefined {
+	return registeredCommands.get(id);
+}
 
 export class UriInstance {
 	constructor(public scheme: string, public fsPath: string, public path: string) {}
@@ -142,12 +174,28 @@ export const Uri = ((input: string) => {
 	(input: string): UriInstance;
 	parse: (input: string) => UriInstance;
 	file: (path: string) => UriInstance;
+	joinPath: (base: UriLike, ...paths: string[]) => UriInstance;
 };
 Uri.parse = ((input: string) => {
 	const url = new URL(input);
 	return new UriInstance(url.protocol.replace(':', ''), decodeURIComponent(url.pathname), url.pathname);
 }) as never;
 Uri.file = ((p: string) => new UriInstance('file', p, p)) as never;
+// `Uri.joinPath` in real VS Code returns a `vscode-userdata://…` URI
+// (NOT a `file://` URI) when the base is the globalStorageUri. This is
+// the exact property the production fix in `openRequestDumpsFolder`
+// relies on: the `fsPath` it pulls off the joinPath result is what it
+// feeds into `Uri.file()` to get back a `file://` URI. If we make
+// joinPath return a `file://` URI directly, the test would silently
+// agree with the buggy old code; if we make it return a `file://` URI
+// with a mangled path, the fix's `fsPath`-then-`Uri.file` round-trip
+// would still produce a different result than the old code. We model
+// real VS Code behaviour: `vscode-userdata://` scheme, `fsPath` is the
+// platform-native path of the joined segments.
+Uri.joinPath = ((base: UriLike, ...paths: string[]) => {
+	const joinedFsPath = [base.fsPath, ...paths].join('/').replace(/\/+/g, '/');
+	return new UriInstance('vscode-userdata', joinedFsPath, joinedFsPath);
+}) as never;
 Object.defineProperty(Uri, Symbol.hasInstance, {
 	value: (value: unknown) => value instanceof UriInstance,
 });
@@ -171,6 +219,18 @@ export const workspace = {
 	}),
 	tabGroups: {
 		activeTabGroup: undefined,
+	},
+	/**
+	 * `workspace.fs` is a thin async filesystem facade in real VS Code.
+	 * Production code only calls `createDirectory` here (for the
+	 * "ensure dump folder exists" pre-flight in
+	 * `openRequestDumpsFolder`). Tests don't need a real filesystem —
+	 * a no-op stub is enough; if a test wants to assert that
+	 * `createDirectory` was called, it can stub this directly.
+	 */
+	fs: {
+		createDirectory: (_uri: UriLike) => Promise.resolve(),
+		stat: (_uri: UriLike) => Promise.resolve({ type: 2 satisfies 2 }),
 	},
 };
 
@@ -236,6 +296,10 @@ export const scm = {
 
 export const commands = {
 	executeCommand: () => Promise.resolve(),
+	registerCommand: (id: string, callback: (...args: unknown[]) => unknown) => {
+		registeredCommands.set(id, callback);
+		return new Disposable(() => {});
+	},
 };
 
 /**
@@ -257,7 +321,10 @@ export const env = {
 	sessionId: 'test-session',
 	appName: 'Visual Studio Code Test',
 	appRoot: process.cwd(),
-	openExternal: () => Promise.resolve(true),
+	openExternal: (uri: UriLike) => {
+		openExternalCalls.push({ uri, scheme: uri.scheme });
+		return Promise.resolve(true);
+	},
 	clipboard: {
 		readText: () => Promise.resolve(''),
 		writeText: () => Promise.resolve(),

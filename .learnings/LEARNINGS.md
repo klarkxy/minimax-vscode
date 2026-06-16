@@ -576,3 +576,63 @@ The unit test file at `test/refresh-installs.test.ts` covers `appendPoint`, `ren
 - Related Files: scripts/refresh-installs.mjs, test/refresh-installs.test.ts, data/installs.json, .github/workflows/installs.yml
 - Tags: marketplace-api, vsce, gallery, ci, regression-test, fetch-mocking, bit-flags
 - See Also: [[LRN-20260612-001]] (similar lesson: pre-existing bug masked by CI gap)
+
+---
+
+## [LRN-20260614-002] insight
+
+**Logged**: 2026-06-14T00:00:00Z
+**Priority**: high
+**Status**: resolved (feature removed)
+**Area**: ecosystem / external-services
+
+### Context
+A natural follow-up to LRN-20260614-001 was "is the DIY polling approach really the only option?" The user's instinct was: surely someone has packaged this. We searched the public web to find out.
+
+### Discovery
+**There is no turnkey solution for VS Code Marketplace install-count tracking — and the entire ecosystem has effectively given up on building one.** Evidence gathered on 2026-06-14:
+
+1. **shields.io retired all vscode-marketplace badges on 2026-04-09.** The current service file at [badges/shields/services/visual-studio-marketplace/visual-studio-marketplace.service.js](https://github.com/badges/shields/blob/master/services/visual-studio-marketplace/visual-studio-marketplace.service.js) is a one-liner that exports `retiredService({...})` for every variant (downloads, installs, version, rating, stars, release-date, last-updated, azure-devops-installs), with `dateAdded: new Date('2026-04-09')`. The live endpoint `https://img.shields.io/vscode-marketplace/i/<id>` now returns only the literal SVG `<text>retired badge</text>`. The `doc/retiring-badges.md` page has been updated but does **not** list vscode-marketplace in the prose section — so the retirement is silent and discoverable only by inspecting the service source.
+
+2. **The only "live" third-party service, [jeremyrajan/vs-marketplace-stats](https://github.com/jeremyrajan/vs-marketplace-stats) (2 stars), is offline.** Its endpoint `https://vsmarketplacebadge.jeremyrajan.com/api?itemName=...` returns `schannel: failed to receive handshake, SSL/TLS connection failed` — the Vercel/zeit.co app has been abandoned. README still says "Running on zeit.co" with no maintenance signal.
+
+3. **All remaining public repos are personal data stores, not libraries or services:**
+   - [stefanbuck/vscode-marketplace-stats](https://github.com/stefanbuck/vscode-marketplace-stats) (3 stars) — personal CSV archive since 2020-01-01, `index.js` + `generate-graphs.sh` + 25 CSV files, no `package.json`, no API.
+   - [RandomFractals/vscode-marketplace-ext-stats](https://github.com/RandomFractals/vscode-marketplace-ext-stats) (12 stars) — a Node CLI you run once with the extension name; no library exports.
+   - [redhat-developer/vscode-marketplace-stats](https://github.com/redhat-developer/vscode-marketplace-stats) (0 stars) — Java scraper.
+
+4. **Microsoft itself exposes nothing usable:**
+   - The Azure DevOps Publisher Portal (`marketplace.visualstudio.com/manage/...`) has charts behind login, with no exportable JSON / no public API.
+   - The Gallery API endpoint at `_apis/public/gallery/extensionquery` returns only current snapshot — no `getInstallHistory`, no trend field, no time-series aggregate.
+   - There is no public "Author dashboard" for VS Code extensions (contrast with Chrome Web Store, npm, PyPI, Homebrew formulae — all four publish install history via public APIs).
+
+### Why shields.io's silent retirement matters
+shields.io is the canonical OSS badge provider and has the largest monitoring surface for upstream API drift. When they retire a whole category rather than fix it, the implicit signal is "this API is not stable enough to maintain a wrapper around." That should inform any future decision to depend on it.
+
+### Decision
+**Remove the install-count feature from the extension repo entirely.** Files deleted:
+- `scripts/refresh-installs.mjs` (the polling script)
+- `test/refresh-installs.test.ts` (the regression tests added in LRN-20260614-001)
+- `data/installs.json` (the time-series data, including today's 563 reading)
+- `.github/workflows/installs.yml` (the daily cron)
+- The `## Stats` section in `README.md` and the `## 数据` section + chart block in `README.zh.md` (which had the Mermaid `xychart-beta` block between `<!-- installs:start/end -->` markers).
+
+The README's previous "live count on the [marketplace page](https://marketplace.visualstudio.com/items?itemName=...)" link is the only remaining pointer to install numbers — it points users directly at the source of truth and needs no maintenance on our side.
+
+### Why "remove" beats "keep" given the same maintenance burden
+Even if the script + tests were correct, the daily CI run + 4 source files + chart-block re-rendering + daily auto-commit = ongoing maintenance. With no badge, no shared service, and no library to lean on, the only value being generated is a 2-point Mermaid chart that will take months of accumulation to show any trend. **The cost is now strictly higher than the value.** The same is true for any future user who might be tempted to add this back: by the time the chart is informative, shields.io's retirement announcement will be 2 years old, the underlying API will have drifted twice more, and a new author will rediscover the same problems.
+
+### Future work
+- If a future contributor really wants install trends: the only viable path is the same DIY pattern (custom GitHub Action + custom script + manual history), and they should expect the same 3 categories of bug (API version drift, flag-bit misunderstanding, field-name drift) that we just hit. A "VS Code Marketplace install count over time" SaaS would have real product-market fit, but no one has built one in 6+ years since the API went public.
+- When evaluating any third-party badge or stat service for an unstable upstream API, **read the source of the badge provider's service file, not the docs page** — shields.io's case shows the docs can be silent about a retirement that's been in the code for months.
+
+### Resolution
+- **Resolved**: 2026-06-14T00:00:00Z
+- **Commit/PR**: pending (working-tree changes: 4 deletions + 2 README cleanups)
+- **Notes**: After cleanup, `grep -rn "refresh-installs\|installs.json" --include="*.ts" --include="*.mjs"` returns zero hits. `npm run compile` should remain green (the deleted files were self-contained and not imported by any source file).
+
+### Metadata
+- Source: Direct WebFetch of shields.io service file + retired-badge SVG, curl probes of `vsmarketplacebadge.jeremyrajan.com`, gread GitHub code search
+- Related Files: scripts/refresh-installs.mjs (deleted), test/refresh-installs.test.ts (deleted), data/installs.json (deleted), .github/workflows/installs.yml (deleted), README.md (Stats section removed), README.zh.md (数据 section removed)
+- Tags: marketplace-api, ecosystem, third-party-services, shields-io, retirement, saas-gap, architectural-decision
+- See Also: [[LRN-20260614-001]] (the bug that surfaced the question); [[LRN-20260612-001]] (the broader "API changes silently break wrappers" pattern)

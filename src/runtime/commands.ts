@@ -439,7 +439,31 @@ async function switchBaseUrl(target: 'global' | 'china'): Promise<void> {
 }
 
 async function openRequestDumpsFolder(): Promise<void> {
-	const root = vscode.Uri.joinPath(contextGlobalStorage(), 'request-dumps');
+	// Use `Uri.file(root.fsPath)` rather than `Uri.joinPath(...)` so the
+	// resulting URI carries the `file://` scheme. `vscode.env.openExternal`
+	// shells out to the OS, which only knows how to handle standard
+	// schemes (`http://`, `mailto:`, `file://`, …); a
+	// `vscode-userdata://` URI from `joinPath` is rejected silently on
+	// Windows (Shell asks "open with what app?"; the user dismisses it;
+	// the catch block fires but the error toast often gets lost behind
+	// the Copilot Chat panel). `Uri.file()` produces a `file://` URI the
+	// Shell knows to open in the file manager.
+	const fsPath = vscode.Uri.joinPath(contextGlobalStorage(), 'request-dumps').fsPath;
+	return openRequestDumpsFolderAt(fsPath);
+}
+
+/**
+ * @internal — exported for the regression test in
+ * `test/openRequestDumpsFolder.test.ts` so the test can drive the
+ * command without paying for the full `registerCommands` →
+ * `setCommandContext` → `createPlanStatusBar` cascade (which pulls in
+ * `StatusBarAlignment`, `FileType`, `lm.selectChatModels`, and other
+ * vscode surface the test mock doesn't need to model). Production
+ * callers should use the unparameterised `openRequestDumpsFolder`,
+ * which reads the globalStorageUri from the cached extension context.
+ */
+export async function openRequestDumpsFolderAt(globalStorageFsPath: string): Promise<void> {
+	const root = vscode.Uri.file(globalStorageFsPath);
 	try {
 		await vscode.workspace.fs.createDirectory(root);
 		await vscode.env.openExternal(root);

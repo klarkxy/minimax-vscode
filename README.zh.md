@@ -22,20 +22,6 @@
 - **mmx-cli 状态检测** — 面板显示官方 MiniMax CLI / auth / SKILL 是否就绪；可一键复制安装 prompt 到剪贴板。
 - **诊断能力** — 每请求分类、缓存命中统计、verbose 模式把每条请求 dump 到磁盘。
 
-## 数据
-
-VSCode Marketplace 安装量随时间变化，每天由 [`.github/workflows/installs.yml`](.github/workflows/installs.yml) 自动刷新。实时数据见[市场页](https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode-copilot)。
-
-<!-- installs:start -->
-```mermaid
-xychart-beta
-    title "Marketplace installs"
-    x-axis [2026-06-12, 2026-06-14]
-    y-axis "Installs" 0 --> 620
-    line [528, 563]
-```
-<!-- installs:end -->
-
 ## 快速开始
 
 ### 环境要求
