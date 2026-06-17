@@ -67,12 +67,13 @@ export const MCP_PROVIDER_LABEL = 'MiniMax Web Search MCP';
 /** The official MCP package. Pinned in args (no host/path), so a
  *  `uvx` install on PATH picks the latest stable release. */
 const MCP_PACKAGE = 'minimax-coding-plan-mcp';
-/** `-y` lets `uvx` install + run the package without prompting for
- *  confirmation on first launch. Matches the official Claude Code
- *  / OpenCode install commands from the MiniMax docs. Exported
- *  because the dashboard aggregator mirrors the same args into its
- *  status snapshot. */
-export const MCP_PACKAGE_ARGS = ['-y', MCP_PACKAGE];
+/** Arguments passed to `uvx`. Modern `uvx` (`uv tool run`) installs
+ *  and runs the package without prompting by default, so we do not
+ *  pass `-y`; older / alternate `uvx` implementations may reject
+ *  `-y` as an unknown flag (see issue #3). Exported because the
+ *  dashboard aggregator mirrors the same args into its status
+ *  snapshot. */
+export const MCP_PACKAGE_ARGS = [MCP_PACKAGE];
 
 /** Bump this whenever we change the args, command, or env shape so
  *  VS Code invalidates its cached tool list. */

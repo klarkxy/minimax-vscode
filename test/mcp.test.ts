@@ -146,7 +146,7 @@ describe('buildMiniMaxMcpDefinition', () => {
 		});
 		assert.equal(def.label, MCP_PROVIDER_LABEL);
 		assert.equal(def.command, 'uvx');
-		assert.deepEqual(def.args, ['-y', 'minimax-coding-plan-mcp']);
+		assert.deepEqual(def.args, ['minimax-coding-plan-mcp']);
 		assert.equal(def.env['MINIMAX_API_KEY'], 'sk-test-1234');
 		assert.equal(def.env['MINIMAX_API_HOST'], 'https://api.minimaxi.com');
 		assert.equal(def.host, 'https://api.minimaxi.com');
