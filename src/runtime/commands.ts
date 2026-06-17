@@ -6,11 +6,6 @@ import {
 	getApiHostForPlatform,
 	getClaudeCodeAllowedModels,
 	getClaudeCodeLogPath,
-	getCodexAllowedModels,
-	getCodexLogPath,
-	getCodexArchivedLogPath,
-	getOpencodeAllowedModels,
-	getOpencodeLogPath,
 } from '../config';
 import { toggleM31MContextEnabled } from '../provider/models';
 import { provideMiniMaxMcpServers, type MiniMaxMcpHandle } from './mcp';
@@ -26,14 +21,6 @@ import {
 	createClaudeCodeIngest,
 	type ClaudeCodeIngestHandle,
 } from '../dashboard/claudeCodeIngest';
-import {
-	createCodexIngest,
-	type CodexIngestHandle,
-} from '../dashboard/codexIngest';
-import {
-	createOpencodeIngest,
-	type OpencodeIngestHandle,
-} from '../dashboard/opencodeIngest';
 
 let cachedContext: vscode.ExtensionContext | undefined;
 let cachedAuth: AuthManager | undefined;
@@ -42,8 +29,6 @@ let cachedPlanCache: PlanCache | undefined;
 let cachedMmxCliCache: MmxCliCache | undefined;
 let cachedPlanStatusBar: PlanStatusBar | undefined;
 let cachedClaudeCodeIngest: ClaudeCodeIngestHandle | undefined;
-let cachedCodexIngest: CodexIngestHandle | undefined;
-let cachedOpencodeIngest: OpencodeIngestHandle | undefined;
 let cachedMcpProvider: MiniMaxMcpHandle | undefined;
 let turnNotifierDisposable: vscode.Disposable | undefined;
 
@@ -94,11 +79,15 @@ export function setCommandContext(context: vscode.ExtensionContext): void {
 		context.subscriptions.push(cachedPlanStatusBar);
 		// Kick the initial key-state read so the placeholder shows the
 		// right thing before the user has interacted with the extension.
-		void refreshPlanKeyState();
+		void refreshPlanKeyState().catch((error) => {
+			logger.warn('Initial plan key-state refresh failed', error);
+		});
 		// Whenever the user sets / clears the API key, re-mirror the
 		// state into the status bar and (re)warm the shared plan cache.
 		context.subscriptions.push(cachedAuth.onDidChangeApiKey(() => {
-			void refreshPlanKeyState();
+			void refreshPlanKeyState().catch((error) => {
+				logger.warn('Plan key-state refresh after API-key change failed', error);
+			});
 		}));
 		// The user can also flip apiBaseUrl at runtime via the
 		// switchToGlobal / switchToChina commands; those update the
@@ -157,87 +146,6 @@ export function getClaudeCodeIngest(): ClaudeCodeIngestHandle | undefined {
 }
 
 /**
- * Start the background poller that ingests Codex JSONL rollouts into a
- * sibling Memento-backed store. Mirrors `setClaudeCodeIngest` — same
- * shape, same `onDidChangeConfiguration` tear-down contract, same
- * `UsageStore` lifetime.
- */
-export function setCodexIngest(context: vscode.ExtensionContext): void {
-	if (cachedCodexIngest) return;
-	cachedCodexIngest = createCodexIngest({
-		globalState: context.globalState,
-		logPath: getCodexLogPath(),
-		archivedLogPath: getCodexArchivedLogPath(),
-		allowedModels: getCodexAllowedModels(),
-	}).start();
-	context.subscriptions.push({
-		dispose: () => {
-			cachedCodexIngest?.dispose();
-			cachedCodexIngest = undefined;
-		},
-	});
-	context.subscriptions.push(
-		vscode.workspace.onDidChangeConfiguration((e) => {
-			if (
-				e.affectsConfiguration('minimax.dashboard.includeCodex') ||
-				e.affectsConfiguration('minimax.codex.logPath') ||
-				e.affectsConfiguration('minimax.codex.archivedLogPath') ||
-				e.affectsConfiguration('minimax.codex.pollIntervalMs') ||
-				e.affectsConfiguration('minimax.codex.allowedModels')
-			) {
-				cachedCodexIngest?.dispose();
-				cachedCodexIngest = undefined;
-				setCodexIngest(context);
-			}
-		}),
-	);
-}
-
-/** Return the cached Codex ingester handle, if one is running. */
-export function getCodexIngest(): CodexIngestHandle | undefined {
-	return cachedCodexIngest;
-}
-
-/**
- * Start the background poller that ingests OpenCode storage
- * (`storage/session/message/<session>/<msg>.json`) into a sibling
- * Memento-backed store. Mirrors the Claude Code / Codex ingesters.
- */
-export function setOpencodeIngest(context: vscode.ExtensionContext): void {
-	if (cachedOpencodeIngest) return;
-	cachedOpencodeIngest = createOpencodeIngest({
-		globalState: context.globalState,
-		logPath: getOpencodeLogPath(),
-		allowedModels: getOpencodeAllowedModels(),
-	}).start();
-	context.subscriptions.push({
-		dispose: () => {
-			cachedOpencodeIngest?.dispose();
-			cachedOpencodeIngest = undefined;
-		},
-	});
-	context.subscriptions.push(
-		vscode.workspace.onDidChangeConfiguration((e) => {
-			if (
-				e.affectsConfiguration('minimax.dashboard.includeOpencode') ||
-				e.affectsConfiguration('minimax.opencode.logPath') ||
-				e.affectsConfiguration('minimax.opencode.pollIntervalMs') ||
-				e.affectsConfiguration('minimax.opencode.allowedModels')
-			) {
-				cachedOpencodeIngest?.dispose();
-				cachedOpencodeIngest = undefined;
-				setOpencodeIngest(context);
-			}
-		}),
-	);
-}
-
-/** Return the cached OpenCode ingester handle, if one is running. */
-export function getOpencodeIngest(): OpencodeIngestHandle | undefined {
-	return cachedOpencodeIngest;
-}
-
-/**
  * Cache the MCP provider handle returned by
  * `registerMiniMaxMcpProvider` so the `MiniMax: Refresh MiniMax Web
  * Search MCP` command (and the dashboard's "Refresh" button, which
@@ -274,7 +182,9 @@ export function bindChatTurnNotifier(notifier: ChatTurnNotifier): void {
 
 /** Fire-and-forget plan refresh — dedup'd by the 8s TTL. */
 function pulsePlanCache(): void {
-	void refreshPlanKeyState();
+	void refreshPlanKeyState().catch((error) => {
+		logger.warn('Plan cache pulse failed', error);
+	});
 }
 
 /** Last host we fed into the PlanCache. Used to decide whether the
@@ -350,8 +260,6 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 				planCache: getPlanCache(),
 				mmxCliCache: getMmxCliCache(),
 				claudeCodeIngest: cachedClaudeCodeIngest,
-				codexIngest: cachedCodexIngest,
-				opencodeIngest: cachedOpencodeIngest,
 				// Pass the live resolver rather than a one-shot value
 				// so the panel reflects the user's `minimax.apiBaseUrl`
 				// changes on the next refresh — see `DashboardPanelDeps.
@@ -378,22 +286,12 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 			void copyMmxInstallPromptForCommand();
 		}),
 		vscode.commands.registerCommand('minimax.refreshClaudeCodeIngest', () => {
-			void cachedClaudeCodeIngest?.refresh();
+			void cachedClaudeCodeIngest?.refresh().catch((error) => {
+				logger.warn('Claude Code ingest refresh failed', error);
+			});
 		}),
 		vscode.commands.registerCommand('minimax.openClaudeCodeLogFolder', () => {
 			void openClaudeCodeLogFolder();
-		}),
-		vscode.commands.registerCommand('minimax.refreshCodexIngest', () => {
-			void cachedCodexIngest?.refresh();
-		}),
-		vscode.commands.registerCommand('minimax.openCodexLogFolder', () => {
-			void openCodexLogFolder();
-		}),
-		vscode.commands.registerCommand('minimax.refreshOpencodeIngest', () => {
-			void cachedOpencodeIngest?.refresh();
-		}),
-		vscode.commands.registerCommand('minimax.openOpencodeLogFolder', () => {
-			void openOpencodeLogFolder();
 		}),
 		vscode.commands.registerCommand('minimax.refreshMcp', () => {
 			// The MCP provider exposes a manual "refresh now" button
@@ -409,27 +307,32 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 			// instead of a generic "refreshed" toast followed by
 			// a no-op re-resolve in VS Code.
 			void (async () => {
-				if (!cachedMcpProvider) {
-					void vscode.window.showWarningMessage(t('mcp.providerNotRegistered'));
-					logger.warn(
-						'[MiniMax MCP] refreshMcp invoked but the provider is not registered (lifecycle error?)',
+				try {
+					if (!cachedMcpProvider) {
+						void vscode.window.showWarningMessage(t('mcp.providerNotRegistered'));
+						logger.warn(
+							'[MiniMax MCP] refreshMcp invoked but the provider is not registered (lifecycle error?)',
+						);
+						return;
+					}
+					const baseUrl = getBaseUrl();
+					const { ready, reason, definition } = await provideMiniMaxMcpServers(
+						cachedAuth ?? auth,
+						baseUrl,
 					);
-					return;
+					if (!ready) {
+						void vscode.window.showWarningMessage(reason);
+						return;
+					}
+					cachedMcpProvider.refreshDefinitions();
+					void vscode.window.showInformationMessage(t('mcp.refreshed'));
+					logger.info(
+						`[MiniMax MCP] manual refresh: host=${definition?.host ?? '?'} command=${definition?.command ?? 'uvx'}`,
+					);
+				} catch (error) {
+					logger.warn('[MiniMax MCP] refreshMcp failed', error);
+					void vscode.window.showWarningMessage(t('mcp.refreshFailed'));
 				}
-				const baseUrl = getBaseUrl();
-				const { ready, reason, definition } = await provideMiniMaxMcpServers(
-					cachedAuth ?? auth,
-					baseUrl,
-				);
-				if (!ready) {
-					void vscode.window.showWarningMessage(reason);
-					return;
-				}
-				cachedMcpProvider.refreshDefinitions();
-				void vscode.window.showInformationMessage(t('mcp.refreshed'));
-				logger.info(
-					`[MiniMax MCP] manual refresh: host=${definition?.host ?? '?'} command=${definition?.command ?? 'uvx'}`,
-				);
 			})();
 		}),
 	);
@@ -497,16 +400,12 @@ async function useForCopilotCommitMessages(): Promise<void> {
 		return;
 	}
 
+	const rawUtilitySmall = vscode.workspace.getConfiguration('chat').get<unknown>('utilitySmallModel');
 	const currentUtilitySmall =
-		vscode.workspace
-			.getConfiguration('chat')
-			.get<string>('utilitySmallModel', '')
-			.trim() || undefined;
+		typeof rawUtilitySmall === 'string' ? rawUtilitySmall.trim() || undefined : undefined;
+	const rawUtility = vscode.workspace.getConfiguration('chat').get<unknown>('utilityModel');
 	const currentUtility =
-		vscode.workspace
-			.getConfiguration('chat')
-			.get<string>('utilityModel', '')
-			.trim() || undefined;
+		typeof rawUtility === 'string' ? rawUtility.trim() || undefined : undefined;
 
 	const items: vscode.QuickPickItem[] = allModels.map((m) => {
 		const fullId = `${m.vendor}/${m.id}`;
@@ -683,20 +582,6 @@ async function openClaudeCodeLogFolder(): Promise<void> {
 	await openDirectoryOrWarn(dir, t('claudeCode.folderMissing', dir));
 }
 
-/** Reveal the configured Codex log directory (live sessions) in the
- *  OS file manager. Mirrors `openClaudeCodeLogFolder`. */
-async function openCodexLogFolder(): Promise<void> {
-	const dir = getCodexLogPath();
-	await openDirectoryOrWarn(dir, t('codex.folderMissing', dir));
-}
-
-/** Reveal the configured OpenCode storage directory in the OS file
- *  manager. Mirrors `openClaudeCodeLogFolder`. */
-async function openOpencodeLogFolder(): Promise<void> {
-	const dir = getOpencodeLogPath();
-	await openDirectoryOrWarn(dir, t('opencode.folderMissing', dir));
-}
-
 /** Shared helper: stat `dir`, open it in the OS file manager when it
  *  exists and is a directory, otherwise show `warning` so the user
  *  knows where we looked. The three log-folder commands all funnel
@@ -712,7 +597,9 @@ async function openDirectoryOrWarn(dir: string, warning: string): Promise<void> 
 		// Directory doesn't exist or is unreadable — fall through to
 		// the warning.
 	}
-	void vscode.window.showWarningMessage(warning);
+	void Promise.resolve(vscode.window.showWarningMessage(warning)).catch(() => {
+		// Toast dismissed or API failure — no recovery needed.
+	});
 }
 
 function contextGlobalStorage(): vscode.Uri {

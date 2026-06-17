@@ -8,6 +8,7 @@ dist/
 Thumbs.db
 
 .idea/
+.learnings/
 
 # 参考的插件库
 deepseek-v4-for-copilot/

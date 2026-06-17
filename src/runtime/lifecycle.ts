@@ -7,8 +7,6 @@ import {
 	registerCommands,
 	setCommandContext,
 	setClaudeCodeIngest,
-	setCodexIngest,
-	setOpencodeIngest,
 	bindChatTurnNotifier,
 } from './commands';
 import { autoSelectEndpointIfUnset } from './endpoint';
@@ -22,6 +20,25 @@ let activeProvider: MiniMaxChatProvider | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	setCommandContext(context);
+	// One-time cleanup of memento keys left behind by the removed
+	// Codex / OpenCode ingesters. The modules and their constants are
+	// gone, but users who previously enabled those sources still carry
+	// orphaned cursor / stats blobs in globalState. Purge them once so
+	// the storage does not grow indefinitely and cannot collide with
+	// future features that might reuse these key names.
+	const legacyKeys = [
+		'minimax-vscode.codexUsageStats',
+		'minimax-vscode.codexIngestCursor',
+		'minimax-vscode.opencodeUsageStats',
+		'minimax-vscode.opencodeIngestSeen',
+	];
+	for (const key of legacyKeys) {
+		try {
+			await context.globalState.update(key, undefined);
+		} catch {
+			// Best-effort cleanup; do not block activation.
+		}
+	}
 	await initializeDiagnostics(context);
 	registerCommands(context);
 	// Start the Claude Code JSONL log ingester. Independent of the
@@ -29,12 +46,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// provider's API call layer never runs (e.g. user only uses
 	// Claude Code CLI / Claude Code VSCode extension).
 	setClaudeCodeIngest(context);
-	// Same pattern for Codex (JSONL rollouts) and OpenCode (storage
-	// directory). The three ingesters are fully independent — each
-	// has its own Memento cursor, its own poll loop, its own
-	// `onDidChangeConfiguration` tear-down.
-	setCodexIngest(context);
-	setOpencodeIngest(context);
 	registerActionUrls(context);
 
 	// Register the MiniMax Web Search MCP server definition provider

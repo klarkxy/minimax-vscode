@@ -1,7 +1,7 @@
 // Aggregator: stitches local Copilot-Chat usage accounting with the
 // (optional) platform coding-plan response and the Claude Code JSONL
 // ingest into a single `DashboardView`. The view carries per-source
-// tabs (`copilot`, `claudeCode`, ...) and a `total` field that is the
+// tabs (`copilot`, `claudeCode`) and a `total` field that is the
 // element-wise sum of every available source.
 
 import { createHash } from 'node:crypto';
@@ -9,9 +9,7 @@ import { createUsageStore, type ModelUsage, type UsageStore } from '../usage';
 import { fetchPlanUsage, type PlanApiOptions, type PlanApiResult } from './api';
 import { readMmxCliStatus, type MmxCliStatus } from './mmxCli';
 import type { ClaudeCodeIngestHandle } from './claudeCodeIngest';
-import type { CodexIngestHandle } from './codexIngest';
-import type { OpencodeIngestHandle } from './opencodeIngest';
-import type { ClaudeCodeView, CodexView, OpencodeView, DashboardView, McpStatus, PlanUsage, SourceView } from './types';
+import type { ClaudeCodeView, DashboardView, McpStatus, PlanUsage, SourceView } from './types';
 import { MCP_PACKAGE_ARGS, MCP_PROVIDER_ID, MCP_PROVIDER_LABEL, pickMcpApiHost } from '../runtime/mcp';
 
 export interface AggregatorOptions {
@@ -22,12 +20,6 @@ export interface AggregatorOptions {
 	/** Optional Claude Code ingester. When present, the view includes
 	 *  a `claudeCode` section; when absent, the section is omitted. */
 	claudeCodeIngest?: ClaudeCodeIngestHandle;
-	/** Optional Codex ingester. When present, the view includes a
-	 *  `codex` section; when absent, the section is omitted. */
-	codexIngest?: CodexIngestHandle;
-	/** Optional OpenCode ingester. When present, the view includes an
-	 *  `opencode` section; when absent, the section is omitted. */
-	opencodeIngest?: OpencodeIngestHandle;
 	/** Clock — overridable for tests. */
 	now?: () => Date;
 	/**
@@ -269,49 +261,6 @@ function buildClaudeCodeView(
 	};
 }
 
-/** Build the Codex portion of the dashboard view. Mirrors
- *  `buildClaudeCodeView` — the three ingest tabs are
- *  indistinguishable to the webview. */
-function buildCodexView(
-	handle: CodexIngestHandle | undefined,
-): CodexView | undefined {
-	if (!handle) return undefined;
-	const store = handle.store;
-	const stats = store.read();
-	return {
-		stats,
-		today: store.readToday(),
-		sevenDay: store.readRange(7),
-		thirtyDay: store.readRange(30),
-		perModel: Object.entries(stats.byModel)
-			.map(([modelId, usage]) => ({ modelId, usage }))
-			.sort((a, b) => b.usage.requests - a.usage.requests),
-		dailySeries: store.readDailySeries(30),
-		status: handle.status(),
-	};
-}
-
-/** Build the OpenCode portion of the dashboard view. Same shape as
- *  `buildClaudeCodeView` / `buildCodexView`. */
-function buildOpencodeView(
-	handle: OpencodeIngestHandle | undefined,
-): OpencodeView | undefined {
-	if (!handle) return undefined;
-	const store = handle.store;
-	const stats = store.read();
-	return {
-		stats,
-		today: store.readToday(),
-		sevenDay: store.readRange(7),
-		thirtyDay: store.readRange(30),
-		perModel: Object.entries(stats.byModel)
-			.map(([modelId, usage]) => ({ modelId, usage }))
-			.sort((a, b) => b.usage.requests - a.usage.requests),
-		dailySeries: store.readDailySeries(30),
-		status: handle.status(),
-	};
-}
-
 /** Add two `ModelUsage` buckets element-wise. */
 function addUsage(a: ModelUsage, b: ModelUsage): ModelUsage {
 	return {
@@ -451,35 +400,23 @@ export function buildCachedDashboardView(options: {
 	 *  tests). */
 	mcp?: McpStatus;
 	claudeCodeIngest?: ClaudeCodeIngestHandle;
-	codexIngest?: CodexIngestHandle;
-	opencodeIngest?: OpencodeIngestHandle;
 }): DashboardView {
 	const copilotView = buildCopilotView(options.store);
 	const claudeCode = buildClaudeCodeView(options.claudeCodeIngest);
-	const codex = buildCodexView(options.codexIngest);
-	const opencode = buildOpencodeView(options.opencodeIngest);
 	const sourceViews: SourceView[] = [copilotView];
 	if (claudeCode) sourceViews.push(claudeCode);
-	if (codex) sourceViews.push(codex);
-	if (opencode) sourceViews.push(opencode);
 	const total = aggregateSourceViews(sourceViews);
 	return {
 		sources: {
 			copilot: copilotView.today.requests === 0 && copilotView.sevenDay.requests === 0 ? 'empty' : 'ok',
 			claudeCode: claudeCode?.status.state ?? 'disabled',
 			claudeCodeError: claudeCode?.status.lastError ?? undefined,
-			codex: codex?.status.state ?? 'disabled',
-			codexError: codex?.status.lastError ?? undefined,
-			opencode: opencode?.status.state ?? 'disabled',
-			opencodeError: opencode?.status.lastError ?? undefined,
 			plan: options.planSource,
 			planError: options.planError,
 		},
 		total,
 		copilot: copilotView,
 		claudeCode,
-		codex,
-		opencode,
 		plan: options.planSnapshot?.usage,
 		mmxCli: options.mmxCli ?? {
 			install: 'unknown',
@@ -535,27 +472,16 @@ export async function buildDashboardView(
 	if (options.includePlatform === false) {
 		planSource = 'unsupported';
 		const mmxStatus: MmxCliStatus = options.mmxCliStatus ?? (await mmxPromise);
-		const codex = buildCodexView(options.codexIngest);
-		const opencode = buildOpencodeView(options.opencodeIngest);
-		if (codex) sourceViews.push(codex);
-		if (opencode) sourceViews.push(opencode);
-		const totalNoPlan = aggregateSourceViews(sourceViews);
 		return {
 			sources: {
 				copilot: copilotSource,
 				claudeCode: claudeCode?.status.state ?? 'disabled',
 				claudeCodeError: claudeCode?.status.lastError ?? undefined,
-				codex: codex?.status.state ?? 'disabled',
-				codexError: codex?.status.lastError ?? undefined,
-				opencode: opencode?.status.state ?? 'disabled',
-				opencodeError: opencode?.status.lastError ?? undefined,
 				plan: planSource,
 			},
-			total: totalNoPlan,
+			total,
 			copilot: copilotView,
 			claudeCode,
-			codex,
-			opencode,
 			mmxCli: mmxStatus,
 			mcp: options.mcp ?? {
 				ready: false,
@@ -606,29 +532,17 @@ export async function buildDashboardView(
 		planError = planResult.error;
 	}
 
-	const codex = buildCodexView(options.codexIngest);
-	const opencode = buildOpencodeView(options.opencodeIngest);
-	if (codex) sourceViews.push(codex);
-	if (opencode) sourceViews.push(opencode);
-	const totalWithPlan = aggregateSourceViews(sourceViews);
-
 	const view: DashboardView = {
 		sources: {
 			copilot: copilotSource,
 			claudeCode: claudeCode?.status.state ?? 'disabled',
 			claudeCodeError: claudeCode?.status.lastError ?? undefined,
-			codex: codex?.status.state ?? 'disabled',
-			codexError: codex?.status.lastError ?? undefined,
-			opencode: opencode?.status.state ?? 'disabled',
-			opencodeError: opencode?.status.lastError ?? undefined,
 			plan: planSource,
 			planError,
 		},
-		total: totalWithPlan,
+		total,
 		copilot: copilotView,
 		claudeCode,
-		codex,
-		opencode,
 		mmxCli: options.mmxCliStatus ?? mmxStatus,
 		mcp: options.mcp ?? {
 			ready: false,

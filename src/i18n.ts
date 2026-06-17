@@ -151,6 +151,7 @@ const zh: Translations = {
 	'mcp.openDashboardLogs': '打开日志',
 	'mcp.refreshed': 'MCP provider 已刷新，下次 Agent Mode 调用时生效。',
 	'mcp.providerNotRegistered': 'MCP provider 未注册。请重启 VS Code 后重试，或检查 MiniMax 扩展是否正常激活。',
+	'mcp.refreshFailed': '刷新 MCP provider 失败，请查看 MiniMax 日志输出。',
 
 	// MCP (MiniMax Web Search MCP) — surfaced via the dashboard
 	// status card and the `MiniMax: Show Logs` channel. The MCP server
@@ -168,14 +169,6 @@ const zh: Translations = {
 	// Claude Code (JSONL log ingest)
 	'claudeCode.folderMissing': '找不到 Claude Code 日志目录：{0}',
 	'claudeCode.showUsageEmpty': '暂无 Claude Code 用量记录。请运行 Claude Code CLI 或 Claude Code VSCode 扩展产生一些会话。',
-
-	// Codex (JSONL rollout ingest)
-	'codex.folderMissing': '找不到 Codex 日志目录：{0}',
-		'codex.showUsageEmpty': '暂无 Codex 用量记录。请运行 Codex CLI 产生一些会话。',
-
-	// OpenCode (storage dir ingest)
-	'opencode.folderMissing': '找不到 OpenCode 存储目录：{0}',
-	'opencode.showUsageEmpty': '暂无 OpenCode 用量记录。请运行 OpenCode CLI 产生一些会话。',
 };
 
 const en: Translations = {
@@ -314,6 +307,7 @@ const en: Translations = {
 	'mcp.openDashboardLogs': 'Open logs',
 	'mcp.refreshed': 'MCP provider refreshed. Takes effect on the next Agent Mode call.',
 	'mcp.providerNotRegistered': 'MCP provider is not registered yet. Restart VS Code or check whether the MiniMax extension activated correctly.',
+	'mcp.refreshFailed': 'Failed to refresh the MCP provider. Check the MiniMax logs for details.',
 
 	// MCP (MiniMax Web Search MCP) — surfaced via the dashboard
 	// status card and the `MiniMax: Show Logs` channel. The MCP server
@@ -332,13 +326,6 @@ const en: Translations = {
 	'claudeCode.folderMissing': 'Could not find the Claude Code log directory: {0}',
 	'claudeCode.showUsageEmpty': 'No Claude Code usage recorded yet. Run the Claude Code CLI or the Claude Code VSCode extension to generate some sessions.',
 
-	// Codex (JSONL rollout ingest)
-	'codex.folderMissing': 'Could not find the Codex log directory: {0}',
-	'codex.showUsageEmpty': 'No Codex usage recorded yet. Run the Codex CLI to generate some sessions.',
-
-	// OpenCode (storage dir ingest)
-	'opencode.folderMissing': 'Could not find the OpenCode storage directory: {0}',
-	'opencode.showUsageEmpty': 'No OpenCode usage recorded yet. Run the OpenCode CLI to generate some sessions.',
 };
 
 const dictionaries: Record<'en' | 'zh', Translations> = { en, zh };
