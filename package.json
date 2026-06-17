@@ -110,6 +110,26 @@
         "command": "minimax.openClaudeCodeLogFolder",
         "title": "%minimax.command.openClaudeCodeLogFolder%",
         "category": "MiniMax"
+      },
+      {
+        "command": "minimax.refreshCodexIngest",
+        "title": "%minimax.command.refreshCodexIngest%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.openCodexLogFolder",
+        "title": "%minimax.command.openCodexLogFolder%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.refreshOpencodeIngest",
+        "title": "%minimax.command.refreshOpencodeIngest%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.openOpencodeLogFolder",
+        "title": "%minimax.command.openOpencodeLogFolder%",
+        "category": "MiniMax"
       }
     ],
     "menus": {},
@@ -266,6 +286,88 @@
           ],
           "scope": "application",
           "markdownDescription": "Allowlist of model IDs to count in the **Claude Code** section of the dashboard. The Claude Code JSONL log includes every model the Claude Code CLI / VSCode extension talked to (not just MiniMax), so we filter to MiniMax-related models by default. Edit this list to add or remove model IDs; the in-code fallback in `getClaudeCodeAllowedModels()` mirrors this list and is used when the setting is missing or malformed."
+        },
+        "minimax.dashboard.includeCodex": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Include token usage from the OpenAI Codex CLI in the **Usage Dashboard**. Reads the same `~/.codex/sessions/**/*.jsonl` rollouts the CLI writes, plus the archived subdirectory. The cursor is persisted across restarts; disabling and re-enabling does not re-read everything. **On by default.**"
+        },
+        "minimax.codex.logPath": {
+          "type": "string",
+          "default": "~/.codex/sessions",
+          "scope": "application",
+          "markdownDescription": "Absolute path to the directory containing live Codex JSONL rollouts. Defaults to `~/.codex/sessions` (the same path the Codex CLI writes to on all platforms). The leading `~` is expanded to the user's home directory."
+        },
+        "minimax.codex.archivedLogPath": {
+          "type": "string",
+          "default": "~/.codex/archived_sessions",
+          "scope": "application",
+          "markdownDescription": "Absolute path to the directory containing *archived* Codex JSONL rollouts (the destination of the in-app archive command). The ingester scans this in addition to the live `sessions/` directory. Defaults to `~/.codex/archived_sessions`. Set to an empty string to disable the archived-sessions scan."
+        },
+        "minimax.codex.pollIntervalMs": {
+          "type": "integer",
+          "default": 30000,
+          "minimum": 5000,
+          "maximum": 600000,
+          "scope": "application",
+          "markdownDescription": "How often the dashboard's Codex ingester scans the log directories for new lines, in milliseconds. Default `30000` (30 s). Minimum `5000` (5 s); the lower the value, the more frequently the extension reads from disk."
+        },
+        "minimax.codex.allowedModels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "MiniMax-M3",
+            "MiniMax-M2.7",
+            "MiniMax-M2.7-highspeed",
+            "MiniMax-M2.5",
+            "MiniMax-M2.5-highspeed",
+            "MiniMax-M2.1",
+            "MiniMax-M2.1-highspeed",
+            "MiniMax-M2"
+          ],
+          "scope": "application",
+          "markdownDescription": "Allowlist of model IDs to count in the **Codex** section of the dashboard. The Codex JSONL rollout includes every model the Codex CLI talked to (not just MiniMax), so we filter to MiniMax-related models by default. Edit this list to add or remove model IDs; the in-code fallback in `getCodexAllowedModels()` mirrors this list and is used when the setting is missing or malformed."
+        },
+        "minimax.dashboard.includeOpencode": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Include token usage from the OpenCode CLI in the **Usage Dashboard**. Walks `~/.local/share/opencode/storage/` (each message is one JSON file) on a 30 s poll. The seen-set is persisted across restarts; disabling and re-enabling does not re-read everything. **On by default.**"
+        },
+        "minimax.opencode.logPath": {
+          "type": "string",
+          "default": "~/.local/share/opencode/storage",
+          "scope": "application",
+          "markdownDescription": "Absolute path to the root of the OpenCode storage tree. Defaults to `~/.local/share/opencode/storage`. The leading `~` is expanded to the user's home directory. The ingester recurses into any `**/message/**/*.json` subtree under this root."
+        },
+        "minimax.opencode.pollIntervalMs": {
+          "type": "integer",
+          "default": 30000,
+          "minimum": 5000,
+          "maximum": 600000,
+          "scope": "application",
+          "markdownDescription": "How often the dashboard's OpenCode ingester walks the storage tree, in milliseconds. Default `30000` (30 s). Minimum `5000` (5 s); the lower the value, the more frequently the extension reads from disk."
+        },
+        "minimax.opencode.allowedModels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "MiniMax-M3",
+            "MiniMax-M2.7",
+            "MiniMax-M2.7-highspeed",
+            "MiniMax-M2.5",
+            "MiniMax-M2.5-highspeed",
+            "MiniMax-M2.1",
+            "MiniMax-M2.1-highspeed",
+            "MiniMax-M2"
+          ],
+          "scope": "application",
+          "markdownDescription": "Allowlist of model IDs to count in the **OpenCode** section of the dashboard. The OpenCode storage tree includes every model the OpenCode CLI talked to (not just MiniMax), so we filter to MiniMax-related models by default. Edit this list to add or remove model IDs; the in-code fallback in `getOpencodeAllowedModels()` mirrors this list and is used when the setting is missing or malformed."
         },
         "minimax.experimental.modelDefPresets": {
           "type": "object",

@@ -88,6 +88,37 @@ export interface DashboardMessages {
 	claudeCodeSkippedModels: string;
 	claudeCodeNeverSynced: string;
 	claudeCodeNoData: string;
+	// ---- Codex (JSONL rollout ingest) ----
+	codexSectionTitle: string;
+	codexSubtitle: string;
+	codexEmpty: string;
+	codexDisabled: string;
+	codexErrorBanner: string;
+	codexLastSync: string;
+	codexRecheckBtn: string;
+	codexOpenFolderBtn: string;
+	codexLogPath: string;
+	codexArchivedLogPath: string;
+	codexFilesTracked: string;
+	codexParseErrors: string;
+	codexSkippedModels: string;
+	codexNeverSynced: string;
+	codexNoData: string;
+	// ---- OpenCode (storage dir ingest) ----
+	opencodeSectionTitle: string;
+	opencodeSubtitle: string;
+	opencodeEmpty: string;
+	opencodeDisabled: string;
+	opencodeErrorBanner: string;
+	opencodeLastSync: string;
+	opencodeRecheckBtn: string;
+	opencodeOpenFolderBtn: string;
+	opencodeLogPath: string;
+	opencodeFilesTracked: string;
+	opencodeParseErrors: string;
+	opencodeSkippedModels: string;
+	opencodeNeverSynced: string;
+	opencodeNoData: string;
 	// ---- Tab bar ----
 	/** Tabs without a backing data source are hidden entirely; only the
 	 *  labels for the always-on "总" tab and any visible source tabs are
@@ -183,6 +214,39 @@ const en: DashboardMessages = {
 	claudeCodeNeverSynced: 'never',
 	claudeCodeNoData: 'No Claude Code usage recorded yet.',
 
+	// Codex
+	codexSectionTitle: 'Codex usage',
+	codexSubtitle: 'Tokens consumed by the OpenAI Codex CLI, parsed from its local JSONL session rollouts in `~/.codex/sessions/` (and the archived subdirectory). Not from the MiniMax API.',
+	codexEmpty: 'No Codex JSONL rollouts were found in the configured directory. Run the Codex CLI to generate some, or check the path in Settings.',
+	codexDisabled: 'Codex log ingestion is disabled in Settings. Enable "MiniMax › Dashboard › Include Codex" to track tokens from the Codex CLI here.',
+	codexErrorBanner: 'Codex log ingestion failed. The local counters above are still accurate.',
+	codexLastSync: 'Last sync',
+	codexRecheckBtn: 'Re-scan now',
+	codexOpenFolderBtn: 'Open log folder',
+	codexLogPath: 'Live log path',
+	codexArchivedLogPath: 'Archived log path',
+	codexFilesTracked: 'Tracking {0} file(s)',
+	codexParseErrors: '{0} unparseable line(s) skipped',
+	codexSkippedModels: '{0} non-MiniMax line(s) skipped',
+	codexNeverSynced: 'never',
+	codexNoData: 'No Codex usage recorded yet.',
+
+	// OpenCode
+	opencodeSectionTitle: 'OpenCode usage',
+	opencodeSubtitle: 'Tokens consumed by the OpenCode CLI, parsed from its per-message JSON files under `~/.local/share/opencode/storage/`. Not from the MiniMax API.',
+	opencodeEmpty: 'No OpenCode message files were found in the configured directory. Run the OpenCode CLI to generate some, or check the path in Settings.',
+	opencodeDisabled: 'OpenCode log ingestion is disabled in Settings. Enable "MiniMax › Dashboard › Include OpenCode" to track tokens from the OpenCode CLI here.',
+	opencodeErrorBanner: 'OpenCode log ingestion failed. The local counters above are still accurate.',
+	opencodeLastSync: 'Last sync',
+	opencodeRecheckBtn: 'Re-scan now',
+	opencodeOpenFolderBtn: 'Open storage folder',
+	opencodeLogPath: 'Storage path',
+	opencodeFilesTracked: 'Tracking {0} message(s)',
+	opencodeParseErrors: '{0} unparseable file(s) skipped',
+	opencodeSkippedModels: '{0} non-MiniMax message(s) skipped',
+	opencodeNeverSynced: 'never',
+	opencodeNoData: 'No OpenCode usage recorded yet.',
+
 	// Tab bar
 	tabsTotal: 'Total',
 	tabsCopilot: 'copilot',
@@ -273,6 +337,39 @@ const zh: DashboardMessages = {
 	claudeCodeSkippedModels: '已跳过 {0} 行非 MiniMax 模型',
 	claudeCodeNeverSynced: '尚未同步',
 	claudeCodeNoData: '暂无 Claude Code 用量记录。',
+
+	// Codex
+	codexSectionTitle: 'Codex 用量',
+	codexSubtitle: '来自 OpenAI Codex CLI 的 token 用量，解析自 `~/.codex/sessions/` 下的 JSONL 会话 rollouts（含归档子目录）。并非来自 MiniMax API。',
+	codexEmpty: '在配置的目录中没有找到 Codex JSONL rollout。请运行 Codex CLI 产生一些会话，或在设置中检查日志路径。',
+	codexDisabled: 'Codex 日志读取在设置中已关闭。请在「MiniMax › 用量看板 › 包含 Codex」中启用，即可在此处跟踪 Codex CLI 产生的 token 用量。',
+	codexErrorBanner: 'Codex 日志解析失败。上面的本地统计仍然准确。',
+	codexLastSync: '最近同步',
+	codexRecheckBtn: '立即重新扫描',
+	codexOpenFolderBtn: '打开日志目录',
+	codexLogPath: '实时日志路径',
+	codexArchivedLogPath: '归档日志路径',
+	codexFilesTracked: '正在追踪 {0} 个文件',
+	codexParseErrors: '已跳过 {0} 行无法解析的内容',
+	codexSkippedModels: '已跳过 {0} 行非 MiniMax 模型',
+	codexNeverSynced: '尚未同步',
+	codexNoData: '暂无 Codex 用量记录。',
+
+	// OpenCode
+	opencodeSectionTitle: 'OpenCode 用量',
+	opencodeSubtitle: '来自 OpenCode CLI 的 token 用量，解析自 `~/.local/share/opencode/storage/` 下每个 message 一个的 JSON 文件。并非来自 MiniMax API。',
+	opencodeEmpty: '在配置的目录中没有找到 OpenCode 消息文件。请运行 OpenCode CLI 产生一些会话，或在设置中检查存储路径。',
+	opencodeDisabled: 'OpenCode 日志读取在设置中已关闭。请在「MiniMax › 用量看板 › 包含 OpenCode」中启用，即可在此处跟踪 OpenCode CLI 产生的 token 用量。',
+	opencodeErrorBanner: 'OpenCode 日志解析失败。上面的本地统计仍然准确。',
+	opencodeLastSync: '最近同步',
+	opencodeRecheckBtn: '立即重新扫描',
+	opencodeOpenFolderBtn: '打开存储目录',
+	opencodeLogPath: '存储路径',
+	opencodeFilesTracked: '正在追踪 {0} 条消息',
+	opencodeParseErrors: '已跳过 {0} 个无法解析的文件',
+	opencodeSkippedModels: '已跳过 {0} 条非 MiniMax 模型消息',
+	opencodeNeverSynced: '尚未同步',
+	opencodeNoData: '暂无 OpenCode 用量记录。',
 
 	// Tab bar — 产品名保留英文小写，与截图和 source 标识符一致
 	tabsTotal: '总',

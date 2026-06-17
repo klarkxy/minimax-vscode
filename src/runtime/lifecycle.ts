@@ -7,6 +7,8 @@ import {
 	registerCommands,
 	setCommandContext,
 	setClaudeCodeIngest,
+	setCodexIngest,
+	setOpencodeIngest,
 	bindChatTurnNotifier,
 } from './commands';
 import { autoSelectEndpointIfUnset } from './endpoint';
@@ -25,6 +27,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// provider's API call layer never runs (e.g. user only uses
 	// Claude Code CLI / Claude Code VSCode extension).
 	setClaudeCodeIngest(context);
+	// Same pattern for Codex (JSONL rollouts) and OpenCode (storage
+	// directory). The three ingesters are fully independent — each
+	// has its own Memento cursor, its own poll loop, its own
+	// `onDidChangeConfiguration` tear-down.
+	setCodexIngest(context);
+	setOpencodeIngest(context);
 	registerActionUrls(context);
 
 	// First-run language-driven endpoint selection. The function is a no-op

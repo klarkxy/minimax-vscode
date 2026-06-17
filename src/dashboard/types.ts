@@ -24,8 +24,10 @@
 import type { ModelUsage, UsageStats } from '../usage';
 import type { MmxCliStatus } from './mmxCli';
 import type { ClaudeCodeIngestStatus } from './claudeCodeIngest';
+import type { CodexIngestStatus } from './codexIngest';
+import type { OpencodeIngestStatus } from './opencodeIngest';
 
-export type { MmxCliStatus, ClaudeCodeIngestStatus };
+export type { MmxCliStatus, ClaudeCodeIngestStatus, CodexIngestStatus, OpencodeIngestStatus };
 
 /** Information returned by the platform `coding_plan/remains` API. */
 export interface PlanUsage {
@@ -83,6 +85,24 @@ export interface ClaudeCodeView extends SourceView {
 	status: ClaudeCodeIngestStatus;
 }
 
+/** Aggregated Codex view-model. Mirrors `SourceView` plus a status
+ *  block identical in shape to `ClaudeCodeView` so the webview can
+ *  render the three ingest tabs with the same `claudeCodeSection`
+ *  helper. `undefined` when the ingester isn't running — the
+ *  "codex" tab is hidden in that case. */
+export interface CodexView extends SourceView {
+	stats: UsageStats;
+	status: CodexIngestStatus;
+}
+
+/** Aggregated OpenCode view-model. Mirrors `SourceView` plus a status
+ *  block identical in shape to `ClaudeCodeView`. `undefined` when the
+ *  ingester isn't running — the "opencode" tab is hidden in that case. */
+export interface OpencodeView extends SourceView {
+	stats: UsageStats;
+	status: OpencodeIngestStatus;
+}
+
 /** Aggregated dashboard view-model. */
 export interface DashboardView {
 	/** Best-effort status of each upstream source. */
@@ -90,6 +110,10 @@ export interface DashboardView {
 		copilot: 'ok' | 'empty' | 'error';
 		claudeCode: 'ok' | 'empty' | 'disabled' | 'error' | 'loading';
 		claudeCodeError?: string;
+		codex: 'ok' | 'empty' | 'disabled' | 'error' | 'loading';
+		codexError?: string;
+		opencode: 'ok' | 'empty' | 'disabled' | 'error' | 'loading';
+		opencodeError?: string;
 		plan: 'ok' | 'loading' | 'unconfigured' | 'error' | 'unsupported';
 		planError?: string;
 	};
@@ -106,6 +130,12 @@ export interface DashboardView {
 	 *  isn't running (e.g. the user has fully uninstalled Claude Code
 	 *  AND disabled the setting); the "claude" tab is hidden. */
 	claudeCode?: ClaudeCodeView;
+	/** Codex JSONL-derived view. `undefined` when the ingester isn't
+	 *  running; the "codex" tab is hidden. */
+	codex?: CodexView;
+	/** OpenCode storage-derived view. `undefined` when the ingester
+	 *  isn't running; the "opencode" tab is hidden. */
+	opencode?: OpencodeView;
 	/** Platform plan usage, only present when `sources.plan === 'ok'`. */
 	plan?: PlanUsage;
 	/** mmx-cli status. Always present (defaults to "missing"). */

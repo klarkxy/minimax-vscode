@@ -26,6 +26,8 @@ import { buildCachedDashboardView, buildDashboardView, type PlanCache } from './
 import { copyMmxInstallPrompt, type MmxCliStatus } from './mmxCli';
 import type { MmxCliCache } from './mmxCliCache';
 import type { ClaudeCodeIngestHandle } from './claudeCodeIngest';
+import type { CodexIngestHandle } from './codexIngest';
+import type { OpencodeIngestHandle } from './opencodeIngest';
 import type { DashboardView } from './types';
 
 export interface DashboardPanelDeps {
@@ -44,6 +46,11 @@ export interface DashboardPanelDeps {
 	 *  ingester's `activate()` call), the section is rendered as a
 	 *  thin "disabled" placeholder. */
 	claudeCodeIngest?: ClaudeCodeIngestHandle;
+	/** Optional Codex JSONL ingester. Same contract as
+	 *  `claudeCodeIngest`. */
+	codexIngest?: CodexIngestHandle;
+	/** Optional OpenCode storage-directory ingester. Same contract. */
+	opencodeIngest?: OpencodeIngestHandle;
 	/**
 	 * Resolver for the live platform host. Evaluated at every
 	 * refresh / install-prompt dispatch, NOT captured at construction
@@ -77,6 +84,8 @@ export class DashboardPanel {
 	private readonly planCacheSubscription: vscode.Disposable;
 	private readonly mmxCliCacheSubscription: vscode.Disposable;
 	private readonly claudeCodeSubscription: vscode.Disposable | undefined;
+	private readonly codexSubscription: vscode.Disposable | undefined;
+	private readonly opencodeSubscription: vscode.Disposable | undefined;
 	private state: DashboardPanelState = { locale: 'en' };
 	private inFlight = false;
 	private readonly messageListener = (raw: vscode.WebviewMessage) => this.handleMessage(raw);
@@ -116,6 +125,15 @@ export class DashboardPanel {
 		// lands new data; re-rendering on every event keeps the "last
 		// sync" timestamp and per-model table fresh.
 		this.claudeCodeSubscription = deps.claudeCodeIngest?.subscribe(() => {
+			void this.refresh();
+		});
+		// Same pattern for the Codex and OpenCode ingesters — the three
+		// share the same dashboard pane shape so we treat them
+		// symmetrically.
+		this.codexSubscription = deps.codexIngest?.subscribe(() => {
+			void this.refresh();
+		});
+		this.opencodeSubscription = deps.opencodeIngest?.subscribe(() => {
 			void this.refresh();
 		});
 
@@ -161,6 +179,8 @@ export class DashboardPanel {
 		this.planCacheSubscription.dispose();
 		this.mmxCliCacheSubscription.dispose();
 		this.claudeCodeSubscription?.dispose();
+		this.codexSubscription?.dispose();
+		this.opencodeSubscription?.dispose();
 		for (const disposable of this.disposables) {
 			disposable.dispose();
 		}
@@ -183,7 +203,13 @@ export class DashboardPanel {
 		this.inFlight = true;
 		try {
 			const apiKey = await this.authForRefresh();
-			const planSnapshot = this.deps.planCache.read();
+			const platform = apiKey
+				? {
+					apiKey,
+					host: this.deps.getHost?.() ?? null,
+				}
+				: null;
+			const planSnapshot = platform ? this.deps.planCache.read(platform) : undefined;
 			const mmxCliSnapshot = this.deps.mmxCliCache.read();
 			const cachedView = buildCachedDashboardView({
 				store: this.deps.usageStore,
@@ -195,6 +221,8 @@ export class DashboardPanel {
 						: 'unconfigured',
 				mmxCli: mmxCliSnapshot?.status,
 				claudeCodeIngest: this.deps.claudeCodeIngest,
+				codexIngest: this.deps.codexIngest,
+				opencodeIngest: this.deps.opencodeIngest,
 			});
 			await this.postData(cachedView);
 
@@ -210,12 +238,9 @@ export class DashboardPanel {
 			// handler below) passes `force: true` for guaranteed-fresh.
 			const force = options?.force === true;
 			let planRefreshPromise: Promise<unknown> = Promise.resolve();
-			if (apiKey) {
+			if (platform) {
 				planRefreshPromise = this.deps.planCache.refresh(
-					{
-						apiKey,
-						host: this.deps.getHost?.() ?? null,
-					},
+					platform,
 					{ force },
 				);
 			}
@@ -231,21 +256,18 @@ export class DashboardPanel {
 			await planRefreshPromise;
 			// Read the cache again post-refresh so the final view
 			// reflects whatever the background fetch landed.
-			const refreshedPlanSnapshot = this.deps.planCache.read();
+			const refreshedPlanSnapshot = platform ? this.deps.planCache.read(platform) : undefined;
 			const refreshedMmxCliSnapshot = this.deps.mmxCliCache.read();
 			const view = await buildDashboardView({
 				store: this.deps.usageStore,
-				platform: apiKey
-					? {
-						apiKey,
-						host: this.deps.getHost?.() ?? null,
-					}
-					: null,
+				platform,
 				// Hand the aggregator the snapshot we already have so it
 				// does NOT re-fetch on its own.
 				planSnapshot: refreshedPlanSnapshot,
 				mmxCliStatus: refreshedMmxCliSnapshot?.status,
 				claudeCodeIngest: this.deps.claudeCodeIngest,
+				codexIngest: this.deps.codexIngest,
+				opencodeIngest: this.deps.opencodeIngest,
 			});
 			await this.postData(view);
 			await mmxPromise;
@@ -348,6 +370,24 @@ export class DashboardPanel {
 					'workbench.action.openSettings',
 					'minimax.dashboard.includeClaudeCode',
 				);
+				return;
+			}
+			case 'codexRescan': {
+				await this.deps.codexIngest?.refresh();
+				await this.refresh();
+				return;
+			}
+			case 'codexOpenFolder': {
+				await vscode.commands.executeCommand('minimax.openCodexLogFolder');
+				return;
+			}
+			case 'opencodeRescan': {
+				await this.deps.opencodeIngest?.refresh();
+				await this.refresh();
+				return;
+			}
+			case 'opencodeOpenFolder': {
+				await vscode.commands.executeCommand('minimax.openOpencodeLogFolder');
 				return;
 			}
 		}
@@ -781,8 +821,8 @@ footer {
 			{ id: 'total',    label: i18n.tabsTotal },
 			{ id: 'copilot',  label: i18n.tabsCopilot,  visible: !!view.copilot },
 			{ id: 'claude',   label: i18n.tabsClaude,   visible: !!view.claudeCode && view.sources.claudeCode !== 'disabled' },
-			{ id: 'codex',    label: i18n.tabsCodex,    visible: !!view.codex },
-			{ id: 'opencode', label: i18n.tabsOpencode, visible: !!view.opencode },
+			{ id: 'codex',    label: i18n.tabsCodex,    visible: !!view.codex && view.sources.codex !== 'disabled' },
+			{ id: 'opencode', label: i18n.tabsOpencode, visible: !!view.opencode && view.sources.opencode !== 'disabled' },
 		];
 		return all.filter(function (t) { return t.id === 'total' || t.visible; });
 	}
@@ -1070,6 +1110,83 @@ footer {
 		const models = modelTable(view.perModel);
 		return header + errorBanner + cards + actions + notesHtml + chart + models + '</section>';
 	}
+	// Shared render for the Codex and OpenCode panes. The shape
+	// matches the claudeCodeSection function exactly except the i18n
+	// key prefix (everything in messages.ts follows the
+	// <source>SectionTitle / <source>LogPath / ... convention) and
+	// the data-action names used by the click handler below.
+	function ingestSection(i18n, prefix, view, rescanAction, openFolderAction) {
+		if (!view) return '';
+		const status = view.status;
+		const titleKey = prefix + 'SectionTitle';
+		const subtitleKey = prefix + 'Subtitle';
+		const emptyKey = prefix + 'Empty';
+		const errorKey = prefix + 'ErrorBanner';
+		const lastSyncKey = prefix + 'LastSync';
+		const neverSyncedKey = prefix + 'NeverSynced';
+		const recheckKey = prefix + 'RecheckBtn';
+		const openFolderKey = prefix + 'OpenFolderBtn';
+		const logPathKey = prefix + 'LogPath';
+		const filesTrackedKey = prefix + 'FilesTracked';
+		const parseErrorsKey = prefix + 'ParseErrors';
+		const skippedModelsKey = prefix + 'SkippedModels';
+		if (status.state === 'empty') {
+			return (
+				'<section><h2>' + escapeHtml(i18n[titleKey]) + '</h2>' +
+				'<p class="dim" style="margin: 0 0 10px;">' + escapeHtml(i18n[subtitleKey]) + '</p>' +
+				'<div class="banner">' + escapeHtml(i18n[emptyKey]) + '</div>' +
+				'<div class="mmx-actions" style="margin-top: 12px;">' +
+				'<button data-action="' + openFolderAction + '">' + escapeHtml(i18n[openFolderKey]) + '</button>' +
+				'</div></section>'
+			);
+		}
+		const lastSyncText = status.lastSyncAt
+			? new Date(status.lastSyncAt).toLocaleString()
+			: i18n[neverSyncedKey];
+		const header =
+			'<section><h2>' + escapeHtml(i18n[titleKey]) + '</h2>' +
+			'<p class="dim" style="margin: 0 0 10px;">' + escapeHtml(i18n[subtitleKey]) + '</p>' +
+			'<div class="kv"><span class="dim">' + escapeHtml(i18n[lastSyncKey]) + '</span>' +
+			'<span>' + escapeHtml(lastSyncText) + '</span></div>' +
+			'<div class="kv"><span class="dim">' + escapeHtml(i18n[logPathKey]) + '</span>' +
+			'<span class="path">' + escapeHtml(status.logPath) + '</span></div>';
+		// Codex has an additional "archived log path" row; OpenCode
+		// does not. Render it only when the status carries the field.
+		const archivedPathRow = status.archivedLogPath
+			? '<div class="kv"><span class="dim">' + escapeHtml(i18n[prefix + 'ArchivedLogPath']) + '</span>' +
+				'<span class="path">' + escapeHtml(status.archivedLogPath) + '</span></div>'
+			: '';
+		const errorBanner = (status.state === 'error' && status.lastError)
+			? '<div class="banner">' + escapeHtml(i18n[errorKey]) + ' — ' + escapeHtml(status.lastError) + '</div>'
+			: '';
+		const cards =
+			'<div class="grid grid-3">' +
+				localCard(i18n.windowToday, view.today) +
+				localCard(i18n.window7d, view.sevenDay) +
+				localCard(i18n.window30d, view.thirtyDay) +
+			'</div>';
+		const actions =
+			'<div class="mmx-actions" style="margin-top: 12px;">' +
+				'<button data-action="' + rescanAction + '">' + escapeHtml(i18n[recheckKey]) + '</button>' +
+				'<button data-action="' + openFolderAction + '">' + escapeHtml(i18n[openFolderKey]) + '</button>' +
+			'</div>';
+		const notes = [];
+		if (status.filesTracked > 0) {
+			notes.push(escapeHtml(i18n[filesTrackedKey].replace('{0}', String(status.filesTracked))));
+		}
+		if (status.parseErrors > 0) {
+			notes.push(escapeHtml(i18n[parseErrorsKey].replace('{0}', String(status.parseErrors))));
+		}
+		if (status.skippedModels > 0) {
+			notes.push(escapeHtml(i18n[skippedModelsKey].replace('{0}', String(status.skippedModels))));
+		}
+		const notesHtml = notes.length
+			? '<div class="kv"><span class="dim"></span><span>' + notes.join(' · ') + '</span></div>'
+			: '';
+		const chart = chartSection(view.dailySeries);
+		const models = modelTable(view.perModel);
+		return header + archivedPathRow + errorBanner + cards + actions + notesHtml + chart + models + '</section>';
+	}
 	function chartSection(series) {
 		if (!series || series.length === 0) return '';
 		const totals = series.map(function (s) {
@@ -1269,11 +1386,11 @@ footer {
 				sourceSection(i18n.copilotSectionTitle, view.copilot) +
 			'</div>'
 			: '';
-		const codexPane = view.codex
-			? '<div data-tab-pane="codex">' + escapeHtml('') + '</div>'
+		const codexPane = (view.codex && view.sources.codex !== 'disabled')
+			? '<div data-tab-pane="codex">' + ingestSection(i18n, 'codex', view.codex, 'codex-rescan', 'codex-open-folder') + '</div>'
 			: '';
-		const opencodePane = view.opencode
-			? '<div data-tab-pane="opencode">' + escapeHtml('') + '</div>'
+		const opencodePane = (view.opencode && view.sources.opencode !== 'disabled')
+			? '<div data-tab-pane="opencode">' + ingestSection(i18n, 'opencode', view.opencode, 'opencode-rescan', 'opencode-open-folder') + '</div>'
 			: '';
 
 		root.innerHTML = banner + tabBar + totalPane + claudePane + copilotPane + codexPane + opencodePane;
@@ -1305,6 +1422,10 @@ footer {
 		else if (action === 'claude-code-rescan') vscode.postMessage({ type: 'claudeCodeRescan' });
 		else if (action === 'claude-code-open-folder') vscode.postMessage({ type: 'claudeCodeOpenFolder' });
 		else if (action === 'claude-code-open-settings') vscode.postMessage({ type: 'claudeCodeOpenSettings' });
+		else if (action === 'codex-rescan') vscode.postMessage({ type: 'codexRescan' });
+		else if (action === 'codex-open-folder') vscode.postMessage({ type: 'codexOpenFolder' });
+		else if (action === 'opencode-rescan') vscode.postMessage({ type: 'opencodeRescan' });
+		else if (action === 'opencode-open-folder') vscode.postMessage({ type: 'opencodeOpenFolder' });
 	});
 	window.addEventListener('message', function (event) {
 		const message = event.data;

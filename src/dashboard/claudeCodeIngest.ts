@@ -852,8 +852,17 @@ export function createClaudeCodeIngest(
 				clock.clearInterval(timer);
 				timer = undefined;
 			}
-			// Best-effort flush; we don't await here.
-			void writeCursor(opts.globalState, cursor);
+			// Wait for the in-flight poll to settle (if any) so the
+			// final cursor write below reflects the last completed
+			// cycle. Errors are swallowed — dispose() is a void
+			// contract and the in-flight poll's own `try/finally`
+			// already calls `writeCursor` on the way out.
+			const pending = inFlight;
+			void Promise.resolve(pending)
+				.catch(() => undefined)
+				.finally(() => {
+					void writeCursor(opts.globalState, cursor);
+				});
 		},
 	};
 

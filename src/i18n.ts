@@ -133,6 +133,14 @@ const zh: Translations = {
 	// Claude Code (JSONL log ingest)
 	'claudeCode.folderMissing': '找不到 Claude Code 日志目录：{0}',
 	'claudeCode.showUsageEmpty': '暂无 Claude Code 用量记录。请运行 Claude Code CLI 或 Claude Code VSCode 扩展产生一些会话。',
+
+	// Codex (JSONL rollout ingest)
+	'codex.folderMissing': '找不到 Codex 日志目录：{0}',
+		'codex.showUsageEmpty': '暂无 Codex 用量记录。请运行 Codex CLI 产生一些会话。',
+
+	// OpenCode (storage dir ingest)
+	'opencode.folderMissing': '找不到 OpenCode 存储目录：{0}',
+	'opencode.showUsageEmpty': '暂无 OpenCode 用量记录。请运行 OpenCode CLI 产生一些会话。',
 };
 
 const en: Translations = {
@@ -255,6 +263,14 @@ const en: Translations = {
 	// Claude Code (JSONL log ingest)
 	'claudeCode.folderMissing': 'Could not find the Claude Code log directory: {0}',
 	'claudeCode.showUsageEmpty': 'No Claude Code usage recorded yet. Run the Claude Code CLI or the Claude Code VSCode extension to generate some sessions.',
+
+	// Codex (JSONL rollout ingest)
+	'codex.folderMissing': 'Could not find the Codex log directory: {0}',
+	'codex.showUsageEmpty': 'No Codex usage recorded yet. Run the Codex CLI to generate some sessions.',
+
+	// OpenCode (storage dir ingest)
+	'opencode.folderMissing': 'Could not find the OpenCode storage directory: {0}',
+	'opencode.showUsageEmpty': 'No OpenCode usage recorded yet. Run the OpenCode CLI to generate some sessions.',
 };
 
 const dictionaries: Record<'en' | 'zh', Translations> = { en, zh };

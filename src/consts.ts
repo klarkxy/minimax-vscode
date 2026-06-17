@@ -182,6 +182,79 @@ export const CLAUDE_CODE_USAGE_STATS_KEY = 'minimax-vscode.claudeCodeUsageStats'
 export const CLAUDE_CODE_INGEST_CURSOR_KEY = 'minimax-vscode.claudeCodeIngestCursor';
 
 
+// ---- Codex log ingest ----
+
+/** memento key for cumulative token usage from the OpenAI Codex CLI,
+ *  parsed from its session JSONL rollouts. Same `UsageStats` shape
+ *  as `USAGE_STATS_KEY` so the dashboard can render every source
+ *  with the same helpers. */
+export const CODEX_USAGE_STATS_KEY = 'minimax-vscode.codexUsageStats';
+
+/** memento key for the per-file byte-offset cursor used by the Codex
+ *  log ingester. JSON blob — see `src/dashboard/codexIngest.ts`. */
+export const CODEX_INGEST_CURSOR_KEY = 'minimax-vscode.codexIngestCursor';
+
+/** Default root directory the OpenAI Codex CLI writes JSONL session
+ *  rollouts to. Mirrors `~/.codex/sessions/<rollout-id>.jsonl`. */
+export const DEFAULT_CODEX_LOG_PATH = '~/.codex/sessions';
+
+/** Default directory the Codex CLI moves finished rollouts to when
+ *  the user runs the in-app archive command. The ingester scans
+ *  this in addition to the live `sessions/` directory so archived
+ *  sessions are still picked up. */
+export const DEFAULT_CODEX_ARCHIVED_LOG_PATH = '~/.codex/archived_sessions';
+
+
+// ---- OpenCode log ingest ----
+
+/** memento key for cumulative token usage from the OpenCode CLI,
+ *  parsed from its per-message JSON files under `storage/session/`.
+ *  Same `UsageStats` shape as `USAGE_STATS_KEY`. */
+export const OPENCODE_USAGE_STATS_KEY = 'minimax-vscode.opencodeUsageStats';
+
+/** memento key for the "seen message IDs" set used by the OpenCode
+ *  log ingester. OpenCode writes each message as a separate JSON
+ *  file rather than appending to a single JSONL log, so we cannot
+ *  use a byte-offset cursor — we keep a bounded set of processed
+ *  message IDs in Memento and only re-parse files whose IDs are not
+ *  in the set. The set is capped at 5000 entries; once it overflows
+ *  we reset to empty and start over (LRU-style). */
+export const OPENCODE_INGEST_SEEN_KEY = 'minimax-vscode.opencodeIngestSeen';
+
+/** Default root directory OpenCode uses for its storage tree.
+ *  Follows XDG: `$XDG_DATA_HOME/opencode/storage` on POSIX, with
+ *  `~/.local/share` as the default. The ingester recurses into
+ *  `storage/session/message/<sessionID>/<messageID>.json` from here. */
+export const DEFAULT_OPENCODE_LOG_PATH = '~/.local/share/opencode/storage';
+
+
+// ---- Default model allowlist (shared by all three ingesters) ----
+
+/** Default allowlist of model IDs the local-file ingesters (Claude
+ *  Code JSONL, Codex JSONL, OpenCode storage) count in the dashboard.
+ *  Mirrors the official picker model IDs (M3 / M2.7 / M2.7-highspeed)
+ *  plus the M2.x family the docs still reference.
+ *
+ *  The local ingesters are allowlist-based: every tool's session log
+ *  can include non-MiniMax models (the user might have the tool
+ *  configured to talk to a different provider or a self-hosted
+ *  Anthropic-compatible gateway), so we filter to MiniMax-related
+ *  models before recording anything. Users can override per-tool via
+ *  `minimax.claudeCode.allowedModels` / `minimax.codex.allowedModels`
+ *  / `minimax.opencode.allowedModels`.
+ */
+export const DEFAULT_MINIMAX_ALLOWED_MODELS: readonly string[] = [
+	'MiniMax-M3',
+	'MiniMax-M2.7',
+	'MiniMax-M2.7-highspeed',
+	'MiniMax-M2.5',
+	'MiniMax-M2.5-highspeed',
+	'MiniMax-M2.1',
+	'MiniMax-M2.1-highspeed',
+	'MiniMax-M2',
+];
+
+
 // ---- Claude Code log ingest defaults ----
 
 /** Default root directory Claude Code writes JSONL session logs to.

@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { fetchPlanUsage } from '../src/dashboard/api.js';
-import { buildDashboardView, totalTokens, totalNetTokens, createPlanCache } from '../src/dashboard/aggregator.js';
+import { buildDashboardView, totalTokens, totalNetTokens, createPlanCache, planCacheFingerprint } from '../src/dashboard/aggregator.js';
 import { createChatTurnNotifier } from '../src/dashboard/chatTurnNotifier.js';
 import {
 	createClaudeCodeIngest,
@@ -698,6 +698,38 @@ test('createPlanCache: fingerprint-based cache isolates distinct (apiKey, host) 
 	assert.equal(calls, 3, 'same fingerprint reuses the snapshot inside the TTL');
 });
 
+test('createPlanCache: read(platform) returns only that identity snapshot', async () => {
+	let calls = 0;
+	const fetchImpl = () => {
+		calls += 1;
+		return Promise.resolve(jsonResponse({
+			...validPayload,
+			model_remains: [
+				{
+					...validPayload.model_remains[0],
+					model_name: calls === 1 ? 'key-A-plan' : 'key-B-plan',
+				},
+			],
+		}));
+	};
+	const cache = createPlanCache({ ttlMs: 60_000 });
+	const platformA = { apiKey: 'A', host: 'china' as const, fetchImpl };
+	const platformB = { apiKey: 'B', host: 'china' as const, fetchImpl };
+	await cache.refresh(platformA);
+	await cache.refresh(platformB);
+	assert.equal(cache.read(platformA)?.usage.modelName, 'key-A-plan');
+	assert.equal(cache.read(platformB)?.usage.modelName, 'key-B-plan');
+
+	// Reading a different (apiKey, host) combination that has never been
+	// refreshed must return undefined, not silently fall back to "the
+	// most recently written snapshot". This is what guards against the
+	// dashboard displaying an old account's quota right after the user
+	// swapped API keys — the cache has key A's data, but the panel is
+	// now asking for key C.
+	const platformC = { apiKey: 'C', host: 'china' as const, fetchImpl };
+	assert.equal(cache.read(platformC), undefined);
+});
+
 test('createPlanCache: force=true bypasses the TTL', async () => {
 	// The dashboard's Refresh button uses `force: true` to guarantee
 	// a fresh round-trip even inside the 5-minute TTL. Without
@@ -735,7 +767,6 @@ test('createPlanCache: invalidate(fingerprint) clears only that fingerprint', as
 	await cache.refresh({ apiKey: 'B', host: 'china', fetchImpl });
 	assert.equal(calls, 2);
 	// Compute the fingerprint for A (the helper is exported).
-	const { planCacheFingerprint } = await import('../src/dashboard/aggregator.js');
 	const fpA = planCacheFingerprint({ apiKey: 'A', host: 'china' });
 	// Targeted invalidate: drops A's snapshot, leaves B's alone.
 	cache.invalidate(fpA);

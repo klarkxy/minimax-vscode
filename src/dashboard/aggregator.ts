@@ -9,7 +9,9 @@ import { createUsageStore, type ModelUsage, type UsageStore } from '../usage';
 import { fetchPlanUsage, type PlanApiOptions, type PlanApiResult } from './api';
 import { readMmxCliStatus, type MmxCliStatus } from './mmxCli';
 import type { ClaudeCodeIngestHandle } from './claudeCodeIngest';
-import type { ClaudeCodeView, DashboardView, PlanUsage, SourceView } from './types';
+import type { CodexIngestHandle } from './codexIngest';
+import type { OpencodeIngestHandle } from './opencodeIngest';
+import type { ClaudeCodeView, CodexView, OpencodeView, DashboardView, PlanUsage, SourceView } from './types';
 
 export interface AggregatorOptions {
 	store: UsageStore;
@@ -19,6 +21,12 @@ export interface AggregatorOptions {
 	/** Optional Claude Code ingester. When present, the view includes
 	 *  a `claudeCode` section; when absent, the section is omitted. */
 	claudeCodeIngest?: ClaudeCodeIngestHandle;
+	/** Optional Codex ingester. When present, the view includes a
+	 *  `codex` section; when absent, the section is omitted. */
+	codexIngest?: CodexIngestHandle;
+	/** Optional OpenCode ingester. When present, the view includes an
+	 *  `opencode` section; when absent, the section is omitted. */
+	opencodeIngest?: OpencodeIngestHandle;
 	/** Clock — overridable for tests. */
 	now?: () => Date;
 	/**
@@ -53,8 +61,8 @@ export interface PlanSnapshot {
 }
 
 export interface PlanCache {
-	/** Most recent successful snapshot, or undefined before the first fetch. */
-	read(): PlanSnapshot | undefined;
+	/** Most recent successful snapshot for this identity, or the latest snapshot overall when omitted. */
+	read(platform?: PlanApiOptions): PlanSnapshot | undefined;
 	/**
 	 * Fetch a fresh snapshot. The same in-flight promise is returned to
 	 * concurrent callers with the same `(apiKey, host)` fingerprint so
@@ -118,7 +126,10 @@ export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
 	}
 
 	return {
-		read() {
+		read(platform) {
+			if (platform) {
+				return snapshots.get(planCacheFingerprint(platform));
+			}
 			// Return the most recently written snapshot. The cache is
 			// designed for one primary identity (the current key +
 			// host) — older fingerprints, if any, are still cached for
@@ -249,6 +260,49 @@ function buildClaudeCodeView(
 	};
 }
 
+/** Build the Codex portion of the dashboard view. Mirrors
+ *  `buildClaudeCodeView` — the three ingest tabs are
+ *  indistinguishable to the webview. */
+function buildCodexView(
+	handle: CodexIngestHandle | undefined,
+): CodexView | undefined {
+	if (!handle) return undefined;
+	const store = handle.store;
+	const stats = store.read();
+	return {
+		stats,
+		today: store.readToday(),
+		sevenDay: store.readRange(7),
+		thirtyDay: store.readRange(30),
+		perModel: Object.entries(stats.byModel)
+			.map(([modelId, usage]) => ({ modelId, usage }))
+			.sort((a, b) => b.usage.requests - a.usage.requests),
+		dailySeries: store.readDailySeries(30),
+		status: handle.status(),
+	};
+}
+
+/** Build the OpenCode portion of the dashboard view. Same shape as
+ *  `buildClaudeCodeView` / `buildCodexView`. */
+function buildOpencodeView(
+	handle: OpencodeIngestHandle | undefined,
+): OpencodeView | undefined {
+	if (!handle) return undefined;
+	const store = handle.store;
+	const stats = store.read();
+	return {
+		stats,
+		today: store.readToday(),
+		sevenDay: store.readRange(7),
+		thirtyDay: store.readRange(30),
+		perModel: Object.entries(stats.byModel)
+			.map(([modelId, usage]) => ({ modelId, usage }))
+			.sort((a, b) => b.usage.requests - a.usage.requests),
+		dailySeries: store.readDailySeries(30),
+		status: handle.status(),
+	};
+}
+
 /** Add two `ModelUsage` buckets element-wise. */
 function addUsage(a: ModelUsage, b: ModelUsage): ModelUsage {
 	return {
@@ -337,23 +391,35 @@ export function buildCachedDashboardView(options: {
 	planError?: string;
 	mmxCli?: MmxCliStatus;
 	claudeCodeIngest?: ClaudeCodeIngestHandle;
+	codexIngest?: CodexIngestHandle;
+	opencodeIngest?: OpencodeIngestHandle;
 }): DashboardView {
 	const copilotView = buildCopilotView(options.store);
 	const claudeCode = buildClaudeCodeView(options.claudeCodeIngest);
+	const codex = buildCodexView(options.codexIngest);
+	const opencode = buildOpencodeView(options.opencodeIngest);
 	const sourceViews: SourceView[] = [copilotView];
 	if (claudeCode) sourceViews.push(claudeCode);
+	if (codex) sourceViews.push(codex);
+	if (opencode) sourceViews.push(opencode);
 	const total = aggregateSourceViews(sourceViews);
 	return {
 		sources: {
 			copilot: copilotView.today.requests === 0 && copilotView.sevenDay.requests === 0 ? 'empty' : 'ok',
 			claudeCode: claudeCode?.status.state ?? 'disabled',
 			claudeCodeError: claudeCode?.status.lastError ?? undefined,
+			codex: codex?.status.state ?? 'disabled',
+			codexError: codex?.status.lastError ?? undefined,
+			opencode: opencode?.status.state ?? 'disabled',
+			opencodeError: opencode?.status.lastError ?? undefined,
 			plan: options.planSource,
 			planError: options.planError,
 		},
 		total,
 		copilot: copilotView,
 		claudeCode,
+		codex,
+		opencode,
 		plan: options.planSnapshot?.usage,
 		mmxCli: options.mmxCli ?? {
 			install: 'unknown',
@@ -397,16 +463,27 @@ export async function buildDashboardView(
 	if (options.includePlatform === false) {
 		planSource = 'unsupported';
 		const mmxStatus: MmxCliStatus = options.mmxCliStatus ?? (await mmxPromise);
+		const codex = buildCodexView(options.codexIngest);
+		const opencode = buildOpencodeView(options.opencodeIngest);
+		if (codex) sourceViews.push(codex);
+		if (opencode) sourceViews.push(opencode);
+		const totalNoPlan = aggregateSourceViews(sourceViews);
 		return {
 			sources: {
 				copilot: copilotSource,
 				claudeCode: claudeCode?.status.state ?? 'disabled',
 				claudeCodeError: claudeCode?.status.lastError ?? undefined,
+				codex: codex?.status.state ?? 'disabled',
+				codexError: codex?.status.lastError ?? undefined,
+				opencode: opencode?.status.state ?? 'disabled',
+				opencodeError: opencode?.status.lastError ?? undefined,
 				plan: planSource,
 			},
-			total,
+			total: totalNoPlan,
 			copilot: copilotView,
 			claudeCode,
+			codex,
+			opencode,
 			mmxCli: mmxStatus,
 		};
 	}
@@ -416,6 +493,14 @@ export async function buildDashboardView(
 	// PlanCache before calling the aggregator. Without this, every
 	// refresh would issue a second `fetchPlanUsage` even when the
 	// cache already has fresh data.
+	//
+	// `planSnapshot` takes precedence over `platform` — a snapshot
+	// was already obtained against a (now possibly stale) platform
+	// config and is authoritative for this refresh. Without this
+	// precedence, a caller that flips `includePlatform` to true and
+	// passes a snapshot captured under the old key would see
+	// `planSource` flip to `'unconfigured'` after the snapshot
+	// resolved as `{ ok: true, ... }`, hiding the snapshot's data.
 	const planPromise: Promise<PlanApiResult> = options.planSnapshot
 		? Promise.resolve<PlanApiResult>({ ok: true, usage: options.planSnapshot.usage })
 		: options.platform
@@ -424,27 +509,42 @@ export async function buildDashboardView(
 
 	const [planResult, mmxStatus] = await Promise.all([planPromise, mmxPromise]);
 
-	if (!options.platform) {
-		planSource = 'unconfigured';
-	} else if (planResult.ok) {
+	if (planResult.ok) {
 		planSection = planResult.usage;
 		planSource = 'ok';
+	} else if (!options.platform && !options.planSnapshot) {
+		// `!platform` alone is the "user has not configured a key"
+		// signal; if they HAVE configured a key but the fetch just
+		// failed, fall through to surface the failure reason below.
+		planSource = 'unconfigured';
 	} else {
 		planSource = planResult.reason;
 		planError = planResult.error;
 	}
+
+	const codex = buildCodexView(options.codexIngest);
+	const opencode = buildOpencodeView(options.opencodeIngest);
+	if (codex) sourceViews.push(codex);
+	if (opencode) sourceViews.push(opencode);
+	const totalWithPlan = aggregateSourceViews(sourceViews);
 
 	const view: DashboardView = {
 		sources: {
 			copilot: copilotSource,
 			claudeCode: claudeCode?.status.state ?? 'disabled',
 			claudeCodeError: claudeCode?.status.lastError ?? undefined,
+			codex: codex?.status.state ?? 'disabled',
+			codexError: codex?.status.lastError ?? undefined,
+			opencode: opencode?.status.state ?? 'disabled',
+			opencodeError: opencode?.status.lastError ?? undefined,
 			plan: planSource,
 			planError,
 		},
-		total,
+		total: totalWithPlan,
 		copilot: copilotView,
 		claudeCode,
+		codex,
+		opencode,
 		mmxCli: options.mmxCliStatus ?? mmxStatus,
 	};
 	if (planSection) {

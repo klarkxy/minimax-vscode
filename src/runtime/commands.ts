@@ -2,7 +2,16 @@ import * as vscode from 'vscode';
 import { AuthManager } from '../auth';
 import { t } from '../i18n';
 import { logger } from '../logger';
-import { getApiHostForPlatform, getClaudeCodeAllowedModels, getClaudeCodeLogPath } from '../config';
+import {
+	getApiHostForPlatform,
+	getClaudeCodeAllowedModels,
+	getClaudeCodeLogPath,
+	getCodexAllowedModels,
+	getCodexLogPath,
+	getCodexArchivedLogPath,
+	getOpencodeAllowedModels,
+	getOpencodeLogPath,
+} from '../config';
 import { toggleM31MContextEnabled } from '../provider/models';
 import { createUsageStore, type UsageStore } from '../usage';
 import { DashboardPanel } from '../dashboard/panel';
@@ -15,6 +24,14 @@ import {
 	createClaudeCodeIngest,
 	type ClaudeCodeIngestHandle,
 } from '../dashboard/claudeCodeIngest';
+import {
+	createCodexIngest,
+	type CodexIngestHandle,
+} from '../dashboard/codexIngest';
+import {
+	createOpencodeIngest,
+	type OpencodeIngestHandle,
+} from '../dashboard/opencodeIngest';
 
 let cachedContext: vscode.ExtensionContext | undefined;
 let cachedAuth: AuthManager | undefined;
@@ -23,6 +40,8 @@ let cachedPlanCache: PlanCache | undefined;
 let cachedMmxCliCache: MmxCliCache | undefined;
 let cachedPlanStatusBar: PlanStatusBar | undefined;
 let cachedClaudeCodeIngest: ClaudeCodeIngestHandle | undefined;
+let cachedCodexIngest: CodexIngestHandle | undefined;
+let cachedOpencodeIngest: OpencodeIngestHandle | undefined;
 let turnNotifierDisposable: vscode.Disposable | undefined;
 
 function getPlanCache(): PlanCache {
@@ -110,6 +129,87 @@ export function setClaudeCodeIngest(context: vscode.ExtensionContext): void {
 /** Return the cached Claude Code ingester handle, if one is running. */
 export function getClaudeCodeIngest(): ClaudeCodeIngestHandle | undefined {
 	return cachedClaudeCodeIngest;
+}
+
+/**
+ * Start the background poller that ingests Codex JSONL rollouts into a
+ * sibling Memento-backed store. Mirrors `setClaudeCodeIngest` — same
+ * shape, same `onDidChangeConfiguration` tear-down contract, same
+ * `UsageStore` lifetime.
+ */
+export function setCodexIngest(context: vscode.ExtensionContext): void {
+	if (cachedCodexIngest) return;
+	cachedCodexIngest = createCodexIngest({
+		globalState: context.globalState,
+		logPath: getCodexLogPath(),
+		archivedLogPath: getCodexArchivedLogPath(),
+		allowedModels: getCodexAllowedModels(),
+	}).start();
+	context.subscriptions.push({
+		dispose: () => {
+			cachedCodexIngest?.dispose();
+			cachedCodexIngest = undefined;
+		},
+	});
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((e) => {
+			if (
+				e.affectsConfiguration('minimax.dashboard.includeCodex') ||
+				e.affectsConfiguration('minimax.codex.logPath') ||
+				e.affectsConfiguration('minimax.codex.archivedLogPath') ||
+				e.affectsConfiguration('minimax.codex.pollIntervalMs') ||
+				e.affectsConfiguration('minimax.codex.allowedModels')
+			) {
+				cachedCodexIngest?.dispose();
+				cachedCodexIngest = undefined;
+				setCodexIngest(context);
+			}
+		}),
+	);
+}
+
+/** Return the cached Codex ingester handle, if one is running. */
+export function getCodexIngest(): CodexIngestHandle | undefined {
+	return cachedCodexIngest;
+}
+
+/**
+ * Start the background poller that ingests OpenCode storage
+ * (`storage/session/message/<session>/<msg>.json`) into a sibling
+ * Memento-backed store. Mirrors the Claude Code / Codex ingesters.
+ */
+export function setOpencodeIngest(context: vscode.ExtensionContext): void {
+	if (cachedOpencodeIngest) return;
+	cachedOpencodeIngest = createOpencodeIngest({
+		globalState: context.globalState,
+		logPath: getOpencodeLogPath(),
+		allowedModels: getOpencodeAllowedModels(),
+	}).start();
+	context.subscriptions.push({
+		dispose: () => {
+			cachedOpencodeIngest?.dispose();
+			cachedOpencodeIngest = undefined;
+		},
+	});
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((e) => {
+			if (
+				e.affectsConfiguration('minimax.dashboard.includeOpencode') ||
+				e.affectsConfiguration('minimax.opencode.logPath') ||
+				e.affectsConfiguration('minimax.opencode.pollIntervalMs') ||
+				e.affectsConfiguration('minimax.opencode.allowedModels')
+			) {
+				cachedOpencodeIngest?.dispose();
+				cachedOpencodeIngest = undefined;
+				setOpencodeIngest(context);
+			}
+		}),
+	);
+}
+
+/** Return the cached OpenCode ingester handle, if one is running. */
+export function getOpencodeIngest(): OpencodeIngestHandle | undefined {
+	return cachedOpencodeIngest;
 }
 
 /**
@@ -206,6 +306,8 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 				planCache: getPlanCache(),
 				mmxCliCache: getMmxCliCache(),
 				claudeCodeIngest: cachedClaudeCodeIngest,
+				codexIngest: cachedCodexIngest,
+				opencodeIngest: cachedOpencodeIngest,
 				// Pass the live resolver rather than a one-shot value
 				// so the panel reflects the user's `minimax.apiBaseUrl`
 				// changes on the next refresh — see `DashboardPanelDeps.
@@ -231,6 +333,18 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 		}),
 		vscode.commands.registerCommand('minimax.openClaudeCodeLogFolder', () => {
 			void openClaudeCodeLogFolder();
+		}),
+		vscode.commands.registerCommand('minimax.refreshCodexIngest', () => {
+			void cachedCodexIngest?.refresh();
+		}),
+		vscode.commands.registerCommand('minimax.openCodexLogFolder', () => {
+			void openCodexLogFolder();
+		}),
+		vscode.commands.registerCommand('minimax.refreshOpencodeIngest', () => {
+			void cachedOpencodeIngest?.refresh();
+		}),
+		vscode.commands.registerCommand('minimax.openOpencodeLogFolder', () => {
+			void openOpencodeLogFolder();
 		}),
 	);
 }
@@ -480,6 +594,28 @@ export async function openRequestDumpsFolderAt(globalStorageFsPath: string): Pro
  */
 async function openClaudeCodeLogFolder(): Promise<void> {
 	const dir = getClaudeCodeLogPath();
+	await openDirectoryOrWarn(dir, t('claudeCode.folderMissing', dir));
+}
+
+/** Reveal the configured Codex log directory (live sessions) in the
+ *  OS file manager. Mirrors `openClaudeCodeLogFolder`. */
+async function openCodexLogFolder(): Promise<void> {
+	const dir = getCodexLogPath();
+	await openDirectoryOrWarn(dir, t('codex.folderMissing', dir));
+}
+
+/** Reveal the configured OpenCode storage directory in the OS file
+ *  manager. Mirrors `openClaudeCodeLogFolder`. */
+async function openOpencodeLogFolder(): Promise<void> {
+	const dir = getOpencodeLogPath();
+	await openDirectoryOrWarn(dir, t('opencode.folderMissing', dir));
+}
+
+/** Shared helper: stat `dir`, open it in the OS file manager when it
+ *  exists and is a directory, otherwise show `warning` so the user
+ *  knows where we looked. The three log-folder commands all funnel
+ *  through this to keep the error-toast copy consistent. */
+async function openDirectoryOrWarn(dir: string, warning: string): Promise<void> {
 	try {
 		const stat = await vscode.workspace.fs.stat(vscode.Uri.file(dir));
 		if (stat.type & vscode.FileType.Directory) {
@@ -490,9 +626,7 @@ async function openClaudeCodeLogFolder(): Promise<void> {
 		// Directory doesn't exist or is unreadable — fall through to
 		// the warning.
 	}
-	void vscode.window.showWarningMessage(
-		t('claudeCode.folderMissing', dir),
-	);
+	void vscode.window.showWarningMessage(warning);
 }
 
 function contextGlobalStorage(): vscode.Uri {

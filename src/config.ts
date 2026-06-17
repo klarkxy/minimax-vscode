@@ -4,6 +4,10 @@ import {
 	CONFIG_SECTION,
 	DEFAULT_BASE_URL_CHINA,
 	DEFAULT_CLAUDE_CODE_LOG_PATH,
+	DEFAULT_CODEX_LOG_PATH,
+	DEFAULT_CODEX_ARCHIVED_LOG_PATH,
+	DEFAULT_OPENCODE_LOG_PATH,
+	DEFAULT_MINIMAX_ALLOWED_MODELS,
 	resolvePlatformHost,
 	type PlatformHost,
 } from './consts';
@@ -183,9 +187,10 @@ export function getClaudeCodePollIntervalMs(): number {
 
 /**
  * Default allowlist of model IDs the Claude Code ingester counts in the
- * dashboard. Mirrors the official picker model IDs (M3 / M2.7 /
- * M2.7-highspeed) plus the M2.x family the docs still reference. Users
- * can override this via `minimax.claudeCode.allowedModels`.
+ * dashboard. Mirrors the shared `DEFAULT_MINIMAX_ALLOWED_MODELS` list
+ * — the same set is used by the Codex and OpenCode ingesters so the
+ * user can rely on a single model registry across the dashboard.
+ * Users can override per-tool via `minimax.claudeCode.allowedModels`.
  *
  * The Claude Code JSONL session log records every model the CLI / VSCode
  * extension talked to — not just MiniMax. If the user has Claude Code
@@ -194,16 +199,7 @@ export function getClaudeCodePollIntervalMs(): number {
  * too. The dashboard's job is to count MiniMax usage, so we filter to
  * this allowlist before recording anything.
  */
-export const DEFAULT_CLAUDE_CODE_ALLOWED_MODELS: readonly string[] = [
-	'MiniMax-M3',
-	'MiniMax-M2.7',
-	'MiniMax-M2.7-highspeed',
-	'MiniMax-M2.5',
-	'MiniMax-M2.5-highspeed',
-	'MiniMax-M2.1',
-	'MiniMax-M2.1-highspeed',
-	'MiniMax-M2',
-];
+export const DEFAULT_CLAUDE_CODE_ALLOWED_MODELS: readonly string[] = DEFAULT_MINIMAX_ALLOWED_MODELS;
 
 /**
  * Read the configured `minimax.claudeCode.allowedModels`, falling back
@@ -212,13 +208,127 @@ export const DEFAULT_CLAUDE_CODE_ALLOWED_MODELS: readonly string[] = [
  * accidentally wipes the list does not silently disable the dashboard.
  */
 export function getClaudeCodeAllowedModels(): readonly string[] {
+	return readAllowedModels('claudeCode.allowedModels', DEFAULT_CLAUDE_CODE_ALLOWED_MODELS);
+}
+
+/**
+ * Whether the usage dashboard should also ingest token usage from the
+ * OpenAI Codex CLI. Reads JSONL rollouts under `~/.codex/sessions`
+ * (configurable via `minimax.codex.logPath`) on a 30 s poll.
+ * Default `true`.
+ */
+export function getIncludeCodex(): boolean {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-	const raw = config.get<unknown>('claudeCode.allowedModels');
-	if (!Array.isArray(raw)) return DEFAULT_CLAUDE_CODE_ALLOWED_MODELS;
+	return config.get<boolean>('dashboard.includeCodex', true);
+}
+
+/**
+ * Absolute path to the directory containing Codex JSONL session
+ * rollouts. Defaults to `~/.codex/sessions` on all platforms.
+ * Supports a leading `~` (expanded via `process.env.HOME` /
+ * `process.env.USERPROFILE`).
+ */
+export function getCodexLogPath(): string {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const raw = config.get<string>('codex.logPath', DEFAULT_CODEX_LOG_PATH);
+	return expandHome(raw);
+}
+
+/**
+ * Absolute path to the directory containing *archived* Codex JSONL
+ * rollouts (the destination of the in-app archive command). The
+ * ingester scans this in addition to the live `sessions/` directory
+ * so archived sessions are still picked up. Default
+ * `~/.codex/archived_sessions`. Set to an empty string to disable
+ * the archived-sessions scan.
+ */
+export function getCodexArchivedLogPath(): string {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const raw = config.get<string>('codex.archivedLogPath', DEFAULT_CODEX_ARCHIVED_LOG_PATH);
+	return expandHome(raw);
+}
+
+/**
+ * Poll interval (in milliseconds) for the Codex log ingester.
+ * Default `30 000` (30 s); clamped to `[5 000, 600 000]` even if the
+ * user edits `settings.json` to a value outside the published schema.
+ */
+export function getCodexPollIntervalMs(): number {
+	return readClampedPollInterval('codex.pollIntervalMs');
+}
+
+/**
+ * Read the configured `minimax.codex.allowedModels`. Falls back to
+ * `DEFAULT_CLAUDE_CODE_ALLOWED_MODELS` (intentionally the same list
+ * — MiniMax model IDs are stable across providers) when the setting
+ * is missing or malformed.
+ */
+export function getCodexAllowedModels(): readonly string[] {
+	return readAllowedModels('codex.allowedModels', DEFAULT_CLAUDE_CODE_ALLOWED_MODELS);
+}
+
+/**
+ * Whether the usage dashboard should also ingest token usage from
+ * the OpenCode CLI. Walks `~/.local/share/opencode/storage` on a
+ * 30 s poll. Default `true`.
+ */
+export function getIncludeOpencode(): boolean {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	return config.get<boolean>('dashboard.includeOpencode', true);
+}
+
+/**
+ * Absolute path to the root of the OpenCode storage tree. Defaults
+ * to `~/.local/share/opencode/storage`. Supports a leading `~`.
+ */
+export function getOpencodeLogPath(): string {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const raw = config.get<string>('opencode.logPath', DEFAULT_OPENCODE_LOG_PATH);
+	return expandHome(raw);
+}
+
+/**
+ * Poll interval (in milliseconds) for the OpenCode log ingester.
+ * Default `30 000` (30 s); clamped to `[5 000, 600 000]`.
+ */
+export function getOpencodePollIntervalMs(): number {
+	return readClampedPollInterval('opencode.pollIntervalMs');
+}
+
+/**
+ * Read the configured `minimax.opencode.allowedModels`. Falls back
+ * to the shared MiniMax list when missing or malformed.
+ */
+export function getOpencodeAllowedModels(): readonly string[] {
+	return readAllowedModels('opencode.allowedModels', DEFAULT_CLAUDE_CODE_ALLOWED_MODELS);
+}
+
+/** Shared helper for the three `*.allowedModels` readers. Filters
+ *  out non-string / empty entries and falls back to the default when
+ *  the user has wiped the list. */
+function readAllowedModels(
+	key: string,
+	fallback: readonly string[],
+): readonly string[] {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const raw = config.get<unknown>(key);
+	if (!Array.isArray(raw)) return fallback;
 	const filtered = raw.filter(
 		(value): value is string => typeof value === 'string' && value.trim().length > 0,
 	);
-	return filtered.length > 0 ? filtered : DEFAULT_CLAUDE_CODE_ALLOWED_MODELS;
+	return filtered.length > 0 ? filtered : fallback;
+}
+
+/** Shared helper for the three poll-interval readers. Clamps to
+ *  `[5 000, 600 000]` so a bad settings.json entry cannot stall the
+ *  ingester or hammer the disk. */
+function readClampedPollInterval(key: string): number {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const value = config.get<number>(key, 30_000);
+	if (!Number.isFinite(value)) return 30_000;
+	if (value < 5_000) return 5_000;
+	if (value > 600_000) return 600_000;
+	return value;
 }
 
 function expandHome(p: string): string {

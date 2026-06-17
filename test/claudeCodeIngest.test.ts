@@ -619,12 +619,26 @@ test('ingester: per-day buckets use the line timestamp, not the wall clock', asy
 			assistantLine({ model: 'm', ts: '2026-06-08T00:00:00Z', input: 2, output: 2, messageId: 'd2' }) + '\n' +
 			assistantLine({ model: 'm', ts: '2026-06-09T00:00:00Z', input: 3, output: 3, messageId: 'd3' }) + '\n',
 		);
+		// Pin `now` to 2026-06-09 12:00 UTC so `readDailySeries(5)`
+		// (anchored on local-date `now`) always includes 2026-06-07
+		// through 2026-06-09, regardless of the wall-clock day this
+		// test happens to run on. The ingester does not call `now`
+		// itself, but `usageStore.readDailySeries` does — see
+		// `src/usage.ts:194-218` and `src/dashboard/claudeCodeIngest.ts`
+		// `readDailySeries` (which forwards `clock.now` to
+		// `todayKey(new Date(now))`).
+		const fixedNow = new Date('2026-06-09T12:00:00Z').getTime();
 		const handle = createClaudeCodeIngest({
 			globalState: new FakeMemento(),
 			logPath: dir,
 			pollIntervalMs: 60_000,
 			allowedModels: [],
 			fs: realFs(dir),
+			clock: {
+				now: () => fixedNow,
+				setInterval: (cb: () => void, ms: number) => setInterval(cb, ms),
+				clearInterval: (h) => clearInterval(h as NodeJS.Timeout),
+			},
 		});
 		await handle.refresh();
 		const series = handle.store.readDailySeries(5);
