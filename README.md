@@ -31,6 +31,7 @@
 - **Cumulative usage tracker** — per-model input / output / cache tokens across the extension lifetime.
 - **Usage dashboard** — today / 7-day / 30-day views, 30-day bar chart, per-model breakdown, platform `coding_plan/remains`, and Claude Code JSONL ingest.
 - **mmx-cli status detection** — dashboard shows whether the official MiniMax CLI / auth / SKILL is set up; copy the install prompt to the clipboard.
+- **MiniMax Web Search MCP (Agent Mode)** — VS Code's MCP runtime launches `uvx -y minimax-coding-plan-mcp` automatically once you've set an API key and a recognised host; the extension injects the key + host as env and re-fires the definition when either changes.
 - **Diagnostics** — per-request classifier, cache-hit stats, verbose mode dumps every request to disk.
 
 ## Getting Started
@@ -122,6 +123,7 @@ A Subscription Key covers language models plus speech / video / music / image en
 | **MiniMax: Rescan Claude Code Logs** | Force a fresh read of the Claude Code JSONL log directory |
 | **MiniMax: Open Claude Code Log Folder** | Reveal the resolved Claude Code log directory in the OS file manager |
 | **MiniMax: Copy mmx-cli install prompt** | Copy the verbatim three-step install prompt to the clipboard |
+| **MiniMax: Refresh MiniMax Web Search MCP** | Re-resolve the MCP provider so VS Code picks up the latest API key / host on the next spawn |
 
 ## Troubleshooting
 

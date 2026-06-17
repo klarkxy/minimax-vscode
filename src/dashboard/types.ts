@@ -103,6 +103,54 @@ export interface OpencodeView extends SourceView {
 	status: OpencodeIngestStatus;
 }
 
+/**
+ * Snapshot of the MiniMax Web Search MCP provider's current state.
+ * The dashboard renders this as a compact "Agent Mode" card next
+ * to the existing mmx-cli status. We do NOT enumerate the tools
+ * the MCP server exposes — VS Code's Configure Tools picker is the
+ * authoritative source, and the MiniMax docs / MCP package evolve
+ * independently of our UI.
+ */
+export interface McpStatus {
+	/** `true` when the configured `minimax.apiBaseUrl` resolves to
+	 *  a known MiniMax platform AND an API key is present. The
+	 *  dashboard renders the "Registered" badge green when this is
+	 *  true AND `providerRegistered` is also true (see below). */
+	ready: boolean;
+	/** `true` when the MiniMax extension has actually called
+	 *  `vscode.lm.registerMcpServerDefinitionProvider` for this
+	 *  process. Stays `false` until `registerMiniMaxMcpProvider`
+	 *  has run, which lets the dashboard distinguish "the
+	 *  provider isn't registered yet" (lifecycle error / disabled
+	 *  by the user) from "the provider is registered, but the
+	 *  current config makes the definition not ready" (missing
+	 *  key / unrecognised host). */
+	providerRegistered: boolean;
+	/** Stable id, surfaced for debugging / logs. */
+	providerId: string;
+	/** Human-readable label (matches the package.json contribution). */
+	providerLabel: string;
+	/** Resolved MiniMax API host (e.g. `https://api.minimaxi.com`),
+	 *  or `null` for unrecognised / unknown hosts. */
+	host: string | null;
+	/** `true` when the resolved host came from a third-party proxy
+	 *  base URL rather than China / Global. Surfaces the
+	 *  credential-leak safety state — the MCP provider refuses to
+	 *  inject the key in this case. */
+	hostFromProxy: boolean;
+	/** `true` when an API key is present in SecretStorage / settings. */
+	hasApiKey: boolean;
+	/** Launch command (default `uvx`). Configurable per-provider but
+	 *  not exposed as a setting yet — always `uvx` today. */
+	command: string;
+	/** `command -y minimax-coding-plan-mcp` style args, for the
+	 *  "Launch command" row. */
+	args: string[];
+	/** Localised reason the provider is not ready (missing key /
+	 *  unknown host). Empty when `ready` is true. */
+	reason: string;
+}
+
 /** Aggregated dashboard view-model. */
 export interface DashboardView {
 	/** Best-effort status of each upstream source. */
@@ -140,4 +188,9 @@ export interface DashboardView {
 	plan?: PlanUsage;
 	/** mmx-cli status. Always present (defaults to "missing"). */
 	mmxCli: MmxCliStatus;
+	/** MiniMax Web Search MCP provider status. Always present so
+	 *  the dashboard can render the card unconditionally — the
+	 *  user shouldn't have to "enable" anything beyond having an
+	 *  API key + a recognised host. */
+	mcp: McpStatus;
 }

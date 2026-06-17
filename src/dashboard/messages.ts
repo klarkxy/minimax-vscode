@@ -72,6 +72,19 @@ export interface DashboardMessages {
 	mmxInstallBtn: string;
 	mmxLoginBtn: string;
 	mmxInstallSkillBtn: string;
+	// ---- MiniMax Web Search MCP (status card) ----
+	mcpSectionTitle: string;
+	mcpSubtitle: string;
+	mcpProviderLabel: string;
+	mcpProviderReady: string;
+	mcpProviderNotReady: string;
+	mcpKeyLabel: string;
+	mcpKeyReady: string;
+	mcpKeyMissing: string;
+	mcpHostLabel: string;
+	mcpHostUnrecognised: string;
+	mcpCommandLabel: string;
+	mcpRefreshBtn: string;
 	// ---- Claude Code (JSONL log ingest) ----
 	claudeCodeSectionTitle: string;
 	claudeCodeSubtitle: string;
@@ -197,6 +210,21 @@ const en: DashboardMessages = {
 	mmxLoginBtn: 'Log in',
 	mmxInstallSkillBtn: 'Install the agent skill',
 
+	// MiniMax Web Search MCP — status card on the dashboard.
+	mcpSectionTitle: 'MiniMax Web Search MCP (Agent Mode)',
+	mcpSubtitle:
+		'VS Code spawns uvx minimax-coding-plan-mcp on demand and injects the configured API key + host. Toggle web_search from the Configure Tools picker in Agent Mode.',
+	mcpProviderLabel: 'MCP provider',
+	mcpProviderReady: 'Registered',
+	mcpProviderNotReady: 'Not registered',
+	mcpKeyLabel: 'API key',
+	mcpKeyReady: 'Configured',
+	mcpKeyMissing: 'Missing',
+	mcpHostLabel: 'API host',
+	mcpHostUnrecognised: 'Unrecognised',
+	mcpCommandLabel: 'Launch command',
+	mcpRefreshBtn: 'Refresh MCP',
+
 	// Claude Code
 	claudeCodeSectionTitle: 'Claude Code usage',
 	claudeCodeSubtitle: 'Tokens consumed by the Claude Code CLI and the Claude Code VSCode extension, parsed from their local JSONL session logs. Not from the MiniMax API.',
@@ -320,6 +348,21 @@ const zh: DashboardMessages = {
 	mmxInstallBtn: '安装命令行',
 	mmxLoginBtn: '登录',
 	mmxInstallSkillBtn: '安装 Agent skill',
+
+	// MiniMax Web Search MCP —— 用量看板上的状态卡片
+	mcpSectionTitle: 'MiniMax Web Search MCP（Agent Mode）',
+	mcpSubtitle:
+		'由 VS Code 启动 uvx minimax-coding-plan-mcp，并把已配置的 API Key / host 注入子进程环境。在 Agent Mode 的 Configure Tools 中勾选 web_search 即可使用。',
+	mcpProviderLabel: 'MCP provider',
+	mcpProviderReady: '已注册',
+	mcpProviderNotReady: '未注册',
+	mcpKeyLabel: 'API Key',
+	mcpKeyReady: '已配置',
+	mcpKeyMissing: '未配置',
+	mcpHostLabel: 'API host',
+	mcpHostUnrecognised: '未识别',
+	mcpCommandLabel: '启动命令',
+	mcpRefreshBtn: '刷新 MCP',
 
 	// Claude Code
 	claudeCodeSectionTitle: 'Claude Code 用量',

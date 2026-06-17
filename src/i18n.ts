@@ -130,6 +130,41 @@ const zh: Translations = {
 	'mmx.promptCopied': '官方安装指令已复制到剪贴板。',
 	'mmx.copyFailed': '写入剪贴板失败。',
 
+	// Dashboard — MiniMax Web Search MCP status card (rendered as a
+	// compact badge + short note next to the existing mmx-cli section).
+	// Mirrors the `mmx.*` naming so future localisation stays uniform.
+	'mcp.sectionTitle': 'MiniMax Web Search MCP（Agent Mode）',
+	'mcp.subtitle':
+		'由 VS Code 启动 uvx minimax-coding-plan-mcp，自动把已配置的 API Key / host 注入子进程环境。Agent Mode 在 Configure Tools 中可勾选 web_search。',
+	'mcp.providerLabel': 'MCP provider',
+	'mcp.providerStatus': '已注册',
+	'mcp.providerStatusDisabled': '未注册',
+	'mcp.keyLabel': 'API Key',
+	'mcp.keyReady': '已配置',
+	'mcp.keyMissing': '未配置',
+	'mcp.hostLabel': 'API host',
+	'mcp.hostUnknown': '未识别',
+	'mcp.commandLabel': '启动命令',
+	'mcp.commandHelp':
+		'需要在本机安装 uvx（Windows: powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"）。',
+	'mcp.openDocs': '查看官方文档',
+	'mcp.openDashboardLogs': '打开日志',
+	'mcp.refreshed': 'MCP provider 已刷新，下次 Agent Mode 调用时生效。',
+	'mcp.providerNotRegistered': 'MCP provider 未注册。请重启 VS Code 后重试，或检查 MiniMax 扩展是否正常激活。',
+
+	// MCP (MiniMax Web Search MCP) — surfaced via the dashboard
+	// status card and the `MiniMax: Show Logs` channel. The MCP server
+	// itself is wired up via `contributes.mcpServerDefinitionProviders`
+	// in package.json + `vscode.lm.registerMcpServerDefinitionProvider`
+	// in src/runtime/mcp.ts; these strings are only the user-facing
+	// explanation of why the server is or isn't currently available.
+	'mcp.resolveError.missingKey':
+		'未配置 API Key。请先运行 "MiniMax: 设置 API Key"，然后再启用 Agent Mode 工具。',
+	'mcp.resolveError.unknownHost':
+		'当前 apiBaseUrl 解析不到 MiniMax 官方 host（{0}），MCP 服务已暂停。请切换到 China 或 Global 端点。',
+	'mcp.resolveError.unsupportedHost':
+		'检测到第三方代理 baseUrl（{0}）。出于安全考虑，暂不向代理 host 注入 API Key；请将 baseUrl 改回 MiniMax 官方端点。',
+
 	// Claude Code (JSONL log ingest)
 	'claudeCode.folderMissing': '找不到 Claude Code 日志目录：{0}',
 	'claudeCode.showUsageEmpty': '暂无 Claude Code 用量记录。请运行 Claude Code CLI 或 Claude Code VSCode 扩展产生一些会话。',
@@ -259,6 +294,39 @@ const en: Translations = {
 	// prompt to the clipboard. The user decides what to do next.
 	'mmx.promptCopied': 'Official install prompt copied to clipboard.',
 	'mmx.copyFailed': 'Could not write to clipboard.',
+
+	// Dashboard — MiniMax Web Search MCP status card.
+	'mcp.sectionTitle': 'MiniMax Web Search MCP (Agent Mode)',
+	'mcp.subtitle':
+		'VS Code launches uvx minimax-coding-plan-mcp and injects the configured API Key / host as env. Toggle web_search on from Configure Tools in Agent Mode.',
+	'mcp.providerLabel': 'MCP provider',
+	'mcp.providerStatus': 'Registered',
+	'mcp.providerStatusDisabled': 'Not registered',
+	'mcp.keyLabel': 'API Key',
+	'mcp.keyReady': 'Configured',
+	'mcp.keyMissing': 'Missing',
+	'mcp.hostLabel': 'API host',
+	'mcp.hostUnknown': 'Unrecognised',
+	'mcp.commandLabel': 'Launch command',
+	'mcp.commandHelp':
+		'Requires uvx on PATH (Windows: powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex").',
+	'mcp.openDocs': 'Open official docs',
+	'mcp.openDashboardLogs': 'Open logs',
+	'mcp.refreshed': 'MCP provider refreshed. Takes effect on the next Agent Mode call.',
+	'mcp.providerNotRegistered': 'MCP provider is not registered yet. Restart VS Code or check whether the MiniMax extension activated correctly.',
+
+	// MCP (MiniMax Web Search MCP) — surfaced via the dashboard
+	// status card and the `MiniMax: Show Logs` channel. The MCP server
+	// itself is wired up via `contributes.mcpServerDefinitionProviders`
+	// in package.json + `vscode.lm.registerMcpServerDefinitionProvider`
+	// in src/runtime/mcp.ts; these strings are only the user-facing
+	// explanation of why the server is or isn't currently available.
+	'mcp.resolveError.missingKey':
+		'No API key configured. Run "MiniMax: Set API Key" and then re-enable Agent Mode tools.',
+	'mcp.resolveError.unknownHost':
+		'Could not resolve the current apiBaseUrl ({0}) to a MiniMax platform. The MCP server is paused. Switch to the China or Global endpoint.',
+	'mcp.resolveError.unsupportedHost':
+		'Detected a third-party proxy baseUrl ({0}). For safety we will not inject the API key into a proxy host — switch back to a MiniMax official endpoint.',
 
 	// Claude Code (JSONL log ingest)
 	'claudeCode.folderMissing': 'Could not find the Claude Code log directory: {0}',

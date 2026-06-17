@@ -15,6 +15,7 @@
 	"minimax.command.openCodexLogFolder": "打开 Codex 日志目录",
 	"minimax.command.refreshOpencodeIngest": "重新扫描 OpenCode 存储",
 	"minimax.command.openOpencodeLogFolder": "打开 OpenCode 存储目录",
+	"minimax.command.refreshMcp": "刷新 MiniMax Web Search MCP",
 	"minimax.config.title": "MiniMax",
 	"minimax.walkthrough.title": "MiniMax 入门",
 	"minimax.walkthrough.description": "配置 MiniMax Token Plan API Key、选择模型并调整高级设置。",

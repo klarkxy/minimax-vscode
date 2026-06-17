@@ -22,8 +22,10 @@ import {
 	type DashboardLocale,
 	type DashboardMessages,
 } from './messages';
-import { buildCachedDashboardView, buildDashboardView, type PlanCache } from './aggregator';
+import { buildCachedDashboardView, buildDashboardView, buildMcpStatus, type PlanCache } from './aggregator';
 import { copyMmxInstallPrompt, type MmxCliStatus } from './mmxCli';
+import { getBaseUrl } from '../config';
+import { pickMcpApiHost } from '../runtime/mcp';
 import type { MmxCliCache } from './mmxCliCache';
 import type { ClaudeCodeIngestHandle } from './claudeCodeIngest';
 import type { CodexIngestHandle } from './codexIngest';
@@ -66,6 +68,17 @@ export interface DashboardPanelDeps {
 	 * install-prompt falls back to the international variant.
 	 */
 	getHost?: () => 'china' | 'global' | null;
+	/**
+	 * Resolver for the live MCP provider "is registered" state.
+	 * Defaults to `false` when not supplied (e.g. unit tests that
+	 * don't wire up the runtime). The dashboard uses this to
+	 * distinguish "the extension has registered the MCP provider
+	 * with VS Code" from "the provider is missing or the lifecycle
+	 * skipped registration" — the difference is invisible to the
+	 * user-facing ready flag, which only reflects whether the
+	 * current config would yield a working definition.
+	 */
+	getMcpProviderRegistered?: () => boolean;
 }
 
 const VIEW_TYPE = 'minimax.dashboard';
@@ -220,6 +233,7 @@ export class DashboardPanel {
 						? 'loading'
 						: 'unconfigured',
 				mmxCli: mmxCliSnapshot?.status,
+				mcp: await this.computeMcpStatus(apiKey),
 				claudeCodeIngest: this.deps.claudeCodeIngest,
 				codexIngest: this.deps.codexIngest,
 				opencodeIngest: this.deps.opencodeIngest,
@@ -265,6 +279,7 @@ export class DashboardPanel {
 				// does NOT re-fetch on its own.
 				planSnapshot: refreshedPlanSnapshot,
 				mmxCliStatus: refreshedMmxCliSnapshot?.status,
+				mcp: await this.computeMcpStatus(apiKey),
 				claudeCodeIngest: this.deps.claudeCodeIngest,
 				codexIngest: this.deps.codexIngest,
 				opencodeIngest: this.deps.opencodeIngest,
@@ -286,6 +301,37 @@ export class DashboardPanel {
 	 */
 	private async authForRefresh(): Promise<string | undefined> {
 		return this.deps.auth.getApiKey();
+	}
+
+	/**
+	 * Build the `mcp` field of the dashboard view. The aggregator
+	 * does the heavy lifting (host mapping, ready flag); this helper
+	 * only translates the localised reason for the "not ready" case
+	 * into the dashboard's current locale.
+	 *
+	 * Reads the configured `minimax.apiBaseUrl` live so a host switch
+	 * is reflected on the very next refresh, mirroring the credential
+	 * boundary rationale used by `DashboardPanelDeps.getHost`.
+	 */
+	private async computeMcpStatus(apiKey: string | undefined): Promise<DashboardView['mcp']> {
+		const apiBaseUrl = getBaseUrl();
+		const hasApiKey = typeof apiKey === 'string' && apiKey.trim().length > 0;
+		const { fromProxy } = pickMcpApiHost(apiBaseUrl);
+		const providerRegistered = this.deps.getMcpProviderRegistered?.() ?? false;
+		// Pick the most specific localised reason. Empty when ready.
+		let reason = '';
+		if (!hasApiKey) {
+			reason = t('mcp.resolveError.missingKey');
+		} else if (fromProxy) {
+			reason = t('mcp.resolveError.unsupportedHost', apiBaseUrl);
+		} else {
+			// hasApiKey + unknown host is also unreachable today (we
+			// don't expose an `mcp.apiHostOverride` yet) — surface the
+			// same "unsupported" message so the dashboard shows a
+			// clear, single-line explanation rather than a blank badge.
+			reason = t('mcp.resolveError.unknownHost', apiBaseUrl);
+		}
+		return buildMcpStatus({ apiBaseUrl, hasApiKey, providerRegistered, reason });
 	}
 
 	private async postData(view: DashboardView): Promise<void> {
@@ -353,6 +399,19 @@ export class DashboardPanel {
 				return;
 			}
 			case 'mmxRecheck': {
+				await this.refresh();
+				return;
+			}
+			case 'mcpRefresh': {
+				// The MCP card's "Refresh" button: kick the user's
+				// command so the extension re-evaluates the provider
+				// state and fires `onDidChangeMcpServerDefinitions`,
+				// prompting VS Code to re-resolve on the next MCP
+				// call. We deliberately do NOT reach into VS Code's
+				// MCP cache here — the command + the natural
+				// `onDidChange` event are the supported integration
+				// surface.
+				await vscode.commands.executeCommand('minimax.refreshMcp');
 				await this.refresh();
 				return;
 			}
@@ -1246,6 +1305,57 @@ footer {
 		}
 		return '<span class="mmx-badge mmx-badge-miss">○ ' + escapeHtml(missingLabel) + '</span>';
 	}
+	function mcpSection(mcp) {
+		if (!mcp) return '';
+		const ready = !!mcp.ready;
+		const keyReady = !!mcp.hasApiKey;
+		const hostText = mcp.host
+			? mcp.host
+			: (mcp.hostFromProxy
+				? i18n.mcpHostUnrecognised
+				: i18n.mcpHostUnrecognised);
+		const commandText = (mcp.command || 'uvx') + ' ' + (mcp.args || []).join(' ');
+		const providerBadge = ready
+			? '<span class="mmx-badge mmx-badge-ok">● ' + escapeHtml(i18n.mcpProviderReady) + '</span>'
+			: '<span class="mmx-badge mmx-badge-miss">○ ' + escapeHtml(i18n.mcpProviderNotReady) + '</span>';
+		const keyBadge = keyReady
+			? '<span class="mmx-badge mmx-badge-ok">● ' + escapeHtml(i18n.mcpKeyReady) + '</span>'
+			: '<span class="mmx-badge mmx-badge-miss">○ ' + escapeHtml(i18n.mcpKeyMissing) + '</span>';
+		// Same ready/note pair the mmx-cli section uses: 'mmx-ready.ok'
+		// is the 'all green' tint; the neutral class is the 'almost
+		// there' tint; 'mmx-note' is the explanation when the user
+		// still has work to do.
+		const readyNote = ready
+			? '<div class="mmx-ready ok">' + escapeHtml(i18n.mcpProviderReady) + '</div>'
+			: (mcp.reason
+				? '<div class="mmx-note">' + escapeHtml(mcp.reason) + '</div>'
+				: '');
+		// The card body has three rows: provider, key, host, plus the
+		// launch command. Mirror the mmx-cli grid so the two cards
+		// line up visually.
+		const cards =
+			'<div class="mmx-grid">' +
+				'<div class="mmx-card"><div class="mmx-card-title">' + escapeHtml(i18n.mcpProviderLabel) + '</div>' + providerBadge + '</div>' +
+				'<div class="mmx-card"><div class="mmx-card-title">' + escapeHtml(i18n.mcpKeyLabel) + '</div>' + keyBadge + '</div>' +
+				'<div class="mmx-card"><div class="mmx-card-title">' + escapeHtml(i18n.mcpHostLabel) + '</div>' +
+					'<div class="dim" style="margin-top:6px; font-family: var(--vscode-editor-font-family, ui-monospace, monospace); word-break: break-all;">' +
+						escapeHtml(hostText) +
+					'</div>' +
+				'</div>' +
+			'</div>' +
+			'<div class="kv"><span class="dim">' + escapeHtml(i18n.mcpCommandLabel) + '</span>' +
+				'<span class="path">' + escapeHtml(commandText) + '</span></div>';
+		const actions =
+			'<div class="mmx-actions">' +
+				'<button data-action="mcp-refresh" class="primary">' + escapeHtml(i18n.mcpRefreshBtn) + '</button>' +
+			'</div>';
+		return (
+			'<section><h2>' + escapeHtml(i18n.mcpSectionTitle) + '</h2>' +
+			'<p class="dim" style="margin: 0 0 14px;">' + escapeHtml(i18n.mcpSubtitle) + '</p>' +
+			cards + readyNote + actions +
+			'</section>'
+		);
+	}
 	function mmxSection(mmx) {
 		if (!mmx) return '';
 		const install = mmx.install;
@@ -1375,6 +1485,7 @@ footer {
 			'<div data-tab-pane="total">' +
 				(view.plan ? platformSection(view.plan) : '') +
 				sourceSection(i18n.totalSectionTitle, view.total) +
+				mcpSection(view.mcp) +
 				mmxSection(view.mmxCli) +
 				emptyState(view.sources) +
 			'</div>';
@@ -1419,6 +1530,7 @@ footer {
 		else if (action === 'reset') vscode.postMessage({ type: 'reset' });
 		else if (action === 'mmx-copy-prompt') vscode.postMessage({ type: 'mmxCopyPrompt' });
 		else if (action === 'mmx-recheck') vscode.postMessage({ type: 'mmxRecheck' });
+		else if (action === 'mcp-refresh') vscode.postMessage({ type: 'mcpRefresh' });
 		else if (action === 'claude-code-rescan') vscode.postMessage({ type: 'claudeCodeRescan' });
 		else if (action === 'claude-code-open-folder') vscode.postMessage({ type: 'claudeCodeOpenFolder' });
 		else if (action === 'claude-code-open-settings') vscode.postMessage({ type: 'claudeCodeOpenSettings' });

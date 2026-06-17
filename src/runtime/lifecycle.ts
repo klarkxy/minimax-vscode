@@ -14,6 +14,8 @@ import {
 import { autoSelectEndpointIfUnset } from './endpoint';
 import { initializeDiagnostics } from './diagnostics';
 import { registerProvider } from './provider';
+import { getAuthManager, setMcpProvider, getMcpProvider } from './commands';
+import { registerMiniMaxMcpProvider } from './mcp';
 import { showWelcomeIfNeeded } from './welcome';
 
 let activeProvider: MiniMaxChatProvider | undefined;
@@ -34,6 +36,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	setCodexIngest(context);
 	setOpencodeIngest(context);
 	registerActionUrls(context);
+
+	// Register the MiniMax Web Search MCP server definition provider
+	// so VS Code's MCP runtime discovers it (see src/runtime/mcp.ts).
+	// This intentionally happens BEFORE the chat model provider below
+	// so the dashboard's first paint can already reflect an active
+	// MCP server when the user has an API key + known host. The
+	// provider is a no-op when the user is on an unrecognised host
+	// or has no key — the dashboard surfaces the reason separately.
+	const auth = getAuthManager();
+	if (auth) {
+		const mcpHandle = registerMiniMaxMcpProvider(context, auth);
+		context.subscriptions.push(mcpHandle);
+		// Share the handle with `commands.ts` so the
+		// `minimax.refreshMcp` command (and the dashboard's Refresh
+		// button, which dispatches the same command) can fire
+		// `onDidChangeMcpServerDefinitions` and prompt VS Code to
+		// re-resolve on the next MCP call. The handle's
+		// `refreshDefinitions()` is a no-op after the push'd
+		// subscription above is disposed.
+		setMcpProvider(mcpHandle);
+	}
 
 	// First-run language-driven endpoint selection. The function is a no-op
 	// once the user has explicitly chosen an endpoint (via settings or the

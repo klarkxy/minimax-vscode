@@ -1,5 +1,52 @@
 # Changelog
 
+## 2.4.0 — 2026-06-17
+
+### MiniMax Web Search MCP — Agent Mode tools without skill prompts
+
+- The extension now registers a VS Code MCP server definition provider
+  (`contributes.mcpServerDefinitionProviders` id `minimax-web-search`,
+  registered via `vscode.lm.registerMcpServerDefinitionProvider`).
+  VS Code's MCP runtime spawns `uvx minimax-coding-plan-mcp -y` on
+  demand and discovers the `web_search` tool from the official
+  MiniMax Web Search MCP package — no `mmx-cli` install or skill
+  prompt required.
+- The API key stays in SecretStorage; the extension only injects it
+  as `MINIMAX_API_KEY` env into the child process at spawn time.
+  `MINIMAX_API_HOST` follows the user's `minimax.apiBaseUrl` —
+  China → `https://api.minimaxi.com`, international →
+  `https://api.minimax.io`. Third-party proxy base URLs are
+  rejected on purpose to avoid credential leak (the same policy
+  the dashboard's Token Plan card already enforces).
+- Dashboard gains a compact **MiniMax Web Search MCP** card next
+  to the mmx-cli status: provider / key / host / launch command.
+  New command `MiniMax: Refresh MiniMax Web Search MCP` re-fires
+  the provider so VS Code picks up fresh credentials on the next
+  MCP call.
+- `onDidChangeMcpServerDefinitions` fires automatically when the
+  API key changes (set / clear / replace) or when `minimax.apiBaseUrl`
+  changes — no manual restart required.
+- We deliberately do NOT enumerate the tools the MCP server
+  exposes (the docs only list `web_search` on the international site
+  and may change). The authoritative list lives in Copilot Chat's
+  Configure Tools picker, not in our UI. We also do NOT install
+  `uvx` for the user — when it's missing VS Code surfaces the spawn
+  failure in the MCP output channel, and the README links to the
+  official install command.
+
+### Tests
+
+- Added `test/mcp.test.ts` covering host mapping (China / global /
+  spoofed userinfo / malformed), env injection, the provider's
+  `provideMcpServerDefinitions` / `resolveMcpServerDefinition`
+  contract, missing-key behaviour, and the
+  `onDidChangeMcpServerDefinitions` config listeners.
+- `test/helpers/vscodeMock.ts` gains a minimal `vscode.lm` mock
+  (`registerMcpServerDefinitionProvider`, `McpStdioServerDefinition`)
+  plus a `mockConfig` store and a `workspace.onDidChangeConfiguration`
+  stub so the existing tests can keep driving the dashboard through
+  its public surface.
+
 ## 2.3.1 — Drop stray `nul` file, harden `.vscodeignore`
 
 ### Fixed

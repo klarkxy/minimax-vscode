@@ -15,6 +15,7 @@
 	"minimax.command.openCodexLogFolder": "Open Codex Log Folder",
 	"minimax.command.refreshOpencodeIngest": "Rescan OpenCode Storage",
 	"minimax.command.openOpencodeLogFolder": "Open OpenCode Storage Folder",
+	"minimax.command.refreshMcp": "Refresh MiniMax Web Search MCP",
 	"minimax.config.title": "MiniMax",
 	"minimax.walkthrough.title": "Get started with MiniMax",
 	"minimax.walkthrough.description": "Configure the MiniMax Token Plan API key, pick a model, and tune advanced settings.",

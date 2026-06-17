@@ -11,7 +11,8 @@ import { readMmxCliStatus, type MmxCliStatus } from './mmxCli';
 import type { ClaudeCodeIngestHandle } from './claudeCodeIngest';
 import type { CodexIngestHandle } from './codexIngest';
 import type { OpencodeIngestHandle } from './opencodeIngest';
-import type { ClaudeCodeView, CodexView, OpencodeView, DashboardView, PlanUsage, SourceView } from './types';
+import type { ClaudeCodeView, CodexView, OpencodeView, DashboardView, McpStatus, PlanUsage, SourceView } from './types';
+import { MCP_PACKAGE_ARGS, MCP_PROVIDER_ID, MCP_PROVIDER_LABEL, pickMcpApiHost } from '../runtime/mcp';
 
 export interface AggregatorOptions {
 	store: UsageStore;
@@ -43,6 +44,14 @@ export interface AggregatorOptions {
 	 * before calling the aggregator.
 	 */
 	mmxCliStatus?: MmxCliStatus;
+	/**
+	 * Optional pre-computed MiniMax Web Search MCP provider snapshot.
+	 * When omitted the aggregator emits the "not registered yet"
+	 * placeholder so the cached path stays usable before the runtime
+	 * module has had a chance to compute the real status (e.g. unit
+	 * tests that don't wire up `registerMiniMaxMcpProvider`).
+	 */
+	mcp?: McpStatus;
 }
 
 // ---- Shared plan cache (Dashboard + status bar) --------------------------
@@ -323,6 +332,51 @@ const EMPTY_USAGE: ModelUsage = {
 };
 
 /**
+ * Build the `mcp` field of the dashboard view. Kept here (rather
+ * than inside `panel.ts`) so the cached and the live paths compute
+ * the same shape — they MUST be byte-identical or the webview will
+ * flicker on every refresh.
+ *
+ * Pure data: no VS Code API, no `vscode.workspace` reads. The
+ * `apiBaseUrl` and `hasApiKey` are passed in by the caller so the
+ * aggregator stays testable. When the host is unknown, `reason`
+ * carries the localised explanation string the dashboard renders.
+ */
+export function buildMcpStatus(options: {
+	apiBaseUrl: string;
+	hasApiKey: boolean;
+	/**
+	 * Whether the MiniMax extension has actually called
+	 * `vscode.lm.registerMcpServerDefinitionProvider` for this
+	 * process. The dashboard uses this to distinguish "provider
+	 * registered with VS Code, but the current config makes the
+	 * definition not ready" (e.g. missing key) from "the provider
+	 * hasn't been registered yet at all" (lifecycle error).
+	 */
+	providerRegistered: boolean;
+	/** Localised explanation string for the dashboard to render
+	 *  inline when `ready` is `false`. Empty when `ready` is true.
+	 *  Kept as a parameter so the aggregator never depends on
+	 *  `i18n.ts` (UI strings live in the dashboard layer). */
+	reason: string;
+}): McpStatus {
+	const { host, fromProxy } = pickMcpApiHost(options.apiBaseUrl);
+	const ready = options.hasApiKey && host !== null;
+	return {
+		ready,
+		providerRegistered: options.providerRegistered,
+		providerId: MCP_PROVIDER_ID,
+		providerLabel: MCP_PROVIDER_LABEL,
+		host,
+		hostFromProxy: fromProxy,
+		hasApiKey: options.hasApiKey,
+		command: 'uvx',
+		args: MCP_PACKAGE_ARGS.slice(),
+		reason: ready ? '' : options.reason,
+	};
+}
+
+/**
  * Sum a list of per-source views into a single aggregate. Used for
  * the "总" tab so a user with N source tabs sees a single set of
  * all-in totals without having to add the tabs themselves.
@@ -390,6 +444,12 @@ export function buildCachedDashboardView(options: {
 	planSource: DashboardView['sources']['plan'];
 	planError?: string;
 	mmxCli?: MmxCliStatus;
+	/** Optional pre-computed MCP provider snapshot. When omitted
+	 *  we fall back to the "not registered yet" placeholder so
+	 *  the cached path can be invoked before the runtime module
+	 *  has had a chance to compute the real status (e.g. unit
+	 *  tests). */
+	mcp?: McpStatus;
 	claudeCodeIngest?: ClaudeCodeIngestHandle;
 	codexIngest?: CodexIngestHandle;
 	opencodeIngest?: OpencodeIngestHandle;
@@ -428,6 +488,18 @@ export function buildCachedDashboardView(options: {
 			auth: 'unknown',
 			skill: 'unknown',
 			agentReady: false,
+		},
+		mcp: options.mcp ?? {
+			ready: false,
+			providerRegistered: false,
+			providerId: MCP_PROVIDER_ID,
+			providerLabel: MCP_PROVIDER_LABEL,
+			host: null,
+			hostFromProxy: false,
+			hasApiKey: false,
+			command: 'uvx',
+			args: MCP_PACKAGE_ARGS.slice(),
+			reason: '',
 		},
 	};
 }
@@ -485,6 +557,18 @@ export async function buildDashboardView(
 			codex,
 			opencode,
 			mmxCli: mmxStatus,
+			mcp: options.mcp ?? {
+				ready: false,
+				providerRegistered: false,
+				providerId: MCP_PROVIDER_ID,
+				providerLabel: MCP_PROVIDER_LABEL,
+				host: null,
+				hostFromProxy: false,
+				hasApiKey: false,
+				command: 'uvx',
+				args: MCP_PACKAGE_ARGS.slice(),
+				reason: '',
+			},
 		};
 	}
 
@@ -546,6 +630,18 @@ export async function buildDashboardView(
 		codex,
 		opencode,
 		mmxCli: options.mmxCliStatus ?? mmxStatus,
+		mcp: options.mcp ?? {
+			ready: false,
+			providerRegistered: false,
+			providerId: MCP_PROVIDER_ID,
+			providerLabel: MCP_PROVIDER_LABEL,
+			host: null,
+			hostFromProxy: false,
+			hasApiKey: false,
+			command: 'uvx',
+			args: MCP_PACKAGE_ARGS.slice(),
+			reason: '',
+		},
 	};
 	if (planSection) {
 		view.plan = planSection;

@@ -204,11 +204,22 @@ export const ProgressLocation = {
 	Notification: 15,
 };
 
+/**
+ * Mutable config value store the mock workspace reads from. Tests can
+ * assign keys directly (e.g. `mockConfig['minimax.apiBaseUrl'] = …`)
+ * to seed what `getConfiguration('minimax').get('apiBaseUrl')` returns.
+ */
+export const mockConfig: Record<string, unknown> = {};
+
 export const workspace = {
-	getConfiguration: (_section: string) => ({
+	getConfiguration: (section: string) => ({
 		get: <T>(key: string, defaultValue?: T): T | undefined => {
 			if (key === 'enabled') {
 				return true as unknown as T;
+			}
+			const fullKey = `${section}.${key}`;
+			if (Object.prototype.hasOwnProperty.call(mockConfig, fullKey)) {
+				return mockConfig[fullKey] as T;
 			}
 			return defaultValue;
 		},
@@ -217,6 +228,9 @@ export const workspace = {
 			// should stub `vscode.workspace.getConfiguration` locally.
 		},
 	}),
+	onDidChangeConfiguration: (
+		_listener: (e: { affectsConfiguration: (key: string) => boolean }) => void,
+	) => new Disposable(() => {}),
 	tabGroups: {
 		activeTabGroup: undefined,
 	},
@@ -299,6 +313,71 @@ export const commands = {
 	registerCommand: (id: string, callback: (...args: unknown[]) => unknown) => {
 		registeredCommands.set(id, callback);
 		return new Disposable(() => {});
+	},
+};
+
+/**
+ * Minimal mock of `vscode.lm` covering only what the extension's MCP
+ * provider needs to register. Each call to
+ * `registerMcpServerDefinitionProvider` records the `(id, provider)`
+ * tuple so tests can assert against `provideMcpServerDefinitions` /
+ * `resolveMcpServerDefinition` synchronously.
+ */
+interface RecordedMcpProvider {
+	id: string;
+	provider: {
+		provideMcpServerDefinitions(token: unknown): unknown;
+		resolveMcpServerDefinition?(server: unknown, token: unknown): unknown;
+	};
+}
+const recordedMcpProviders: RecordedMcpProvider[] = [];
+
+/** Read access for tests — `getRecordedMcpProviders()` returns a
+ *  shallow copy so the test cannot mutate the live store. */
+export function getRecordedMcpProviders(): readonly RecordedMcpProvider[] {
+	return recordedMcpProviders.slice();
+}
+
+/** Reset the recorded MCP providers. Tests that re-register a
+ *  provider between cases should call this to avoid leaking the
+ *  previous provider's `(ctx, auth)` into the next case. */
+export function resetRecordedMcpProviders(): void {
+	recordedMcpProviders.length = 0;
+}
+
+export class McpStdioServerDefinition {
+	label: string;
+	command: string;
+	args: string[];
+	env: Record<string, string | number | null>;
+	version: string | undefined;
+	constructor(
+		label: string,
+		command: string,
+		args?: string[],
+		env?: Record<string, string | number | null>,
+		version?: string,
+	) {
+		this.label = label;
+		this.command = command;
+		this.args = args ?? [];
+		this.env = env ?? {};
+		this.version = version;
+	}
+}
+
+export const lm = {
+	registerMcpServerDefinitionProvider(
+		id: string,
+		provider: RecordedMcpProvider['provider'],
+	) {
+		recordedMcpProviders.push({ id, provider });
+		return new Disposable(() => {
+			const idx = recordedMcpProviders.findIndex((p) => p.id === id);
+			if (idx >= 0) {
+				recordedMcpProviders.splice(idx, 1);
+			}
+		});
 	},
 };
 

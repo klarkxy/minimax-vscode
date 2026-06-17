@@ -2,7 +2,7 @@
   "name": "minimax-vscode-copilot",
   "displayName": "Minimax VScode Copilot",
   "description": "Language model provider for GitHub Copilot in VS Code: use MiniMax M2.7 / M2.7-highspeed / M3 models for programming with a Token Plan API key over the Anthropic-compatible API. Does not add speech, video, or image generation APIs.",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "publisher": "klarkxy",
   "license": "SATA-2.0",
   "icon": "icon/icon.png",
@@ -129,6 +129,11 @@
       {
         "command": "minimax.openOpencodeLogFolder",
         "title": "%minimax.command.openOpencodeLogFolder%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.refreshMcp",
+        "title": "%minimax.command.refreshMcp%",
         "category": "MiniMax"
       }
     ],
@@ -380,6 +385,12 @@
         }
       }
     },
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "minimax-web-search",
+        "label": "MiniMax Web Search MCP"
+      }
+    ],
     "walkthroughs": [
       {
         "id": "minimaxGettingStarted",

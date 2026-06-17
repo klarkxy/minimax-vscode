@@ -13,6 +13,8 @@ import {
 	getOpencodeLogPath,
 } from '../config';
 import { toggleM31MContextEnabled } from '../provider/models';
+import { provideMiniMaxMcpServers, type MiniMaxMcpHandle } from './mcp';
+import { getBaseUrl } from '../config';
 import { createUsageStore, type UsageStore } from '../usage';
 import { DashboardPanel } from '../dashboard/panel';
 import { createPlanStatusBar, type PlanStatusBar } from '../dashboard/planStatusBar';
@@ -42,6 +44,7 @@ let cachedPlanStatusBar: PlanStatusBar | undefined;
 let cachedClaudeCodeIngest: ClaudeCodeIngestHandle | undefined;
 let cachedCodexIngest: CodexIngestHandle | undefined;
 let cachedOpencodeIngest: OpencodeIngestHandle | undefined;
+let cachedMcpProvider: MiniMaxMcpHandle | undefined;
 let turnNotifierDisposable: vscode.Disposable | undefined;
 
 function getPlanCache(): PlanCache {
@@ -58,6 +61,28 @@ function getMmxCliCache(): MmxCliCache {
 		});
 	}
 	return cachedMmxCliCache;
+}
+
+/**
+ * Read the shared `AuthManager` instance used by every other runtime
+ * module. Returns `undefined` only if `setCommandContext` has not yet
+ * run (i.e. very early activation). Exported so `lifecycle.ts` can
+ * hand it to the MCP provider and any other module that needs to
+ * resolve secrets without instantiating a second SecretStorage client.
+ */
+export function getAuthManager(): AuthManager | undefined {
+	return cachedAuth;
+}
+
+/**
+ * Read the cached MCP provider handle so the dashboard can ask
+ * whether the provider is currently registered with VS Code.
+ * Returns `undefined` only if `setMcpProvider` has not run yet
+ * (i.e. very early activation or the `getAuthManager()` short
+ * circuit fired). Mirrors `getAuthManager()`.
+ */
+export function getMcpProvider(): MiniMaxMcpHandle | undefined {
+	return cachedMcpProvider;
 }
 
 export function setCommandContext(context: vscode.ExtensionContext): void {
@@ -213,6 +238,25 @@ export function getOpencodeIngest(): OpencodeIngestHandle | undefined {
 }
 
 /**
+ * Cache the MCP provider handle returned by
+ * `registerMiniMaxMcpProvider` so the `MiniMax: Refresh MiniMax Web
+ * Search MCP` command (and the dashboard's "Refresh" button, which
+ * executes the same command) can fire
+ * `onDidChangeMcpServerDefinitions` and prompt VS Code to re-resolve
+ * on the next MCP call.
+ *
+ * Lifecycle is owned by `lifecycle.ts`: the handle is created on
+ * `activate()` and pushed into `context.subscriptions`, so the
+ * cache here is a read-only alias — disposing the handle disposes
+ * the underlying provider and `refreshDefinitions()` becomes a
+ * safe no-op (see the `disposed` guard in
+ * `registerMiniMaxMcpProvider`).
+ */
+export function setMcpProvider(handle: MiniMaxMcpHandle): void {
+	cachedMcpProvider = handle;
+}
+
+/**
  * Wire the provider's turn-boundary notifier to the plan cache. Called
  * by lifecycle.ts once `registerProvider()` returns. We intentionally
  * don't listen to `UsageStore.subscribe` here — a single Copilot turn
@@ -313,6 +357,11 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 				// changes on the next refresh — see `DashboardPanelDeps.
 				// getHost` for the credential-leak rationale.
 				getHost: detectHost,
+				// Same pattern for the MCP provider's registration
+				// state. Resolved against the cached handle so the
+				// panel can show "registered" only when VS Code
+				// actually accepted the provider.
+				getMcpProviderRegistered: () => getMcpProvider()?.isRegistered() ?? false,
 			});
 			// Fire-and-forget: ensure the cache has a fresh snapshot for
 			// both the dashboard render and the status bar to consume.
@@ -345,6 +394,43 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 		}),
 		vscode.commands.registerCommand('minimax.openOpencodeLogFolder', () => {
 			void openOpencodeLogFolder();
+		}),
+		vscode.commands.registerCommand('minimax.refreshMcp', () => {
+			// The MCP provider exposes a manual "refresh now" button
+			// in the dashboard. The actual work is firing
+			// `onDidChangeMcpServerDefinitions` on the cached handle
+			// so VS Code re-asks for the definitions and re-resolves
+			// them on the next MCP call — that's what the README
+			// and CHANGELOG promise the user this command does.
+			//
+			// We still do a `provideMiniMaxMcpServers()` pass FIRST
+			// to fail fast: if the key is missing or the host is
+			// unrecognised, the user gets an immediate warning
+			// instead of a generic "refreshed" toast followed by
+			// a no-op re-resolve in VS Code.
+			void (async () => {
+				if (!cachedMcpProvider) {
+					void vscode.window.showWarningMessage(t('mcp.providerNotRegistered'));
+					logger.warn(
+						'[MiniMax MCP] refreshMcp invoked but the provider is not registered (lifecycle error?)',
+					);
+					return;
+				}
+				const baseUrl = getBaseUrl();
+				const { ready, reason, definition } = await provideMiniMaxMcpServers(
+					cachedAuth ?? auth,
+					baseUrl,
+				);
+				if (!ready) {
+					void vscode.window.showWarningMessage(reason);
+					return;
+				}
+				cachedMcpProvider.refreshDefinitions();
+				void vscode.window.showInformationMessage(t('mcp.refreshed'));
+				logger.info(
+					`[MiniMax MCP] manual refresh: host=${definition?.host ?? '?'} command=${definition?.command ?? 'uvx'}`,
+				);
+			})();
 		}),
 	);
 }
