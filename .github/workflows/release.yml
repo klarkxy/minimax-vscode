@@ -10,6 +10,17 @@ on:
     # had to be hand-built + uploaded — which is exactly how the v2.3.0
     # `nul` leak reached the marketplace uncaught.
     tags: ['v*']
+  workflow_dispatch:
+    # Manual "publish to marketplace" trigger. Use:
+    #   gh workflow run release.yml --repo klarkxy/minimax-vscode \
+    #     -f ref=v2.4.1
+    # `ref` is the tag (or branch) to build + attach + publish. Defaults
+    # to the latest semver tag if empty.
+    inputs:
+      ref:
+        description: 'Tag or branch to publish (e.g. v2.4.1). Leave empty for the latest semver tag.'
+        required: false
+        default: ''
 
 concurrency:
   group: release-${{ github.ref }}
@@ -147,3 +158,89 @@ jobs:
       - name: Show release info
         run: |
           echo "Packaged ${{ github.ref_name }} — VSIX at ${{ steps.vsix.outputs.path }}"
+
+  publish-marketplace:
+    # Marketplace publish is a separate, opt-in job. Two ways to fire it:
+    #
+    #   1. Manual: Actions tab → Release workflow → "Run workflow" →
+    #      set the `ref` input to a tag like v2.4.1 (or leave empty for
+    #      the latest semver tag).
+    #   2. `gh workflow run release.yml --repo klarkxy/minimax-vscode \
+    #          -f ref=v2.4.1`
+    #
+    # The job is intentionally NOT triggered by tag pushes — publishing
+    # to the marketplace is irreversible (the version goes live to all
+    # VS Code users within ~10 min), so we require a deliberate click
+    # instead of firing it on every `git push --tags`.
+    #
+    # Required secret: VSCE_PAT. Missing-secret is a hard fail, not a
+    # silent skip — the run is the only way to find out the secret has
+    # expired, and a silent skip is how a stale PAT ships a broken
+    # release.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+    environment: production
+    concurrency:
+      group: publish-marketplace
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Resolve target ref
+        id: ref
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.ref }}" ]; then
+            REF="${{ inputs.ref }}"
+          else
+            # Latest semver tag, descending.
+            REF=$(git ls-remote --tags --sort=-v:refname origin | \
+                  head -1 | awk '{print $2}' | sed 's#refs/tags/##')
+            if [ -z "$REF" ]; then
+              echo "::error::No tags found on origin; pass -f ref=vX.Y.Z explicitly."
+              exit 1
+            fi
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Resolved ref: $REF"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: rm -rf dist && mkdir -p dist && npm run package
+
+      - name: Locate VSIX
+        id: vsix
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(dist/*.vsix)
+          if [ "${#files[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one VSIX in dist, found ${#files[@]}" >&2
+            printf '%s\n' "${files[@]}" >&2
+            exit 1
+          fi
+          echo "path=${files[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to VS Code Marketplace
+        # `languageModelThinkingPart` is a proposed API and must be
+        # whitelisted per-publish — vsce refuses to ship an extension
+        # that uses unallowed proposed APIs. We declare it in
+        # package.json#enabledApiProposals; mirror that list here.
+        run: |
+          npm exec -- vsce publish \
+            --packagePath "${{ steps.vsix.outputs.path }}" \
+            --allow-proposed-apis languageModelThinkingPart
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
