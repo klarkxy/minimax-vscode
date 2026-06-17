@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { createUserFacingError, MiniMaxClient } from '../client';
+import { createUserFacingError, MiniMaxClient, MiniMaxRequestError } from '../client';
 import { getBaseUrl } from '../config';
 import { COPILOT_USAGE_DATA_PART_MIME } from '../consts';
 import { logger } from '../logger';
@@ -102,6 +102,19 @@ export async function streamChatCompletion({
 			},
 
 			onError: (error: Error) => {
+				// Copilot Chat treats upstream quota / rate-limit errors as its
+				// own "quota exceeded" signal and pops a "reached the limit /
+				// upgrade" modal. MiniMax balance (402) and rate limits (429)
+				// are unrelated to Copilot quota, so surface them as plain
+				// in-chat text instead of throwing an error the host misinterprets.
+				if (
+					error instanceof MiniMaxRequestError &&
+					(error.status === 402 || error.status === 429)
+				) {
+					const userFacing = createUserFacingError(error);
+					progress.report(new vscode.LanguageModelTextPart(userFacing.message));
+					return;
+				}
 				throw createUserFacingError(error);
 			},
 

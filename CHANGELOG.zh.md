@@ -2,6 +2,14 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.4.1 — 402/429 直接落到聊天里，`.vscodeignore` 屏蔽 `*.log`
+
+### 修复
+
+- **402/429 不再触发 Copilot 的"达到上限/升级"弹窗。** MiniMax 上游返回 `402 Insufficient Balance` 或 `429 Rate Limit` 时，Copilot Chat 之前会把它当成 Copilot 自家的配额错误，在请求上方弹一个误导性的"达到上限/升级"模态框。[`streamChatCompletion`](src/provider/stream.ts) 现在会识别 `MiniMaxRequestError` 上的这两种状态码，调用 `progress.report(new LanguageModelTextPart(...))` 把本地化后的 `userSummary`（如 `[402] 当前端点余额不足…`）作为普通聊天文本发出去，而不是抛出错误——用户能在会话里直接看到这条消息。其它状态码（401 / 500 / 503 / 529 / …）保持原来的抛错路径，结构化的动作按钮照常弹出。`instanceof MiniMaxRequestError` 守卫保证非 MiniMax 错误不受影响，行为零变化。
+
+- **`.vscodeignore` 现在对 `**/*.log` 做全局屏蔽。** `.gitignore` 早就忽略 `*.log` 了，但 `vsce package` 只看 `.vscodeignore`——一次随手 `> test-all.log` 就会把日志静默打进 VSIX 变成 `extension/test-all.log`（v2.4.0 那一版差点把整套单元测试输出打进去）。在 `.vscodeignore` 里同步加上这条规则，未来的临时日志文件即便出现在 `.gitignore` 覆盖不到的子目录，也不会再漏出去。和 2.3.1 关掉的 Windows 保留设备名 / `.claude/memory` 是一类问题。
+
 ## 2.3.1 — 清理遗留的 `nul` 文件，加固 `.vscodeignore`
 
 ### 修复

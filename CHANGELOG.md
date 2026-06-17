@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.4.1 — 2026-06-17
+
+### Fixed
+
+- **402/429 no longer trigger Copilot's "reached the limit / upgrade" modal.** When the MiniMax upstream returns `402 Insufficient Balance` or `429 Rate Limit`, Copilot Chat was treating it as a Copilot-side quota error and popping a misleading upgrade modal on top of the request. [`streamChatCompletion`](src/provider/stream.ts) now detects those two statuses on a `MiniMaxRequestError` and emits the localised `userSummary` (e.g. `[402] 当前端点余额不足…`) as plain in-chat text via `progress.report(new LanguageModelTextPart(...))` instead of throwing — the message lands in the conversation where the user can actually read it. Every other status (401 / 500 / 503 / 529 / …) still goes through the existing throw path, so the structured action buttons keep firing. The change is a no-op for any non-MiniMax error (the `instanceof MiniMaxRequestError` guard short-circuits).
+
+- **`.vscodeignore` now denies `**/*.log` everywhere.** `.gitignore` already ignored `*.log` for git, but `vsce package` only consults `.vscodeignore` — a stray `> test-all.log` from an ad-hoc `npm test` run would have silently shipped as `extension/test-all.log` in the VSIX (the v2.4.0 cut almost published with the full unit-test transcript inside). The deny is mirrored in `.vscodeignore` so any future log artifact — including from sub-directories `.gitignore` doesn't cover — stays out of the package. Catches the same class of leak that 2.3.1 closed for Windows reserved device names and `.claude/memory`.
+
 ## 2.4.0 — 2026-06-17
 
 ### MiniMax Web Search MCP — Agent Mode tools without skill prompts

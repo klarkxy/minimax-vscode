@@ -43,6 +43,14 @@ dist/**
 out-test/**
 **/*.vsix
 
+# Stray scratch / test logs from ad-hoc `> foo.log` runs. `.gitignore`
+# already denies `*.log`, but `vsce package` only consults `.vscodeignore`
+# — so we have to mirror the deny here, otherwise a 23 KB `test-all.log`
+# silently ships as `extension/test-all.log` in the VSIX (this is how
+# `v2.4.0` was almost published with the full unit-test transcript
+# inside). Catch `*.log` everywhere, including any future sub-directory.
+**/*.log
+
 # Windows reserved device names — the Marketplace validator rejects VSIX
 # entries whose name is a reserved device (nul/con/prn/aux/com1-9/lpt1-9)
 # as "unsafe for extraction", regardless of the build host's OS. This bites
