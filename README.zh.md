@@ -35,7 +35,7 @@
 
 1. 从 [VS Code 市场](https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode-copilot) 安装（或 `npm run package` 从源码打 `.vsix`）。
 2. 命令面板跑 **MiniMax: 设置 API Key**，粘贴 Token Plan Key。
-3. 打开 Copilot cChat，选 **MiniMax M3**（或 M2.7 / M2.7-highspeed）。
+3. 打开 Copilot Chat，选 **MiniMax M3**（或 M2.7 / M2.7-highspeed）。
 4. （可选）跑 **MiniMax: 设置 Copilot 工具模型**，把 Source Control ✨ 按钮路由到 MiniMax。
 
 ### 端点
@@ -95,6 +95,7 @@
 | `minimax.claudeCode.logPath` | `~/.claude/projects` | Claude Code JSONL 日志的根目录。 |
 | `minimax.claudeCode.pollIntervalMs` | `30000` | 扫描间隔（毫秒）。夹在 `[5000, 600000]` 之间。 |
 | `minimax.experimental.stabilizeToolList` | `false` | 合成 preflight tool call 让上游 prompt cache 保持热。**Experimental.** |
+| `minimax.claudeCode.allowedModels` | `MiniMax-M3 / M2.7 / M2.7-highspeed / M2.5 / M2.1 / M2` | Claude Code JSONL 接入的模型白名单。Claude Code 可能跟其他 Anthropic 兼容 provider 通信，这里只统计 MiniMax 相关行。 |
 
 ## 命令
 
@@ -111,6 +112,7 @@
 | **MiniMax: 重新扫描 Claude Code 日志** | 强制重读 Claude Code JSONL 日志目录 |
 | **MiniMax: 打开 Claude Code 日志目录** | 在 OS 文件管理器里打开 Claude Code 日志目录 |
 | **MiniMax: 复制 mmx-cli 官方安装指令** | 把官方安装 prompt 复制到剪贴板 |
+| **MiniMax: 刷新 MiniMax Web Search MCP** | 重新解析 MCP provider，让 VS Code 在下次 spawn 时拿到最新的 API key / host |
 
 ## 故障排查
 

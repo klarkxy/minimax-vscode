@@ -31,7 +31,7 @@
 - **Cumulative usage tracker** — per-model input / output / cache tokens across the extension lifetime.
 - **Usage dashboard** — today / 7-day / 30-day views, 30-day bar chart, per-model breakdown, platform `coding_plan/remains`, and Claude Code JSONL ingest.
 - **mmx-cli status detection** — dashboard shows whether the official MiniMax CLI / auth / SKILL is set up; copy the install prompt to the clipboard.
-- **MiniMax Web Search MCP (Agent Mode)** — VS Code's MCP runtime launches `uvx -y minimax-coding-plan-mcp` automatically once you've set an API key and a recognised host; the extension injects the key + host as env and re-fires the definition when either changes.
+- **MiniMax Web Search MCP (Agent Mode)** — VS Code's MCP runtime launches `uvx minimax-coding-plan-mcp` automatically once you've set an API key and a recognised host; the extension injects the key + host as env and re-fires the definition when either changes.
 - **Diagnostics** — per-request classifier, cache-hit stats, verbose mode dumps every request to disk.
 
 ## Getting Started
@@ -107,6 +107,7 @@ A Subscription Key covers language models plus speech / video / music / image en
 | `minimax.claudeCode.logPath` | `~/.claude/projects` | Root directory the ingester walks. |
 | `minimax.claudeCode.pollIntervalMs` | `30000` | Scan interval in milliseconds. Clamped to `[5000, 600000]`. |
 | `minimax.experimental.stabilizeToolList` | `false` | Synthesise preflight tool calls to keep the upstream prompt cache warm. **Experimental.** |
+| `minimax.claudeCode.allowedModels` | `MiniMax-M3 / M2.7 / M2.7-highspeed / M2.5 / M2.1 / M2` | Allowlist of model IDs counted in the Claude Code section of the dashboard. Claude Code may be talking to other Anthropic-compatible providers; only MiniMax-related rows are counted. |
 
 ## Commands
 
