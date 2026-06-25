@@ -39,9 +39,10 @@ function estimatePartChars(part: unknown): number {
 		return chars;
 	}
 
-	// 4. LanguageModelDataPart — use a capped heuristic. Images go through
-	//    the vision pipeline before reaching the API, so we use a stable
-	//    fallback estimate instead of raw image bytes.
+	// 4. LanguageModelDataPart — use a capped heuristic. Images are
+	//    forwarded natively to M3; for M2.x the MCP image-understanding
+	//    tool replaces them with text upstream of the API, so we use a
+	//    stable fallback estimate instead of raw image bytes either way.
 	if (part instanceof vscode.LanguageModelDataPart) {
 		const mime = part.mimeType;
 		if (mime === REPLAY_MARKER_MIME) {

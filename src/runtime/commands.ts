@@ -360,8 +360,7 @@ async function copyMmxInstallPromptForCommand(): Promise<void> {
 
 /**
  * Two-stage picker for routing Copilot Chat's "utility" / "small utility"
- * families to a model of the user's choice. Mirrors
- * `setVisionProxyModel` in `src/provider/vision/model.ts`.
+ * families to a model of the user's choice.
  *
  * Stage 1 — pick a model. Lists every chat model the current VS Code
  * instance knows about (MiniMax, plus any other extension-registered

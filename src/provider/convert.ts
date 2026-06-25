@@ -236,10 +236,11 @@ function convertUserMessage(
 			} else if (mime.startsWith('image/')) {
 				// Image with an unsupported MIME on a multimodal model, or
 				// a non-multimodal model that should already have had the
-				// image replaced by the vision pipeline. We log a warning
-				// in the native-image case (the previous version was
-				// silent, which made "I attached an image and the model
-				// pretended it didn't exist" impossible to debug).
+				// image replaced by the MCP-supplied image-understanding
+				// tool (see `runtime/mcp.ts`). We log a warning in the
+				// native-image case (the previous version was silent,
+				// which made "I attached an image and the model pretended
+				// it didn't exist" impossible to debug).
 				if (supportsImages) {
 					logger.warn(
 						`[MiniMax] Dropping image attachment with unsupported MIME type "${mime}". ` +
@@ -247,13 +248,13 @@ function convertUserMessage(
 					);
 				}
 				// Non-multimodal model with an image attachment. We rely on
-				// the vision pipeline (provider/vision) to have already
-				// replaced it with a text description. Skip silently.
+				// the MCP image-understanding tool to have already replaced
+				// it with a text description. Skip silently.
 				continue;
 			} else if (mime.startsWith('video/')) {
 				// Non-multimodal model receiving a video — same logic as
-				// the image fallback: the vision pipeline should have
-				// handled it, and we silently drop here for safety.
+				// the image fallback: the MCP tool should have handled it,
+				// and we silently drop here for safety.
 				continue;
 			}
 			// Non-image / non-video data parts are ignored.

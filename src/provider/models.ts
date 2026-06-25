@@ -62,6 +62,21 @@ export interface ModelCostInformation {
 export type ModelPickerChatInformation = vscode.LanguageModelChatInformation &
 	ModelCostInformation & {
 		readonly isUserSelectable: boolean;
+		/**
+		 * Mark this provider as Bring-Your-Own-Key so Copilot Chat
+		 * knows tokens are billed to the user's MiniMax plan, **not**
+		 * counted against any Copilot-side quota. Same field
+		 * `deepseek-v4-for-copilot` added in #162 / v0.6.2 — without
+		 * it, Copilot Chat may mis-attribute the call to its own
+		 * premium-requests budget and rate-limit or 402 the user.
+		 *
+		 * `vscode.LanguageModelChatInformation` does not declare this
+		 * field yet (it lives in the same proposed-API bucket as
+		 * `configurationSchema`); we type it as `true` so any host
+		 * that knows about the field picks it up immediately. The
+		 * cast below in `toChatInfo` is what makes TypeScript happy.
+		 */
+		readonly isBYOK?: true;
 		readonly statusIcon?: vscode.ThemeIcon;
 		readonly configurationSchema?: vscode.LanguageModelConfigurationSchema;
 	};
@@ -90,6 +105,13 @@ export function toChatInfo(
 		maxInputTokens: m.maxInputTokens,
 		maxOutputTokens: m.maxOutputTokens,
 		isUserSelectable: true,
+		// MiniMax token-plan billing is wholly separate from Copilot's
+		// premium-request budget — every token we send / receive goes
+		// to the user's MiniMax account, which is exactly what
+		// `isBYOK` tells the host. Matches the deepseek-v4-for-copilot
+		// v0.6.2 fix (#162); Copilot Chat otherwise has no way to know
+		// and may charge the round-trip to its own quota.
+		isBYOK: true,
 		capabilities: {
 			toolCalling: m.capabilities.toolCalling,
 			imageInput: m.capabilities.imageInput,

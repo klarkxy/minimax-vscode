@@ -292,8 +292,8 @@ function buildThinkingPayload(
 
 /**
  * Count the number of image data parts in the request so the bypass log
- * line can tell the user "I skipped the vision proxy and forwarded N
- * images directly". Lightweight — runs only on the bypass path.
+ * line can tell the user "I forwarded N images directly to the multimodal
+ * model". Lightweight — runs only on the M3-native path.
  */
 function countInputImages(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],

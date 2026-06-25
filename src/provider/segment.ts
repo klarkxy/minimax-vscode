@@ -17,8 +17,15 @@ export interface ConversationSegment {
  *
  * Looks for a replay marker on the latest assistant message. When found and
  * valid, the marker carries a UUID that links the new request to a previous
- * conversation. When missing/invalid a new UUID is generated. This makes
- * cross-conversation reasoning and vision replay possible.
+ * conversation. When missing/invalid a new UUID is generated. The stable
+ * segmentId is what makes cross-conversation reasoning replay possible —
+ * the upstream prompt cache keys on it, so a returning user lands on a warm
+ * cache instead of paying the cold-cache penalty on every turn.
+ *
+ * Vision attachments are intentionally **not** part of the segment contract:
+ * images are forwarded natively to M3 or pre-resolved by the MCP
+ * image-understanding tool, neither of which needs the segmentId to
+ * replay.
  */
 export function resolveConversationSegment(
 	messages: readonly vscode.LanguageModelChatRequestMessage[],
