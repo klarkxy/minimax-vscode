@@ -21,6 +21,7 @@ import type { ConversationSegment } from './segment';
 import { prepareRequestTools } from './tools/request';
 import { logger } from '../logger';
 import { safeStringify } from '../json';
+import { appendTerminalGuidanceToSystemPrompt, buildTerminalGuidance } from './terminalEnvironment';
 
 export interface PreparedChatRequest {
 	client: MiniMaxClient;
@@ -101,7 +102,9 @@ export async function prepareChatRequest({
 	const configuredMaxTokens = getMaxTokens();
 
 	const converted = convertMessages(messages, modelInfo.id);
-	const tools = prepareRequestTools(modelDef?.capabilities.toolCalling, options);
+	const terminalGuidance = buildTerminalGuidance();
+	const systemPrompt = appendTerminalGuidanceToSystemPrompt(converted.systemPrompt, terminalGuidance);
+	const tools = prepareRequestTools(modelDef?.capabilities.toolCalling, options, terminalGuidance);
 
 	const totalRequestChars = countMessageChars(converted);
 
@@ -127,7 +130,7 @@ export async function prepareChatRequest({
 	const request = client.buildRequest(
 		getApiModelId(modelInfo.id),
 		converted.messages,
-		converted.systemPrompt,
+		systemPrompt,
 		effectiveMaxTokens,
 		tools as MiniMaxTool[] | undefined,
 		buildThinkingPayload(modelDef, thinkingEffort),

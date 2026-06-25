@@ -7,8 +7,9 @@ import { DEEPSEEK_TOOLS_LIMIT } from './consts';
 export function prepareRequestTools(
 	toolCallingCapability: boolean | number | undefined,
 	options: vscode.ProvideLanguageModelChatResponseOptions,
+	terminalGuidance?: string,
 ): MiniMaxTool[] | undefined {
-	const tools = toolCallingCapability ? convertTools(options.tools) : undefined;
+	const tools = toolCallingCapability ? convertTools(options.tools, terminalGuidance) : undefined;
 	const toolLimit = getToolCallingLimit(toolCallingCapability);
 	const toolsCount = tools?.length ?? 0;
 	if (toolsCount > toolLimit) {

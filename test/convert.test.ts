@@ -17,9 +17,12 @@ import {
 	LanguageModelToolResultPart,
 	LanguageModelChatMessageRole,
 	UriInstance,
+	mockConfig,
+	window as vscodeWindow,
 } from '../src/../test/helpers/vscodeMock.js';
 import * as vscode from 'vscode';
 import { convertMessages, convertTools, countMessageChars } from '../src/provider/convert.js';
+import { appendTerminalGuidanceToSystemPrompt, buildTerminalGuidance } from '../src/provider/terminalEnvironment.js';
 
 // Build a small user message with only text.
 function userText(text: string): vscode.LanguageModelChatRequestMessage {
@@ -208,6 +211,46 @@ test('convertTools: maps VS Code tool shape to Anthropic tool shape', () => {
 	assert.equal(out![0].name, 'grep');
 	assert.equal(out![0].description, 'ripgrep');
 	assert.equal((out![0].input_schema as Record<string, unknown>).type, 'object');
+});
+
+test('convertTools: appends detected terminal guidance to tool descriptions', () => {
+	mockConfig['terminal.integrated.defaultProfile.windows'] = 'Command Prompt';
+	const terminalGuidance = buildTerminalGuidance();
+	delete mockConfig['terminal.integrated.defaultProfile.windows'];
+
+	const out = convertTools([
+		{
+			name: 'run_in_terminal',
+			description: 'Run a shell command',
+			inputSchema: { type: 'object' },
+		},
+	], terminalGuidance);
+
+	assert.match(out![0].description!, /Command Prompt/);
+	assert.match(out![0].description!, /Do not use Bash-only syntax/);
+});
+
+test('buildTerminalGuidance: strips local paths from active terminal shellPath', () => {
+	vscodeWindow.activeTerminal = {
+		name: 'pwsh',
+		shellPath: 'C:\\Users\\alice\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe',
+	};
+	const terminalGuidance = buildTerminalGuidance();
+	vscodeWindow.activeTerminal = undefined;
+
+	assert.match(terminalGuidance!, /PowerShell/);
+	assert.doesNotMatch(terminalGuidance!, /alice/);
+	assert.doesNotMatch(terminalGuidance!, /AppData/);
+	assert.doesNotMatch(terminalGuidance!, /\\/);
+});
+
+test('appendTerminalGuidanceToSystemPrompt: adds dynamic terminal guidance once', () => {
+	const guidance = 'The user\'s terminal environment is pwsh. For terminal commands, use syntax that is valid for this shell.';
+	const once = appendTerminalGuidanceToSystemPrompt('be brief', guidance);
+	const twice = appendTerminalGuidanceToSystemPrompt(once, guidance);
+
+	assert.equal(once, `be brief\n\n${guidance}`);
+	assert.equal(twice, once);
 });
 
 test('convertTools: missing inputSchema falls back to an empty object schema', () => {

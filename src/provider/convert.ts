@@ -10,6 +10,7 @@ import type {
 } from '../types';
 import { findModelById } from '../models/registry';
 import { parseFirstReplayMarker, type ReplayMarkerMetadata } from './replay';
+import { appendTerminalGuidanceToToolDescription } from './terminalEnvironment';
 
 const SUPPORTED_IMAGE_MIME_TYPES = new Set([
 	'image/jpeg',
@@ -405,6 +406,7 @@ function normalizeThinkingPartText(value: string | string[]): string {
  */
 export function convertTools(
 	tools: readonly vscode.LanguageModelChatTool[] | undefined,
+	terminalGuidance?: string,
 ): MiniMaxTool[] | undefined {
 	if (!tools || tools.length === 0) {
 		return undefined;
@@ -412,7 +414,7 @@ export function convertTools(
 
 	return tools.map((tool) => ({
 		name: tool.name,
-		description: tool.description,
+		description: appendTerminalGuidanceToToolDescription(tool.description, terminalGuidance),
 		input_schema: (tool.inputSchema as Record<string, unknown>) ?? {
 			type: 'object',
 			properties: {},

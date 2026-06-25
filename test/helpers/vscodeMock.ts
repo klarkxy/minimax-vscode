@@ -252,6 +252,7 @@ export const window = {
 	tabGroups: {
 		activeTabGroup: undefined,
 	},
+	activeTerminal: undefined as undefined | { name?: string; shellPath?: string },
 	showInformationMessage: (msg: string) => {
 		informationMessages.push(msg);
 		return Promise.resolve(undefined);
