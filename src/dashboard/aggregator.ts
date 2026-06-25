@@ -5,11 +5,11 @@
 // element-wise sum of every available source.
 
 import { createHash } from 'node:crypto';
-import { createUsageStore, type ModelUsage, type UsageStore } from '../usage';
+import { createUsageStore, defaultStats, emptyUsage, sumRange, buildSeries, todayKey, type ModelUsage, type UsageStats, type UsageStore } from '../usage';
 import { fetchPlanUsage, type PlanApiOptions, type PlanApiResult } from './api';
 import { readMmxCliStatus, type MmxCliStatus } from './mmxCli';
 import type { ClaudeCodeIngestHandle } from './claudeCodeIngest';
-import type { ClaudeCodeView, DashboardView, McpStatus, PlanUsage, SourceView } from './types';
+import type { ApiKeySummary, ClaudeCodeView, DashboardView, McpStatus, PlanUsage, SourceView, UsageScope } from './types';
 import { MCP_PACKAGE_ARGS, MCP_PROVIDER_ID, MCP_PROVIDER_LABEL, pickMcpApiHost } from '../runtime/mcp';
 
 export interface AggregatorOptions {
@@ -44,6 +44,14 @@ export interface AggregatorOptions {
 	 * tests that don't wire up `registerMiniMaxMcpProvider`).
 	 */
 	mcp?: McpStatus;
+	/** Resolver for the named API key pool. When present the view
+	 *  surfaces the pool summary + active key id. Resolved on every
+	 *  build, not captured, so the panel reflects the live state. */
+	getKeyPool?: () => Promise<{ keys: ApiKeySummary[]; activeKeyId?: string }> | { keys: ApiKeySummary[]; activeKeyId?: string } | undefined;
+	/** Selects which slice of Copilot usage the view exposes. The
+	 *  default is `all`; the dashboard lets the user flip to a
+	 *  per-key scope from the API Keys section. */
+	usageScope?: UsageScope;
 }
 
 // ---- Shared plan cache (Dashboard + status bar) --------------------------
@@ -236,6 +244,67 @@ function buildCopilotView(store: UsageStore): SourceView {
 	};
 }
 
+/** Build a `SourceView` from a single `UsageStats` blob. Used both
+ *  for the per-key scope and as the building block for the
+ *  all-keys aggregate. */
+function viewFromStats(stats: UsageStats): SourceView {
+	return {
+		today: { ...(stats.daily[todayKey()] ?? emptyUsage()) },
+		sevenDay: sumRange(stats.daily, 7),
+		thirtyDay: sumRange(stats.daily, 30),
+		perModel: Object.entries(stats.byModel)
+			.map(([modelId, usage]) => ({ modelId, usage }))
+			.sort((a, b) => b.usage.requests - a.usage.requests),
+		dailySeries: buildSeries(stats.daily, 30),
+	};
+}
+
+/** Sum every key's `UsageStats` into one virtual `UsageStats`.
+ *  Used for the all-keys Copilot usage view in the dashboard.
+ *  Defensive: empty / null maps produce a fresh default. */
+function aggregateKeyScopes(map: Record<string, UsageStats>): UsageStats {
+	const out: UsageStats = defaultStats();
+	for (const value of Object.values(map)) {
+		if (!value) continue;
+		addUsage(out.total, value.total);
+		for (const [modelId, usage] of Object.entries(value.byModel)) {
+			const bucket = (out.byModel[modelId] ??= emptyUsage());
+			addUsage(bucket, usage);
+		}
+		for (const [date, usage] of Object.entries(value.daily)) {
+			const bucket = (out.daily[date] ??= emptyUsage());
+			addUsage(bucket, usage);
+		}
+	}
+	return out;
+}
+
+/** Build a per-key `SourceView` from the store's readAllKeys map. */
+function buildCopilotViewForKeyId(store: UsageStore, keyId: string): SourceView {
+	return viewFromStats(store.readForKey(keyId));
+}
+
+/** Build the all-keys aggregate `SourceView`. */
+function buildCopilotViewAllKeys(store: UsageStore): SourceView {
+	return viewFromStats(aggregateKeyScopes(store.readAllKeys()));
+}
+
+/** Resolve the key pool resolver, accepting either a sync or
+ *  async result. The dashboard prefers the async form so it can
+ *  enrich the snapshot with per-key `missingSecret` flags
+ *  without blocking the metadata read. Returns `undefined` when
+ *  the resolver is missing or returns a falsy snapshot. */
+async function resolveKeyPool(
+	resolver: (() => Promise<{ keys: ApiKeySummary[]; activeKeyId?: string }> | { keys: ApiKeySummary[]; activeKeyId?: string } | undefined) | undefined,
+): Promise<{ keys: ApiKeySummary[]; activeKeyId?: string } | undefined> {
+	if (!resolver) return undefined;
+	const out = resolver();
+	if (out instanceof Promise) {
+		return await out;
+	}
+	return out;
+}
+
 /**
  * Build the Claude Code portion of the dashboard view. Returns
  * `undefined` when no ingester is running — the "claude" tab is hidden
@@ -400,12 +469,22 @@ export function buildCachedDashboardView(options: {
 	 *  tests). */
 	mcp?: McpStatus;
 	claudeCodeIngest?: ClaudeCodeIngestHandle;
+	/** Mirror of `AggregatorOptions.getKeyPool`. Resolved at build
+	 *  time so the panel reflects the live state. */
+	getKeyPool?: () => Promise<{ keys: ApiKeySummary[]; activeKeyId?: string }> | { keys: ApiKeySummary[]; activeKeyId?: string } | undefined;
+	/** Selects which slice of Copilot usage the view exposes. The
+	 *  default is `all`; the dashboard lets the user flip to a
+	 *  per-key scope from the API Keys section. */
+	usageScope?: UsageScope;
 }): DashboardView {
-	const copilotView = buildCopilotView(options.store);
+	const usageScope: UsageScope = options.usageScope ?? { kind: 'all' };
+	const copilotView = resolveCopilotView(options.store, usageScope);
+	const allKeysCopilot = buildCopilotViewAllKeys(options.store);
 	const claudeCode = buildClaudeCodeView(options.claudeCodeIngest);
 	const sourceViews: SourceView[] = [copilotView];
 	if (claudeCode) sourceViews.push(claudeCode);
 	const total = aggregateSourceViews(sourceViews);
+	const keyPool = await resolveKeyPool(options.getKeyPool);
 	return {
 		sources: {
 			copilot: copilotView.today.requests === 0 && copilotView.sevenDay.requests === 0 ? 'empty' : 'ok',
@@ -438,7 +517,22 @@ export function buildCachedDashboardView(options: {
 			args: MCP_PACKAGE_ARGS.slice(),
 			reason: '',
 		},
+		apiKeys: keyPool?.keys ?? [],
+		activeKeyId: keyPool?.activeKeyId,
+		usageScope,
+		allKeysCopilot,
 	};
+}
+
+/** Resolve the Copilot usage view based on the dashboard's
+ *  current `usageScope`. `all` returns the all-keys aggregate so
+ *  the "总" tab is always the cross-key total; per-key scopes are
+ *  used when the user explicitly opens a key in the dropdown. */
+function resolveCopilotView(store: UsageStore, scope: UsageScope): SourceView {
+	if (scope.kind === 'key') {
+		return buildCopilotViewForKeyId(store, scope.keyId);
+	}
+	return buildCopilotViewAllKeys(store);
 }
 
 /**
@@ -448,7 +542,9 @@ export function buildCachedDashboardView(options: {
 export async function buildDashboardView(
 	options: AggregatorOptions,
 ): Promise<DashboardView> {
-	const copilotView = buildCopilotView(options.store);
+	const usageScope: UsageScope = options.usageScope ?? { kind: 'all' };
+	const copilotView = resolveCopilotView(options.store, usageScope);
+	const allKeysCopilot = buildCopilotViewAllKeys(options.store);
 	const copilotSource: DashboardView['sources']['copilot'] =
 		copilotView.today.requests === 0 && copilotView.sevenDay.requests === 0 ? 'empty' : 'ok';
 	const claudeCode = buildClaudeCodeView(options.claudeCodeIngest);
@@ -472,6 +568,7 @@ export async function buildDashboardView(
 	if (options.includePlatform === false) {
 		planSource = 'unsupported';
 		const mmxStatus: MmxCliStatus = options.mmxCliStatus ?? (await mmxPromise);
+		const keyPool = await resolveKeyPool(options.getKeyPool);
 		return {
 			sources: {
 				copilot: copilotSource,
@@ -495,8 +592,11 @@ export async function buildDashboardView(
 				args: MCP_PACKAGE_ARGS.slice(),
 				reason: '',
 			},
+			apiKeys: keyPool?.keys ?? [],
+			activeKeyId: keyPool?.activeKeyId,
+			usageScope,
+			allKeysCopilot,
 		};
-	}
 
 	// Reuse a pre-fetched snapshot when the caller has one — that's
 	// the common dashboard path, where the panel consults the shared
@@ -532,6 +632,7 @@ export async function buildDashboardView(
 		planError = planResult.error;
 	}
 
+	const keyPool = await resolveKeyPool(options.getKeyPool);
 	const view: DashboardView = {
 		sources: {
 			copilot: copilotSource,
@@ -556,10 +657,14 @@ export async function buildDashboardView(
 			args: MCP_PACKAGE_ARGS.slice(),
 			reason: '',
 		},
+		apiKeys: keyPool?.keys ?? [],
+		activeKeyId: keyPool?.activeKeyId,
 	};
 	if (planSection) {
 		view.plan = planSection;
 	}
+	view.usageScope = usageScope;
+	view.allKeysCopilot = allKeysCopilot;
 	return view;
 }
 

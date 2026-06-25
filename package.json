@@ -115,6 +115,31 @@
         "command": "minimax.refreshMcp",
         "title": "%minimax.command.refreshMcp%",
         "category": "MiniMax"
+      },
+      {
+        "command": "minimax.manageApiKeys",
+        "title": "%minimax.command.manageApiKeys%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.addApiKey",
+        "title": "%minimax.command.addApiKey%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.switchApiKey",
+        "title": "%minimax.command.switchApiKey%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.renameApiKey",
+        "title": "%minimax.command.renameApiKey%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.deleteApiKey",
+        "title": "%minimax.command.deleteApiKey%",
+        "category": "MiniMax"
       }
     ],
     "menus": {},

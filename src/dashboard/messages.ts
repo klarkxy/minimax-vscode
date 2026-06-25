@@ -109,6 +109,31 @@ export interface DashboardMessages {
 	tabsTotal: string;
 	tabsCopilot: string;
 	tabsClaude: string;
+	// ---- API Keys (named key pool) ----
+	apiKeysSectionTitle: string;
+	apiKeysSubtitle: string;
+	apiKeysEmpty: string;
+	apiKeysActive: string;
+	apiKeysAddBtn: string;
+	apiKeysSwitchBtn: string;
+	apiKeysRenameBtn: string;
+	apiKeysDeleteBtn: string;
+	apiKeysManageBtn: string;
+	apiKeysConfirmDelete: (name: string) => string;
+	apiKeysPromptNewName: (current: string) => string;
+	apiKeysPromptSecret: string;
+	apiKeysPromptName: string;
+	apiKeysAdded: (name: string) => string;
+	apiKeysSwitched: (name: string) => string;
+	apiKeysRenamed: (name: string) => string;
+	apiKeysDeleted: (name: string) => string;
+	apiKeysInvalid: string;
+	apiKeysRegion: (region: string) => string;
+	apiKeysEndpoint: (url: string) => string;
+	apiKeysScopeLabel: string;
+	apiKeysScopeAll: string;
+	apiKeysMissing: string;
+	apiKeysMissingBanner: string;
 }
 
 const en: DashboardMessages = {
@@ -213,6 +238,33 @@ const en: DashboardMessages = {
 	tabsTotal: 'Total',
 	tabsCopilot: 'copilot',
 	tabsClaude: 'claude',
+
+	// API Keys
+	apiKeysSectionTitle: 'API Keys',
+	apiKeysSubtitle:
+		'Named API keys. The active key is used for both chat requests and Token Plan lookups. Run "MiniMax: Manage API Keys" to add or switch keys without leaving the dashboard.',
+	apiKeysEmpty: 'No API keys yet. Add one to start tracking per-key usage and quota.',
+	apiKeysActive: 'active',
+	apiKeysAddBtn: 'Add',
+	apiKeysSwitchBtn: 'Switch',
+	apiKeysRenameBtn: 'Rename',
+	apiKeysDeleteBtn: 'Delete',
+	apiKeysManageBtn: 'Manage…',
+	apiKeysConfirmDelete: (name) => `Delete "${name}"?`,
+	apiKeysPromptNewName: (current) => `Rename "${current}" to:`,
+	apiKeysPromptSecret: 'Paste the MiniMax API key',
+	apiKeysPromptName: 'Name this key (e.g. copilot-1)',
+	apiKeysAdded: (name) => `Added "${name}".`,
+	apiKeysSwitched: (name) => `Switched to "${name}".`,
+	apiKeysRenamed: (name) => `Renamed to "${name}".`,
+	apiKeysDeleted: (name) => `Deleted "${name}".`,
+	apiKeysInvalid: 'Could not apply the change. Try again from the command palette.',
+	apiKeysRegion: (region) => `region: ${region}`,
+	apiKeysEndpoint: (url) => `endpoint: ${url}`,
+	apiKeysScopeLabel: 'Usage scope',
+	apiKeysScopeAll: 'All keys',
+	apiKeysMissing: 'secret missing',
+	apiKeysMissingBanner: 'One or more API keys are missing their stored secret. Re-add the key, or delete the entry, to clear the warning.',
 };
 
 const zh: DashboardMessages = {
@@ -317,6 +369,33 @@ const zh: DashboardMessages = {
 	tabsTotal: '总',
 	tabsCopilot: 'copilot',
 	tabsClaude: 'claude',
+
+	// API Keys
+	apiKeysSectionTitle: 'API Key 池',
+	apiKeysSubtitle:
+		'命名 API Key。当前 Key 同时用于聊天请求和 Token Plan 查询。点击「Manage…」可调用 "MiniMax: 管理 API Key" 添加或切换。',
+	apiKeysEmpty: '尚未保存任何 API Key，点击下方「Add」添加一把。',
+	apiKeysActive: '当前',
+	apiKeysAddBtn: '添加',
+	apiKeysSwitchBtn: '切换',
+	apiKeysRenameBtn: '重命名',
+	apiKeysDeleteBtn: '删除',
+	apiKeysManageBtn: '管理…',
+	apiKeysConfirmDelete: (name) => `确认删除 "${name}"?`,
+	apiKeysPromptNewName: (current) => `将 "${current}" 重命名为:`,
+	apiKeysPromptSecret: '粘贴 MiniMax API Key',
+	apiKeysPromptName: '为这把 Key 起个名字（例如 copilot-1）',
+	apiKeysAdded: (name) => `已添加 "${name}"。`,
+	apiKeysSwitched: (name) => `已切换到 "${name}"。`,
+	apiKeysRenamed: (name) => `已重命名为 "${name}"。`,
+	apiKeysDeleted: (name) => `已删除 "${name}"。`,
+	apiKeysInvalid: '操作失败，请通过命令面板再试一次。',
+	apiKeysRegion: (region) => `区域: ${region}`,
+	apiKeysEndpoint: (url) => `端点: ${url}`,
+	apiKeysScopeLabel: '用量视角',
+	apiKeysScopeAll: '全部 Key',
+	apiKeysMissing: '密钥丢失',
+	apiKeysMissingBanner: '存在 API Key 的密钥已从 VS Code SecretStorage 中清空。重新添加或删除该条目以消除警告。',
 };
 
 const dictionaries: Record<DashboardLocale, DashboardMessages> = { en, zh };

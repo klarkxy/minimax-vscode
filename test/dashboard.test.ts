@@ -980,3 +980,128 @@ test('createChatTurnNotifier: start and end are independent', () => {
 	assert.equal(startCalls, 2);
 	assert.equal(endCalls, 2);
 });
+test('buildDashboardView: surfaces the named key pool via getKeyPool', async () => {
+	const store = createUsageStore(new FakeMemento());
+	const pool = {
+		keys: [
+			{ id: 'k1', name: 'copilot-1', region: 'china' as const, apiBaseUrl: 'https://api.minimaxi.com/anthropic', fingerprint: 'aaaaaa…sk-1', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', isLegacy: false, missingSecret: false },
+			{ id: 'k2', name: 'global-key', region: 'global' as const, apiBaseUrl: 'https://api.minimax.io/anthropic', fingerprint: 'bbbbbb…sk-2', createdAt: '2026-01-02T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z', isLegacy: false, missingSecret: false },
+		],
+		activeKeyId: 'k1',
+	};
+	const view = await buildDashboardView({
+		store,
+		platform: null,
+		getKeyPool: () => pool,
+	});
+	assert.equal(view.apiKeys.length, 2);
+	assert.equal(view.apiKeys[0]?.name, 'copilot-1');
+	assert.equal(view.activeKeyId, 'k1');
+});
+
+test('buildDashboardView: defaults apiKeys to an empty array when getKeyPool is absent', async () => {
+	const store = createUsageStore(new FakeMemento());
+	const view = await buildDashboardView({ store, platform: null });
+	assert.deepEqual(view.apiKeys, []);
+	assert.equal(view.activeKeyId, undefined);
+});
+
+test('buildDashboardView: live getKeyPool resolver is invoked on every build', async () => {
+	const store = createUsageStore(new FakeMemento());
+	const state: { activeId: string | undefined } = { activeId: 'first' };
+	const view = await buildDashboardView({
+		store,
+		platform: null,
+		getKeyPool: () => ({
+			keys: [
+				{ id: 'first', name: 'first', region: 'china' as const, apiBaseUrl: 'https://api.minimaxi.com/anthropic', fingerprint: '111111…sk-1', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', isLegacy: false, missingSecret: false },
+			],
+			activeKeyId: state.activeId,
+		}),
+	});
+	assert.equal(view.activeKeyId, 'first');
+	state.activeId = undefined;
+	const view2 = await buildDashboardView({
+		store,
+		platform: null,
+		getKeyPool: () => ({
+			keys: [],
+			activeKeyId: state.activeId,
+		}),
+	});
+	assert.equal(view2.apiKeys.length, 0);
+	assert.equal(view2.activeKeyId, undefined);
+});
+
+test('buildDashboardView: usageScope=all renders the all-keys aggregate as `copilot`', async () => {
+	const store = createUsageStore(new FakeMemento());
+	await store.record('MiniMax-M3', { inputTokens: 100, outputTokens: 50 });
+	const view = await buildDashboardView({
+		store,
+		platform: null,
+		usageScope: { kind: 'all' },
+	});
+	assert.deepEqual(view.usageScope, { kind: 'all' });
+	// The "总" tab view must include this store's numbers in BOTH
+	// the copilot slot and the allKeysCopilot fallback.
+	assert.equal(view.copilot.today.requests, 1);
+	assert.equal(view.copilot.today.inputTokens, 100);
+	assert.equal(view.allKeysCopilot?.today.requests, 1);
+	assert.equal(view.allKeysCopilot?.today.inputTokens, 100);
+});
+
+test('buildDashboardView: usageScope=key returns empty for unknown keyId (per-key helper uses default stats)', async () => {
+	const store = createUsageStore(new FakeMemento());
+	await store.record('MiniMax-M3', { inputTokens: 300, outputTokens: 100 });
+	const aggregate = await buildDashboardView({
+		store,
+		platform: null,
+		usageScope: { kind: 'all' },
+	});
+	assert.equal(aggregate.copilot.today.inputTokens, 300);
+	const perKey = await buildDashboardView({
+		store,
+		platform: null,
+		usageScope: { kind: 'key', keyId: 'some-unknown-id' },
+	});
+	// Unknown keyId: `buildCopilotViewForKeyId` returns a fresh
+	// `defaultStats()` (empty), so the per-key view is empty while
+	// the all-keys aggregate is unchanged. The dashboard's
+	// `resolveScope()` is the layer that flips unknown ids to
+	// `all` before reaching the aggregator; the aggregator itself
+	// is permissive.
+	assert.equal(perKey.copilot.today.inputTokens, 0);
+	assert.equal(perKey.allKeysCopilot?.today.inputTokens, 300);
+});
+
+test('buildDashboardView: async getKeyPool resolver is awaited', async () => {
+	const store = createUsageStore(new FakeMemento());
+	let resolvePool!: (value: { keys: []; activeKeyId?: string }) => void;
+	const poolPromise = new Promise<{ keys: []; activeKeyId?: string }>((r) => { resolvePool = r; });
+	const viewP = buildDashboardView({
+		store,
+		platform: null,
+		getKeyPool: () => poolPromise,
+	});
+	await new Promise((r) => setImmediate(r));
+	resolvePool({ keys: [], activeKeyId: 'async-id' });
+	const view = await viewP;
+	assert.equal(view.activeKeyId, 'async-id');
+	assert.equal(view.apiKeys.length, 0);
+});
+
+test('buildCachedDashboardView: async getKeyPool resolver is awaited', async () => {
+	const store = createUsageStore(new FakeMemento());
+	let resolvePool!: (value: { keys: []; activeKeyId?: string }) => void;
+	const poolPromise = new Promise<{ keys: []; activeKeyId?: string }>((r) => { resolvePool = r; });
+	const viewP = buildCachedDashboardView({
+		store,
+		planSource: 'unconfigured',
+		getKeyPool: () => poolPromise,
+	});
+	await new Promise((r) => setImmediate(r));
+	resolvePool({ keys: [], activeKeyId: 'cached-async-id' });
+	const view = await viewP;
+	assert.equal(view.activeKeyId, 'cached-async-id');
+	assert.equal(view.apiKeys.length, 0);
+});

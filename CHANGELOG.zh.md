@@ -2,6 +2,29 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## Unreleased
+
+### 新增 — 命名 API Key 池
+
+- **多把命名 API Key。** 跑 **MiniMax: 添加 API Key** 给 Key 起个名字，扩展会自动探测 China / Global 官方 `coding_plan/remains` 端点，选对区域，把密钥存到 VS Code SecretStorage，设为当前，并把它的端点同步到 `minimax.apiBaseUrl`。想加多少把都行。
+- **5 个新命令**，并与历史 "设置/清除" 并存：
+  - **MiniMax: 添加 API Key** — 起名 + 输入 + 区域探测 + 设为当前。
+  - **MiniMax: 切换 API Key** — 从池里选一把；该 Key 的端点会自动同步。
+  - **MiniMax: 重命名 API Key** — 改显示名，密钥不动。
+  - **MiniMax: 删除 API Key** — 选 Key、确认、清掉密钥和元数据，当前 Key 自动轮换到下一把。
+  - **MiniMax: 管理 API Key** — 子菜单：添加 / 切换 / 重命名 / 删除。
+- **状态栏镜像当前 Key。** 右侧 quota 项展示成 `copilot-1 5h 73%` / `Week 11%`，而不是匿名的 `5h 73%`。Tooltip 列出所有已命名 Key 的区域和指纹，一眼能看出今天跑的是哪把 Key 的 quota。
+- **用量面板新增 "API Keys" 区。** 在 "总" 视图顶部列出所有已命名 Key，当前 Key 标记徽章；行内 5 个按钮（添加 / 切换 / 重命名 / 删除 / 管理）都转调上面那 5 个 `minimax.*` 命令。
+- **按 Key 拆分本地用量。** `UsageStore` 现在按 `keyId` 给 Copilot 用量分桶。默认跟随当前 Key；后续按需加 "全部 Key 汇总"，不会默认显示。Claude Code JSONL 仍作独立来源，不强行归到某把 Key。
+- **跨窗口同步。** `KeyManager.onDidChange` 推到聊天模型选择器、用量面板、状态栏、PlanCache。`secrets.onDidChange` 监听 `minimax-vscode.apiKeys.*` 整个前缀，窗口 A 添加/切换/删除，窗口 B 不用重载就立刻刷新。
+- **切换 active key 失效 PlanCache 并重注册 MCP provider。** `runtime/commands.ts` 在 `KeyManager.onDidChange` 上多挂了一对：清空所有 `(apiKey, host)` 指纹的 quota 缓存（旧身份已不匹配新 Key），并触发 `mcp.refreshDefinitions()`，让 VS Code 在下次 MCP spawn 时拿到新 Key + endpoint。SecretStorage 之外被清掉的旧单 Key 槽也每轮重新探测，对应面板条目会出现 `密钥丢失` 警告标签，而不是默默走 legacy fallback。
+- **Add Key 自动探测为辅助决策。** `KeyManager.addApiKey` 会并行对官方 China / Global 两个 host 跑 `coding_plan/remains`，取最窄结果填入 `region` / `apiBaseUrl`。两边都成功时默认走 China endpoint（和 `autoSelectEndpointIfUnset` 一致）；都不成功时 Key 仍保存但 `region: 'custom'`，面板会显示为 "未识别"。用户可以随时通过 `MiniMax: 切换 API Key` / `MiniMax: 切换到国际版 API` / `MiniMax: 切换到国内版 API` 修正。
+
+### 变更
+
+- **历史 `minimax.setApiKey` 命令现在标题为 "添加 API Key"**，实际走命名 Key 池，不再直接写 `minimax-vscode.apiKey` 旧槽。旧单 Key 槽保留为只读 fallback（兼容没重跑初始化流程的老用户），在面板里被标记为 "Default"。
+- **`minimax.clearApiKey` 现在标题为 "移除 API Key"**：有命名 Key 时打开和 `minimax.deleteApiKey` 一样的二次确认；池为空时回退到清旧槽。
+
 ## 2.4.1 — 402/429 直接落到聊天里，`.vscodeignore` 屏蔽 `*.log`
 
 ### 修复

@@ -46,7 +46,7 @@
 ### Installation
 
 1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode-copilot) (or build a `.vsix` from source with `npm run package`).
-2. Run **MiniMax: Set API Key** from the command palette and paste your Token Plan key.
+2. Run **MiniMax: Add API Key** from the command palette, give it a name, and paste your Token Plan key. The extension auto-detects China vs Global and stores the key in SecretStorage. Use **MiniMax: Manage API Keys** to add more, switch, rename, or delete.
 3. Open Copilot Chat, pick **MiniMax M3** (or M2.7 / M2.7-highspeed).
 4. (Optional) Run **MiniMax: Set Copilot's Utility Models** to route the Source Control ✨ button through MiniMax.
 
@@ -113,11 +113,16 @@ A Subscription Key covers language models plus speech / video / music / image en
 
 | Command | Purpose |
 | --- | --- |
-| **MiniMax: Set API Key** | Store the Token Plan key in SecretStorage |
-| **MiniMax: Clear API Key** | Remove the stored key |
+| **MiniMax: Add API Key** | Name a new key, auto-detect its region (China / Global / unknown), store in SecretStorage, make it active |
+| **MiniMax: Remove API Key** | Remove the active named key (or the legacy single-key slot if the pool is empty) |
+| **MiniMax: Manage API Keys** | Open a sub-menu: Add / Switch / Rename / Delete |
+| **MiniMax: Switch API Key** | Pick an existing named key to make active (mirrors its endpoint) |
+| **MiniMax: Rename API Key** | Change a named key's display name |
+| **MiniMax: Delete API Key** | Pick a named key to delete (with confirmation) |
 | **MiniMax: Set Copilot's Utility Models** | Pick a chat model and write it to `chat.utilitySmallModel` (and optionally `chat.utilityModel`) |
 | **MiniMax: Toggle M3 1M Context** | Lift M3's picker entry to 1M (with billing warning) |
 | **MiniMax: Switch to Global API (`minimax.io/anthropic`)** | Switch to the international Anthropic endpoint |
+| **MiniMax: Switch to Chinese API (`minimaxi.com/anthropic`)** | Switch to the China-region Anthropic endpoint |
 | **MiniMax: Show Logs** | Focus the MiniMax output channel |
 | **MiniMax: Open Request Dumps Folder** | Reveal verbose request dumps |
 | **MiniMax: Open Usage Dashboard** | Open the usage dashboard |
@@ -130,6 +135,7 @@ A Subscription Key covers language models plus speech / video / music / image en
 
 - **No models in the picker** — open **MiniMax: Open Usage Dashboard** to see whether an API key is set and which models are visible.
 - **HTTP 404 from the gateway** — make sure `minimax.apiBaseUrl` is `https://api.minimax.io/anthropic`, not a third-party proxy that expects the OpenAI protocol.
-- **"API key not configured"** — run **MiniMax: Set API Key**; the key is stored in VS Code SecretStorage, not in `settings.json`.
+- **"API key is missing its secret" warning in the dashboard** — VS Code SecretStorage lost the entry (e.g. after a settings reset or a workspace migration). Run **MiniMax: Add API Key** to re-add the key, or **MiniMax: Delete API Key** to drop the orphan metadata. The dashboard shows a `secret missing` badge next to affected entries.
+- **"API key not configured"** — run **MiniMax: Add API Key**; the key is stored in VS Code SecretStorage, not in `settings.json`.
 - **Source Control ✨ button does not invoke MiniMax** — run **MiniMax: Set Copilot's Utility Models** to set `chat.utilitySmallModel` to a MiniMax model, then restart Copilot Chat.
 - **M3 picker still shows 512K after toggling 1M on** — switch models in the picker once; some Copilot Chat versions cache the entry until the next message.

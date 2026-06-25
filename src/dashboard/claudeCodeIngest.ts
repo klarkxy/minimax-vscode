@@ -750,6 +750,8 @@ export function createClaudeCodeIngest(
 			/* no-op — the ingester mutates the cache directly. */
 		},
 		read: () => readStatsFromState(opts.globalState),
+		readForKey: () => readStatsFromState(opts.globalState),
+		readAllKeys: () => ({}),
 		readToday: () => {
 			const all = readStatsFromState(opts.globalState);
 			const bucket = all.daily[todayKey(new Date(clock.now()))];

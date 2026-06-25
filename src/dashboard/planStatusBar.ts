@@ -17,6 +17,15 @@ const SHOW_COMMAND = 'minimax.openDashboard';
 
 export interface PlanStatusBarDeps {
 	cache: PlanCache;
+	/** Optional notifier for the active key's display name. When set,
+	 *  the status bar shows the name next to the quota (e.g.
+	 *  `copilot-1 5h 73%`) and the tooltip lists every key in the
+	 *  pool. */
+	getActiveKeyLabel?: () => string | undefined;
+	/** Optional notifier for the full key pool summary. The status
+	 *  bar formats each entry in the tooltip; the quota numbers
+	 *  themselves still come from the shared `cache`. */
+	getKeyPool?: () => Array<{ name: string; region: string; fingerprint: string; isActive: boolean }> | undefined;
 }
 
 export interface PlanStatusBar {
@@ -28,6 +37,9 @@ export interface PlanStatusBar {
 	 * is the brief interval before the first read completes.
 	 */
 	setKeyState(state: 'unknown' | 'set' | 'unset'): void;
+	/** Re-render the active-key label and pool summary. Cheap; safe
+	 *  to call on every `KeyManager.onDidChange` fire. */
+	refreshKeyLabel(): void;
 }
 
 /** What we know about whether the user has an API key, for rendering. */
@@ -82,11 +94,31 @@ function remainingPctOf(plan: PlanUsage, key: 'current' | 'weekly'): number | nu
 	return 100 - plan.weeklyPercentage;
 }
 
+function buildPoolTooltip(
+	isZh: boolean,
+	pool: Array<{ name: string; region: string; fingerprint: string; isActive: boolean }> | undefined,
+	activeName: string | undefined,
+): string {
+	if (!pool || pool.length === 0) return '';
+	const lines = pool.map((entry) => {
+		const marker = entry.isActive ? (isZh ? ' ●当前' : ' ● active') : '';
+		return `• ${entry.name}${marker}  ${entry.region}  ${entry.fingerprint}`;
+	});
+	if (activeName) {
+		return isZh
+			? `当前 Key: ${activeName}\n${lines.join('\n')}`
+			: `Active key: ${activeName}\n${lines.join('\n')}`;
+	}
+	return lines.join('\n');
+}
+
 function renderQuota(
 	state: RenderState,
 	key: 'current' | 'weekly',
 	labelEn: string,
 	labelZh: string,
+	activeName: string | undefined,
+	poolTooltip: string,
 ): { text: string; tooltip: string; color: vscode.ThemeColor | undefined } {
 	const isZh = vscode.env.language.toLowerCase().startsWith('zh');
 	const label = isZh ? labelZh : labelEn;
@@ -147,8 +179,9 @@ function renderQuota(
 		pairLine,
 		remainingLine,
 		`${isZh ? '重置' : 'Resets in'}: ${resetText}`,
+		poolTooltip,
 		isZh ? '点击打开 Dashboard 查看详情' : 'Click to open the dashboard for details',
-	].filter(Boolean).join(' · ');
+	].filter(Boolean).join('\n');
 
 	return { text: `${label} ${usedText}`, tooltip, color };
 }
@@ -164,16 +197,27 @@ export function createPlanStatusBar(deps: PlanStatusBarDeps): PlanStatusBar {
 
 	let lastKey: KeyState = 'unknown';
 
+	function poolTooltip(): string {
+		return buildPoolTooltip(isZh, deps.getKeyPool?.(), deps.getActiveKeyLabel?.());
+	}
+
+	function activeLabel(): string | undefined {
+		return deps.getActiveKeyLabel?.();
+	}
+
 	function render(): void {
 		const snap = deps.cache.read();
 		const state: RenderState = { key: lastKey, usage: snap?.usage };
-		const five = renderQuota(state, 'current', '5h', '5小时');
-		fiveHour.text = five.text;
+		const pool = poolTooltip();
+		const five = renderQuota(state, 'current', '5h', '5小时', activeLabel(), pool);
+		fiveHour.text = activeLabel() && five.text.startsWith('5h')
+			? `${activeLabel()} ${five.text}`
+			: five.text;
 		fiveHour.tooltip = five.tooltip;
 		fiveHour.color = five.color;
 		fiveHour.show();
 
-		const week = renderQuota(state, 'weekly', 'Week', '周');
+		const week = renderQuota(state, 'weekly', 'Week', '周', activeLabel(), pool);
 		weekly.text = week.text;
 		weekly.tooltip = week.tooltip;
 		weekly.color = week.color;
@@ -193,6 +237,9 @@ export function createPlanStatusBar(deps: PlanStatusBarDeps): PlanStatusBar {
 		setKeyState(state) {
 			if (state === lastKey) return;
 			lastKey = state;
+			render();
+		},
+		refreshKeyLabel() {
 			render();
 		},
 		dispose() {

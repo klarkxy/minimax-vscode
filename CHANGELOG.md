@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Added — Named API key pool
+
+- **Multiple named API keys.** Run **MiniMax: Add API Key** to give a key a name; the extension auto-probes the official China / Global `coding_plan/remains` endpoint, picks the right region, stores the secret in VS Code SecretStorage, sets the key active, and mirrors its endpoint into `minimax.apiBaseUrl`. Add as many keys as you like.
+- **Five new commands** alongside the historical "Set / Clear":
+  - **MiniMax: Add API Key** — name + secret + region probe + activate.
+  - **MiniMax: Switch API Key** — pick from the pool; the active key's endpoint wins.
+  - **MiniMax: Rename API Key** — change a name; secrets are not touched.
+  - **MiniMax: Delete API Key** — pick a key, confirm, drop secret + metadata; active rotates to the next entry automatically.
+  - **MiniMax: Manage API Keys** — sub-menu that runs any of the four above.
+- **Status bar mirrors the active key.** The right-side quota items render as `copilot-1 5h 73%` / `Week 11%` instead of an anonymous `5h 73%`. The tooltip lists every named key with its region and fingerprint, so a glance tells you which key is feeding today's quota.
+- **Dashboard "API Keys" section.** Top of the "总" tab; every named key is listed with the active one badge-marked. Five inline buttons (Add / Switch / Rename / Delete / Manage) drive the same `minimax.*` commands.
+- **Per-key usage scoping.** `UsageStore` now buckets Copilot usage by `keyId`. The default view follows the active key; a future "all keys" aggregate is rendered only when the user explicitly asks for it. Claude Code JSONL stays a separate source (no key attribution by design).
+- **Cross-window sync.** `KeyManager.onDidChange` fans out to the chat model picker, the dashboard, the status bar, and the PlanCache. `secrets.onDidChange` listens on the whole `minimax-vscode.apiKeys.*` prefix, so adding / switching / deleting in window A refreshes window B without a reload.
+- **Active key switch invalidates the plan cache + re-registers the MCP provider.** `runtime/commands.ts` now hooks the pool's `onDidChange` to drop every cached `coding_plan/remains` snapshot (the previous `(apiKey, host)` identity no longer matches the new active key) and to fire `mcp.refreshDefinitions()` so the next MCP spawn picks up the new key + endpoint. The legacy single-key slot is also re-detected on every refresh, so an out-of-band SecretStorage reset surfaces a `secret missing` badge in the dashboard's API Keys section instead of failing silently.
+- **Add key auto-probe is advisory.** `KeyManager.addApiKey` runs `coding_plan/remains` against both official hosts and picks the narrowest result (`china` / `global`). When both succeed it falls back to the China default (matching `autoSelectEndpointIfUnset`). When neither succeeds, the key is saved with `region: 'custom'` and the user's existing `minimax.apiBaseUrl`; the dashboard renders it as "unrecognised". The user can override at any time via `minimax.switchApiKey` / `minimax.switchToGlobal` / `minimax.switchToChina`.
+
+### Changed
+
+- **The legacy `minimax.setApiKey` command is now titled "Add API Key"** and routes through the named key pool instead of writing to `minimax-vscode.apiKey` directly. The old single-key slot is preserved as a read-only fallback (for users upgrading without re-running the setup flow) and is labelled "Default" in the dashboard.
+- **`minimax.clearApiKey` is now titled "Remove API Key"**: when at least one named key exists it opens the same delete confirmation as the new command; when the pool is empty it falls back to clearing the legacy slot.
+
 ## 2.4.1 — 2026-06-17
 
 ### Fixed

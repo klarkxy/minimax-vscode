@@ -157,8 +157,28 @@ export const LANGUAGE_MODEL_CHAT_SYSTEM_ROLE = 3;
 
 // ---- Secret keys ----
 
-/** SecretStorage key for the MiniMax API key. */
+/** SecretStorage key for the MiniMax API key (legacy single-key slot). */
 export const API_KEY_SECRET = 'minimax-vscode.apiKey';
+
+/** SecretStorage key prefix for the named key pool. The full key is
+ *  `minimax-vscode.apiKeys.<keyId>`; the extension stores the raw API
+ *  key here and keeps the matching metadata (name, region, etc.) in
+ *  the `API_KEYS_METADATA_KEY` memento. The legacy `API_KEY_SECRET`
+ *  is preserved as a fallback for users who upgrade without
+ *  re-running the `Add API Key` flow. */
+export const API_KEY_SECRET_PREFIX = 'minimax-vscode.apiKeys.';
+
+/** memento key for the named key pool metadata. Stored as JSON:
+ *  `{ activeKeyId?: string; keys: KeyMetadata[] }`. No secrets
+ *  live here — only display name, region, endpoint, fingerprint,
+ *  timestamps. */
+export const API_KEYS_METADATA_KEY = 'minimax-vscode.apiKeys';
+
+/** Special keyId for the legacy single-key slot. The legacy key is
+ *  read-only here; it surfaces in the dashboard as a "Default" entry
+ *  and remains functional until the user explicitly adds a new key
+ *  through the manager. */
+export const LEGACY_KEY_ID = '__legacy__';
 
 /** memento key tracking whether the welcome walkthrough has been shown. */
 export const WELCOME_SHOWN_KEY = 'minimax-vscode.welcomeShown';
@@ -208,10 +228,51 @@ export const MINIMAX_TOOLS_LIMIT = 128;
 /** MIME type used to embed stateful replay markers in chat messages. */
 export const REPLAY_MARKER_MIME = 'minimax_marker';
 
-/**
- * MIME type for the per-turn `usage` data part that Copilot Chat uses
- * to populate the context-usage widget in its status bar. The value
- * matches the oai-compatible-copilot upstream and what Copilot Chat
- * expects on the receiving end.
- */
+/** Symbolic region labels for a named API key. The host actually
+ *  used for requests comes from `KeyMetadata.apiBaseUrl`; the
+ *  `region` is a display hint that drives the auto-select flow and
+ *  the platform URL shown in toasts. `custom` means the user picked
+ *  a non-official `apiBaseUrl` and dashboard quota lookup should be
+ *  suppressed (matches the existing `host === null` rule). */
+export type KeyRegion = 'china' | 'global' | 'custom';
+
+/** Public metadata for a single named API key. Secrets live in
+ *  SecretStorage; only this metadata is persisted to `globalState`. */
+export interface KeyMetadata {
+	/** Stable identifier; matches the SecretStorage suffix. */
+	id: string;
+	/** User-visible name; unique within the pool. */
+	name: string;
+	/** Display hint; defaults to the resolved host. */
+	region: KeyRegion;
+	/** The endpoint this key was bound to when added. Switching the
+	 *  active key updates `minimax.apiBaseUrl` to this value. */
+	apiBaseUrl: string;
+	/** Last 6 chars of the secret, plus a per-key sha256 prefix.
+	 *  NEVER use as a credential — only for UI display and to keep
+	 *  PlanCache keys stable across renames. */
+	fingerprint: string;
+	createdAt: string;
+	updatedAt: string;
+	lastUsedAt?: string;
+}
+
+/** On-disk shape of the named key pool metadata. Persisted under
+ *  `API_KEYS_METADATA_KEY`. */
+export interface KeyPoolMetadata {
+	activeKeyId?: string;
+	keys: KeyMetadata[];
+}
+
+/** memento key for per-API-key Copilot usage. Stored as JSON
+ *  (`Record<keyId, UsageStats>`) so the dashboard can switch the
+ *  Copilot usage scope by key name (`copilot-1`, `copilot-2`, …).
+ *  Replaces the previous single `USAGE_STATS_KEY` schema; legacy
+ *  data is migrated into the `__legacy__` scope on first read. */
+export const USAGE_STATS_BY_KEY_KEY = 'minimax-vscode.usageStatsByKey';
+
+/** MIME type for the per-turn `usage` data part that Copilot Chat uses
+ *  to populate the context-usage widget in its status bar. The value
+ *  matches the oai-compatible-copilot upstream and what Copilot Chat
+ *  expects on the receiving end. */
 export const COPILOT_USAGE_DATA_PART_MIME = 'usage';

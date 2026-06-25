@@ -5,16 +5,18 @@
 // models they used. We never store the API key or any message body
 // here.
 //
-// Storage layout (JSON in `globalState[USAGE_STATS_KEY]`):
-//   startedAt / updatedAt – ISO timestamps
-//   total                 – cumulative ModelUsage across the whole history
-//   byModel               – ModelUsage bucketed by API model id
-//   daily                 – ModelUsage bucketed by local YYYY-MM-DD date
-//                           (used by the dashboard to render today /
-//                           7-day / 30-day windows)
+// Storage layout (JSON in `globalState[USAGE_STATS_BY_KEY_KEY]`):
+//   <keyId>                – per-key `UsageStats` blob; keyId is the
+//                            KeyManager id (or `__legacy__` for
+//                            pre-pool data). Replaces the previous
+//                            single `USAGE_STATS_KEY` layout.
+// `globalState[USAGE_STATS_KEY]` is read on first access and
+// migrated into the `__legacy__` scope so existing users keep their
+// history after upgrading to the named key pool.
 
 import * as vscode from 'vscode';
-import { USAGE_STATS_KEY } from './consts';
+import { LEGACY_KEY_ID, USAGE_STATS_BY_KEY_KEY, USAGE_STATS_KEY } from './consts';
+import type { KeyManager } from './keyManager';
 
 export interface ModelUsage {
 	inputTokens: number;
@@ -55,12 +57,22 @@ function defaultStats(): UsageStats {
 }
 
 export interface UsageStore {
+	/** Record usage for the active key. The keyId is resolved at
+	 *  write-time via the bound `KeyManager` (or `__legacy__` if no
+	 *  named key is active yet, so the previous single-bucket
+	 *  behaviour is preserved). */
 	record(modelId: string, usage: Partial<ModelUsage>): Promise<void>;
+	/** Aggregate stats across the active key's bucket. Equivalent to
+	 *  `readForKey(activeKeyId)`. */
 	read(): UsageStats;
+	/** Per-key stats. `__legacy__` returns the pre-pool history. */
+	readForKey(keyId: string): UsageStats;
+	/** Per-key snapshot for the dashboard dropdown. */
+	readAllKeys(): Record<string, UsageStats>;
 	reset(): Promise<void>;
 	/** Subscribe to changes — fired after every `record` / `reset`. */
 	subscribe(listener: (stats: UsageStats) => void): vscode.Disposable;
-	/** Snapshot of today's local-date usage. */
+	/** Snapshot of today's local-date usage for the active key. */
 	readToday(): ModelUsage;
 	/** Aggregate usage across the trailing `days` calendar days (inclusive of today). */
 	readRange(days: number): ModelUsage;
@@ -72,15 +84,23 @@ export interface UsageStore {
  * Build a usage store backed by the extension's `globalState`. Pass
  * `undefined` to fall back to a no-op store (used in tests / before
  * the extension is activated).
+ *
+ * `deps.keyManager` is consulted on each `record` to attribute the
+ * entry to the active key. When no `KeyManager` is provided (e.g. in
+ * a unit test) usage is recorded against `__legacy__` so the old
+ * single-bucket shape is preserved.
  */
 export function createUsageStore(
 	globalState: vscode.Memento | undefined,
+	deps: { keyManager?: KeyManager } = {},
 ): UsageStore {
 	if (!globalState) {
 		const noopListeners = new Set<(stats: UsageStats) => void>();
 		return {
 			record: async () => {},
 			read: () => defaultStats(),
+			readForKey: () => defaultStats(),
+			readAllKeys: () => ({}),
 			reset: async () => {},
 			subscribe: (l) => {
 				noopListeners.add(l);
@@ -97,8 +117,46 @@ export function createUsageStore(
 	const listeners = new Set<(stats: UsageStats) => void>();
 	const state: vscode.Memento = globalState;
 
+	// Lazy, idempotent migration from the legacy single-bucket
+	// layout to the per-key map. We track the in-flight promise on
+	// a per-store basis (not module-level) so the test harness
+	// (which constructs a fresh `FakeMemento` per test) gets a
+	// clean migration state, and so two usage stores in the same
+	// process can't accidentally dedup to the wrong memento. The
+	// migration writes are also reflected in the read path via
+	// `readAllMap`'s legacy fallback so the dashboard sees the
+	// user's history on the first render even before the write
+	// lands.
+	let migrationPromise: Promise<void> | undefined;
+	function ensureMigrated(): Promise<void> {
+		if (migrationPromise) return migrationPromise;
+		migrationPromise = (async () => {
+			const hasNew = state.get<unknown>(USAGE_STATS_BY_KEY_KEY) !== undefined;
+			if (hasNew) return;
+			const legacy = state.get<UsageStats | undefined>(USAGE_STATS_KEY);
+			if (!legacy) {
+				// Initialise the new key so future reads can rely
+				// on its presence even when there is no legacy
+				// data. The fallback in `readAllMap()` also
+				// covers this case for in-process reads.
+				await state.update(USAGE_STATS_BY_KEY_KEY, {});
+				return;
+			}
+			const map: Record<string, UsageStats> = {
+				[LEGACY_KEY_ID]: hydrateStats(legacy),
+			};
+			await state.update(USAGE_STATS_BY_KEY_KEY, map);
+		})();
+		return migrationPromise;
+	}
+
+	function activeKeyId(): string {
+		const snap = deps.keyManager?.snapshot();
+		return snap?.activeKeyId ?? LEGACY_KEY_ID;
+	}
+
 	function notify(): void {
-		const stats = readStats(state);
+		const stats = readForKey(state, activeKeyId());
 		for (const listener of listeners) {
 			try {
 				listener(stats);
@@ -110,7 +168,13 @@ export function createUsageStore(
 
 	return {
 		async record(modelId: string, usage: Partial<ModelUsage>): Promise<void> {
-			const stats = readStats(state);
+			// Gate every write on the migration promise so a
+			// record fired immediately after upgrade cannot race
+			// the legacy-to-per-key migration write and overwrite
+			// it with a fresh empty map.
+			await ensureMigrated();
+			const keyId = activeKeyId();
+			const stats = readForKey(state, keyId);
 			applyUsage(stats.total, usage);
 			stats.total.requests += 1;
 			const bucket = (stats.byModel[modelId] ??= emptyUsage());
@@ -121,14 +185,22 @@ export function createUsageStore(
 			applyUsage(dayBucket, usage);
 			dayBucket.requests += 1;
 			stats.updatedAt = new Date().toISOString();
-			await state.update(USAGE_STATS_KEY, stats);
+			await writeForKey(state, keyId, stats);
 			notify();
 		},
 		read(): UsageStats {
-			return readStats(state);
+			return readForKey(state, activeKeyId());
+		},
+		readForKey(keyId: string): UsageStats {
+			return readForKey(state, keyId);
+		},
+		readAllKeys(): Record<string, UsageStats> {
+			return readAllKeys(state);
 		},
 		async reset(): Promise<void> {
-			await state.update(USAGE_STATS_KEY, defaultStats());
+			await ensureMigrated();
+			const keyId = activeKeyId();
+			await writeForKey(state, keyId, defaultStats());
 			notify();
 		},
 		subscribe(listener) {
@@ -138,25 +210,61 @@ export function createUsageStore(
 			});
 		},
 		readToday() {
-			const stats = readStats(state);
+			const stats = readForKey(state, activeKeyId());
 			return { ...(stats.daily[todayKey()] ?? emptyUsage()) };
 		},
 		readRange(days: number) {
-			const stats = readStats(state);
+			const stats = readForKey(state, activeKeyId());
 			return sumRange(stats.daily, days);
 		},
 		readDailySeries(days: number) {
-			const stats = readStats(state);
+			const stats = readForKey(state, activeKeyId());
 			return buildSeries(stats.daily, days);
 		},
 	};
 }
 
-function readStats(store: vscode.Memento): UsageStats {
-	const raw = store.get<UsageStats | undefined>(USAGE_STATS_KEY);
-	if (!raw) {
-		return defaultStats();
+function readAllMap(store: vscode.Memento): Record<string, UsageStats> {
+	const raw = store.get<Record<string, UsageStats> | undefined>(USAGE_STATS_BY_KEY_KEY);
+	const result: Record<string, UsageStats> = {};
+	if (raw && typeof raw === 'object') {
+		for (const [id, value] of Object.entries(raw)) {
+			result[id] = hydrateStats(value);
+		}
 	}
+	// Read-side fallback for the migration window: if the new map
+	// is still empty (migration write hasn't landed yet), surface
+	// the legacy single-bucket data under `__legacy__` so the
+	// dashboard renders the user's history on the first frame. The
+	// write-side `await ensureMigrated()` in `record`/`reset` is
+	// the canonical path that flips the new key on.
+	if (Object.keys(result).length === 0) {
+		const legacy = store.get<UsageStats | undefined>(USAGE_STATS_KEY);
+		if (legacy) {
+			result[LEGACY_KEY_ID] = hydrateStats(legacy);
+		}
+	}
+	return result;
+}
+
+function readForKey(store: vscode.Memento, keyId: string): UsageStats {
+	const map = readAllMap(store);
+	const existing = map[keyId];
+	return existing ? hydrateStats(existing) : defaultStats();
+}
+
+function writeForKey(store: vscode.Memento, keyId: string, stats: UsageStats): Promise<void> {
+	const map = readAllMap(store);
+	map[keyId] = stats;
+	return Promise.resolve(store.update(USAGE_STATS_BY_KEY_KEY, map));
+}
+
+function readAllKeys(store: vscode.Memento): Record<string, UsageStats> {
+	return readAllMap(store);
+}
+
+function hydrateStats(raw: UsageStats | undefined): UsageStats {
+	if (!raw) return defaultStats();
 	// Re-hydrate mutable defaults; Memento serialises through JSON so
 	// nested objects always come back as fresh POJOs.
 	return {

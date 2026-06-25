@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import { AuthManager } from '../auth';
+import { API_KEY_SECRET_PREFIX } from '../consts';
 import { getBaseUrl, getStabilizeToolListEnabled } from '../config';
 import { t } from '../i18n';
+import { KeyManager } from '../keyManager';
 import { getVisibleModels } from '../models/registry';
 import { createUsageStore, type UsageStore } from '../usage';
 import { createChatTurnNotifier, type ChatTurnNotifier } from '../dashboard/chatTurnNotifier';
@@ -22,6 +24,7 @@ import { processToolFlow } from './tools/flow';
  * MiniMax models appear directly in the Copilot Chat model picker.
  */
 export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
+	private readonly keyManager: KeyManager;
 	private readonly authManager: AuthManager;
 	private readonly globalStorageUri: vscode.Uri;
 	private readonly onDidChangeLanguageModelChatInformationEmitter = new vscode.EventEmitter<void>();
@@ -51,13 +54,21 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 	 * Updated via exponential moving average each time the API reports real token counts.
 	 */
 	private charsPerToken = DEFAULT_CHARS_PER_TOKEN;
+	/** Per-turn guard for `keyManager.touchActiveKey()`. A single turn
+	 *  can fan out to multiple Anthropic requests (tool calls, cache
+	 *  retries, thinking sub-steps); the first `onUsage` callback
+	 *  is the canonical "we just spent tokens" signal. Set on
+	 *  `notifyTurnStart` and cleared on `notifyTurnEnd`. */
+	private touchedActiveKeyThisTurn = false;
 
 	constructor(
 		context: vscode.ExtensionContext,
 	) {
-		this.authManager = new AuthManager(context);
+		const keyManager = new KeyManager(context);
+		this.keyManager = keyManager;
+		this.authManager = new AuthManager(context, keyManager);
 		this.globalStorageUri = context.globalStorageUri;
-		this.usageStore = createUsageStore(context.globalState);
+		this.usageStore = createUsageStore(context.globalState, { keyManager });
 
 		context.subscriptions.push(
 			this.onDidChangeLanguageModelChatInformationEmitter,
@@ -105,12 +116,29 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 				}
 				}),
 				// Multi-window: SecretStorage changes don't fire onDidChangeConfiguration.
-			// When another window sets/clears the API key, refresh this window's
-			// model picker so the warning state stays in sync.
+			// When another window adds / switches / deletes a named key, or
+			// flips the legacy single-key slot, refresh this window's
+			// model picker so the warning state stays in sync. We listen
+			// on the WHOLE `minimax-vscode.apiKeys.*` prefix instead of
+			// the legacy `minimax-vscode.apiKey` so cross-window edits to
+			// the named key pool also propagate. The legacy key is
+			// already covered by the pool's own `onDidChange` event below
+			// (it surfaces the same `secrets.get/set/delete` calls), but
+			// we keep a separate `secrets.onDidChange` handler for cases
+			// where the pool was not constructed yet (e.g. very early
+			// activation race).
 			context.secrets.onDidChange((e) => {
-				if (e.key === 'minimax-vscode.apiKey') {
+				if (e.key === 'minimax-vscode.apiKey' || e.key.startsWith(API_KEY_SECRET_PREFIX)) {
 					this.onDidChangeLanguageModelChatInformationEmitter.fire();
 				}
+			}),
+			// Pool-internal changes (add / switch / rename / delete) are
+			// mirrored through `KeyManager.onDidChange`. The events fire
+			// synchronously after the SecretStorage write, so the
+			// picker's warning state ("no API key" / "no host" / "ok")
+			// stays current even on the window that initiated the change.
+			keyManager.onDidChange(() => {
+				this.onDidChangeLanguageModelChatInformationEmitter.fire();
 			}),
 		);
 	}
@@ -118,17 +146,36 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 	// ---- Public commands ----
 
 	async configureApiKey(): Promise<void> {
-		// Pass the configured base URL so the input-box prompt text
-		// shows the platform URL the user actually needs to visit
-		// (CN vs global), instead of hard-coding one platform per
-		// locale and shipping the wrong half to the other half.
-		const saved = await this.authManager.promptForApiKey(getBaseUrl());
-		if (saved) {
+		// `setApiKey` is the historical command (still wired in
+		// `package.json#contributes.commands`). It used to write to
+		// the legacy single-key slot only; now we route it through
+		// the named key pool so the new key gets a name, a region
+		// probe, and a synced `apiBaseUrl` — the same flow as
+		// `minimax.addApiKey`. We import the command handler lazily
+		// to avoid pulling the dashboard / command stack into the
+		// provider's synchronous import graph (it would create a
+		// circular dep through `runtime/keyCommands`).
+		const { addApiKeyCommand } = await import('../runtime/keyCommands.js');
+		const result = await addApiKeyCommand();
+		if (result === 'created') {
 			this.onDidChangeLanguageModelChatInformationEmitter.fire();
 		}
 	}
 
 	async clearApiKey(): Promise<void> {
+		// When there's at least one named key, prefer the rich delete
+		// flow (confirm, drop the secret, rotate active). When the
+		// pool is empty (legacy-only setup), fall back to the
+		// historical behaviour: clear the single-key slot.
+		const snapshot = this.keyManager.snapshot();
+		if (snapshot.keys.length > 0) {
+			const { deleteApiKeyCommand } = await import('../runtime/keyCommands.js');
+			const result = await deleteApiKeyCommand();
+			if (result === 'deleted') {
+				this.onDidChangeLanguageModelChatInformationEmitter.fire();
+			}
+			return;
+		}
 		await this.authManager.deleteApiKey();
 		this.onDidChangeLanguageModelChatInformationEmitter.fire();
 		vscode.window.showInformationMessage(t('auth.removed'));
@@ -208,6 +255,7 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 		// dashboard plan cache would only pulse on the round that
 		// actually streamed a response.
 		this._chatTurnNotifier.notifyTurnStart();
+		this.touchedActiveKeyThisTurn = false;
 		try {
 			if (toolFlow.preflightHandled) {
 				return;
@@ -240,6 +288,16 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 						cacheReadTokens: usage.cache_read_input_tokens,
 						cacheWriteTokens: usage.cache_creation_input_tokens,
 					});
+					// Record the active-key touch on the FIRST usage
+					// callback so dashboard "last used" reflects the
+					// current turn rather than the key's
+					// `add`/`switch` timestamp. Subsequent callbacks
+					// in the same turn would just rewrite the same
+					// value, so we short-circuit on the boolean.
+					if (!this.touchedActiveKeyThisTurn) {
+						this.touchedActiveKeyThisTurn = true;
+						void this.keyManager.touchActiveKey();
+					}
 				},
 			});
 		} finally {

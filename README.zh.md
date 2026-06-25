@@ -34,7 +34,7 @@
 ### 安装
 
 1. 从 [VS Code 市场](https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode-copilot) 安装（或 `npm run package` 从源码打 `.vsix`）。
-2. 命令面板跑 **MiniMax: 设置 API Key**，粘贴 Token Plan Key。
+2. 命令面板跑 **MiniMax: 添加 API Key**，给 Key 起个名字，再粘贴 Token Plan Key。扩展会自动识别 China / Global 区域并存到 SecretStorage。需要继续添加、切换、重命名或删除时，跑 **MiniMax: 管理 API Key**。
 3. 打开 Copilot Chat，选 **MiniMax M3**（或 M2.7 / M2.7-highspeed）。
 4. （可选）跑 **MiniMax: 设置 Copilot 工具模型**，把 Source Control ✨ 按钮路由到 MiniMax。
 
@@ -101,10 +101,15 @@
 
 | 命令 | 用途 |
 | --- | --- |
-| **MiniMax: 设置 API Key** | 把 Token Plan Key 存到 SecretStorage |
-| **MiniMax: 清除 API Key** | 删除已存的 Key |
+| **MiniMax: 添加 API Key** | 起名新 Key，自动识别区域（China / Global / 未识别），存到 SecretStorage，并设为当前 |
+| **MiniMax: 移除 API Key** | 移除当前已命名 Key（若池为空则回退到旧单 Key 槽） |
+| **MiniMax: 管理 API Key** | 打开子菜单：添加 / 切换 / 重命名 / 删除 |
+| **MiniMax: 切换 API Key** | 选一把已命名 Key 设为当前（同步其端点） |
+| **MiniMax: 重命名 API Key** | 修改已命名 Key 的显示名 |
+| **MiniMax: 删除 API Key** | 选择一把已命名 Key 删除（带二次确认） |
 | **MiniMax: 设置 Copilot 工具模型** | 选一个 chat model 写到 `chat.utilitySmallModel`（可选 `chat.utilityModel`） |
 | **MiniMax: 切换 M3 1M 上下文** | 把 M3 的 picker 抬到 1M（开之前弹计费警告） |
+| **MiniMax: 切换到国际版 API (`minimax.io/anthropic`)** | 切换到国际版 Anthropic 端点 |
 | **MiniMax: 切换到国内版 API (`minimaxi.com/anthropic`)** | 切换到国内版 Anthropic 端点 |
 | **MiniMax: 显示日志** | 聚焦 MiniMax Output 通道 |
 | **MiniMax: 打开请求 Dump 目录** | 打开 verbose 请求 dump 目录 |
@@ -118,6 +123,7 @@
 
 - **Picker 里没有模型** —— 跑 **MiniMax: 打开用量面板** 看 API Key 是否设置、可见模型列表。
 - **网关返回 HTTP 404** —— 确认 `minimax.apiBaseUrl` 是 `https://api.minimaxi.com/anthropic`，不是期望 OpenAI 协议的第三方代理。
-- **提示「未配置 API Key」** —— 跑 **MiniMax: 设置 API Key**；Key 存在 SecretStorage 里，不在 `settings.json`。
+- **面板里出现 "密钥丢失" 警告** —— VS Code SecretStorage 里这条 Key 的存储被清掉了（设置重置 / 工作区迁移等）。跑 **MiniMax: 添加 API Key** 重新添加，或 **MiniMax: 删除 API Key** 把孤儿元数据清掉。面板会在对应条目旁显示 `secret missing` 标签。
+- **提示「未配置 API Key」** —— 跑 **MiniMax: 添加 API Key**；Key 存在 SecretStorage 里，不在 `settings.json`。
 - **Source Control 标题栏的 ✨ 没有走 MiniMax** —— 跑 **MiniMax: 设置 Copilot 工具模型** 选一个 MiniMax 模型写入 `chat.utilitySmallModel`，然后重启 Copilot Chat。
 - **M3 picker 切到 1M 后还是显示 512K** —— 切一次模型，部分 Copilot Chat 版本会缓存到下一次消息。

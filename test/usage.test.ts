@@ -64,14 +64,23 @@ test('record() accumulates total, byModel, and today in lockstep', async () => {
 test('record() writes the daily bucket keyed by local YYYY-MM-DD', async () => {
 	const { store, usage } = newStore();
 	await usage.record('MiniMax-M3', { inputTokens: 10, outputTokens: 5 });
-	const raw = store.get<UsageStats>('minimax-vscode.usageStats');
+	const raw = store.get<Record<string, UsageStats>>('minimax-vscode.usageStatsByKey');
 	assert.ok(raw);
-	assert.deepEqual(Object.keys(raw.daily), [todayKey()]);
-	assert.equal(raw.daily[todayKey()]!.inputTokens, 10);
+	const scope = raw['__legacy__'];
+	assert.ok(scope);
+	assert.deepEqual(Object.keys(scope.daily), [todayKey()]);
+	assert.equal(scope.daily[todayKey()]!.inputTokens, 10);
 });
 
 test('readRange() aggregates only the requested window of trailing days', async () => {
 	const { store, usage } = newStore();
+	const emptyScope = (): UsageStats => ({
+		startedAt: new Date().toISOString(),
+		updatedAt: new Date().toISOString(),
+		total: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requests: 0 },
+		byModel: {},
+		daily: {},
+	});
 	// Seed 5 days of history: today, -1, -2, -3, -4
 	for (let offset = 0; offset < 5; offset++) {
 		const date = new Date();
@@ -80,15 +89,11 @@ test('readRange() aggregates only the requested window of trailing days', async 
 		const bucket = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requests: 0 };
 		bucket.inputTokens = (offset + 1) * 100;
 		bucket.requests = offset + 1;
-		const raw = store.get<UsageStats>('minimax-vscode.usageStats') ?? {
-			startedAt: new Date().toISOString(),
-			updatedAt: new Date().toISOString(),
-			total: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requests: 0 },
-			byModel: {},
-			daily: {},
-		};
-		raw.daily[key] = bucket;
-		await store.update('minimax-vscode.usageStats', raw);
+		const raw = store.get<Record<string, UsageStats>>('minimax-vscode.usageStatsByKey') ?? {};
+		const scope = raw['__legacy__'] ?? emptyScope();
+		scope.daily[key] = bucket;
+		raw['__legacy__'] = scope;
+		await store.update('minimax-vscode.usageStatsByKey', raw);
 	}
 
 	const seven = usage.readRange(7);
@@ -103,25 +108,28 @@ test('readRange() aggregates only the requested window of trailing days', async 
 
 test('readDailySeries() returns a dense, oldest-first series', async () => {
 	const { store, usage } = newStore();
+	const emptyScope = (): UsageStats => ({
+		startedAt: new Date().toISOString(),
+		updatedAt: new Date().toISOString(),
+		total: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requests: 0 },
+		byModel: {},
+		daily: {},
+	});
 	for (let offset = 2; offset >= 0; offset--) {
 		const date = new Date();
 		date.setDate(date.getDate() - offset);
 		const key = todayKey(date);
-		const raw = (store.get<UsageStats>('minimax-vscode.usageStats') ?? {
-			startedAt: new Date().toISOString(),
-			updatedAt: new Date().toISOString(),
-			total: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requests: 0 },
-			byModel: {},
-			daily: {},
-		}) as UsageStats;
-		raw.daily[key] = {
+		const raw = (store.get<Record<string, UsageStats>>('minimax-vscode.usageStatsByKey') ?? {}) as Record<string, UsageStats>;
+		const scope = raw['__legacy__'] ?? emptyScope();
+		scope.daily[key] = {
 			inputTokens: (3 - offset) * 10,
 			outputTokens: 0,
 			cacheReadTokens: 0,
 			cacheWriteTokens: 0,
 			requests: 1,
 		};
-		await store.update('minimax-vscode.usageStats', raw);
+		raw['__legacy__'] = scope;
+		await store.update('minimax-vscode.usageStatsByKey', raw);
 	}
 
 	const series = usage.readDailySeries(7);
@@ -193,11 +201,11 @@ test('cross-day record: yesterday buckets stay intact when today gets new record
 			},
 		},
 	} as UsageStats;
-	await store.update('minimax-vscode.usageStats', seed);
+	await store.update('minimax-vscode.usageStatsByKey', { __legacy__: seed });
 
 	await usage.record('MiniMax-M3', { inputTokens: 50, outputTokens: 10 });
 
-	const raw = store.get<UsageStats>('minimax-vscode.usageStats')!;
+	const raw = (store.get<Record<string, UsageStats>>('minimax-vscode.usageStatsByKey')!)['__legacy__']!;
 	// Yesterday's bucket must still be there, untouched.
 	assert.ok(raw.daily[yesterdayKey], `yesterday bucket (${yesterdayKey}) should still exist`);
 	assert.equal(raw.daily[yesterdayKey]!.inputTokens, 700);

@@ -162,4 +162,41 @@ export interface DashboardView {
 	 *  user shouldn't have to "enable" anything beyond having an
 	 *  API key + a recognised host. */
 	mcp: McpStatus;
+	/** API key pool summary. Always present (empty when no named
+	 *  key has been added yet). Secrets are NEVER included. */
+	apiKeys: ApiKeySummary[];
+	/** id of the active entry in `apiKeys`, or `undefined` if no
+	 *  named key is active (e.g. legacy single-key slot only). */
+	activeKeyId?: string;
+	/** Which Copilot usage scope the dashboard should render. The
+	 *  default is the active key; the user can flip to a per-key
+	 *  scope (selected from the API Keys section) or to the
+	 *  all-keys aggregate. UI state lives in webview state. */
+	usageScope: UsageScope;
+	/** All-keys aggregate of the Copilot source, built from
+	 *  `usageStore.readAllKeys()`. Always present so the
+	 *  dropdown can flip without a re-fetch. */
+	allKeysCopilot?: SourceView;
+}
+
+/** Selects which slice of Copilot usage the dashboard renders. */
+export type UsageScope =
+	| { kind: 'all' }
+	| { kind: 'key'; keyId: string };
+
+/** Dashboard-facing summary of a single API key. Mirrors
+ *  `KeyManager.KeySummary` but is owned by the dashboard module
+ *  so the aggregator and the panel don't have to depend on
+ *  `keyManager.ts` directly. */
+export interface ApiKeySummary {
+	id: string;
+	name: string;
+	region: 'china' | 'global' | 'custom';
+	apiBaseUrl: string;
+	fingerprint: string;
+	createdAt: string;
+	updatedAt: string;
+	lastUsedAt?: string;
+	isLegacy: boolean;
+	missingSecret: boolean;
 }
