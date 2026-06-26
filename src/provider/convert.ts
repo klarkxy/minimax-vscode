@@ -113,9 +113,30 @@ export function convertMessages(
 	}
 
 	return {
-		messages: result,
+		messages: mergeAdjacentMessages(result),
 		systemPrompt: systemParts.length > 0 ? systemParts.join('\n\n') : undefined,
 	};
+}
+
+function mergeAdjacentMessages(messages: MiniMaxMessage[]): MiniMaxMessage[] {
+	const merged: MiniMaxMessage[] = [];
+	for (const message of messages) {
+		const previous = merged[merged.length - 1];
+		if (!previous || previous.role !== message.role) {
+			merged.push(message);
+			continue;
+		}
+
+		previous.content = [
+			...contentToBlocks(previous.content),
+			...contentToBlocks(message.content),
+		] as never;
+	}
+	return merged;
+}
+
+function contentToBlocks(content: string | MiniMaxContentBlock[]): MiniMaxContentBlock[] {
+	return typeof content === 'string' ? [{ type: 'text', text: content }] : content;
 }
 
 function convertAssistantMessage(

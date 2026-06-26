@@ -63,6 +63,13 @@ function assistantToolCall(name: string, input: unknown): vscode.LanguageModelCh
 	};
 }
 
+function assistantText(text: string): vscode.LanguageModelChatRequestMessage {
+	return {
+		role: LanguageModelChatMessageRole.Assistant,
+		content: [new LanguageModelTextPart(text) as unknown as vscode.LanguageModelTextPart],
+	};
+}
+
 function userToolResult(callId: string, text: string): vscode.LanguageModelChatRequestMessage {
 	return {
 		role: LanguageModelChatMessageRole.User,
@@ -110,6 +117,28 @@ test('convertMessages: multiple system messages are joined with double newlines'
 	const result = convertMessages([sys1, sys2], M3_ID);
 	assert.equal(result.systemPrompt, 'a\n\nb');
 	assert.equal(result.messages.length, 0);
+});
+
+test('convertMessages: adjacent user messages are merged for Anthropic compatibility', () => {
+	const result = convertMessages([userText('first'), userText('second')], M3_ID);
+	assert.equal(result.messages.length, 1);
+	assert.equal(result.messages[0].role, 'user');
+	const blocks = result.messages[0].content as Array<Record<string, unknown>>;
+	assert.deepEqual(blocks, [
+		{ type: 'text', text: 'first' },
+		{ type: 'text', text: 'second' },
+	]);
+});
+
+test('convertMessages: adjacent assistant messages are merged for Anthropic compatibility', () => {
+	const result = convertMessages([assistantText('first'), assistantText('second')], M3_ID);
+	assert.equal(result.messages.length, 1);
+	assert.equal(result.messages[0].role, 'assistant');
+	const blocks = result.messages[0].content as Array<Record<string, unknown>>;
+	assert.deepEqual(blocks, [
+		{ type: 'text', text: 'first' },
+		{ type: 'text', text: 'second' },
+	]);
 });
 
 // --- Tool use / tool result ------------------------------------------
