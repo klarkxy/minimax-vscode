@@ -221,7 +221,7 @@ export interface ModelDefinition {
 	maxOutputTokens: number;
 	capabilities: {
 		toolCalling: boolean | number;
-		imageInput: boolean;
+		imageInput?: boolean;
 		videoInput?: boolean;
 		thinking: boolean;
 	};

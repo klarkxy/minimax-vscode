@@ -25,6 +25,10 @@
 - **历史 `minimax.setApiKey` 命令现在标题为 "添加 API Key"**，实际走命名 Key 池，不再直接写 `minimax-vscode.apiKey` 旧槽。旧单 Key 槽保留为只读 fallback（兼容没重跑初始化流程的老用户），在面板里被标记为 "Default"。
 - **`minimax.clearApiKey` 现在标题为 "移除 API Key"**：有命名 Key 时打开和 `minimax.deleteApiKey` 一样的二次确认；池为空时回退到清旧槽。
 
+### 修复
+
+- **M2.7 系列不再声明原生图片输入能力。** MiniMax 的 Anthropic 兼容 API 对 M2.x 家族只接受文本和工具调用内容块；图片和视频块仅 M3 支持。模型选择器能力、converter 测试和 README 模型表已同步这个边界，避免把图片附件作为不受支持的 `image` 块转发给 `MiniMax-M2.7` / `MiniMax-M2.7-highspeed`。
+
 ## 2.4.1 — 402/429 直接落到聊天里，`.vscodeignore` 屏蔽 `*.log`
 
 ### 修复

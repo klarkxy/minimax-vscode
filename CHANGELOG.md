@@ -23,6 +23,10 @@
 - **The legacy `minimax.setApiKey` command is now titled "Add API Key"** and routes through the named key pool instead of writing to `minimax-vscode.apiKey` directly. The old single-key slot is preserved as a read-only fallback (for users upgrading without re-running the setup flow) and is labelled "Default" in the dashboard.
 - **`minimax.clearApiKey` is now titled "Remove API Key"**: when at least one named key exists it opens the same delete confirmation as the new command; when the pool is empty it falls back to clearing the legacy slot.
 
+### Fixed
+
+- **M2.7 models no longer advertise native image input.** MiniMax's Anthropic-compatible API only accepts text and tool-call content blocks for the M2.x family; image and video blocks are M3-only. The picker capabilities, converter tests, and README model table now reflect that boundary so image attachments are not forwarded to `MiniMax-M2.7` / `MiniMax-M2.7-highspeed` as unsupported `image` blocks.
+
 ## 2.4.1 — 2026-06-17
 
 ### Fixed

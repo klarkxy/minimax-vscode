@@ -23,7 +23,7 @@
 
 ## Features
 
-- **M3 / M2.7 / M2.7-highspeed in the Copilot Chat model picker** with pricing in the tooltip. All three accept image input; M3 also accepts video.
+- **M3 / M2.7 / M2.7-highspeed in the Copilot Chat model picker** with pricing in the tooltip. M3 accepts native image and video input; M2.7 models are text / tool-call only on the Anthropic-compatible API.
 - **Native video input on M3** — `type: "video"` parts inline, with a hard 64 MB request body cap.
 - **Thinking mode toggle** — binary `disabled` / `adaptive` switch in the M3 picker dropdown.
 - **Drive the Source Control ✨ commit button** — route Copilot's built-in commit-message generation through MiniMax via `chat.utilitySmallModel`.
@@ -56,11 +56,11 @@ On first activation, if `minimax.apiBaseUrl` is still at its default, the extens
 
 ## Models
 
-| Model | Context (spec / effective) | Image input | Notes |
+| Model | Context (spec / effective) | Native media input | Notes |
 | --- | ---: | --- | --- |
-| **MiniMax M3** | 1,000,000 / 512,000 | ✅ native | Top-tier coding; native video input (MP4 / AVI / MOV / MKV). Effective cap is 512K until the >512K tier is fully rolled out. |
-| **MiniMax M2.7** | 204,800 | ✅ native | Self-iterating, ~60 TPS |
-| **MiniMax M2.7-highspeed** | 204,800 | ✅ native | Same quality, ~100 TPS |
+| **MiniMax M3** | 1,000,000 / 512,000 | ✅ image + video | Top-tier coding; native video input (MP4 / AVI / MOV / MKV). Effective cap is 512K until the >512K tier is fully rolled out. |
+| **MiniMax M2.7** | 204,800 | — | Self-iterating, ~60 TPS; text and tool-call content blocks only. |
+| **MiniMax M2.7-highspeed** | 204,800 | — | Same quality, ~100 TPS; text and tool-call content blocks only. |
 
 Users with >512K access can run **MiniMax: Toggle M3 1M Context** to lift the cap (the command pops a modal warning about 2× billing before flipping the switch). The full spec is on the [Supported models page](https://platform.minimax.io/docs/guides/text-generation).
 

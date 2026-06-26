@@ -12,7 +12,7 @@
 
 ## 功能
 
-- **M3 / M2.7 / M2.7-highspeed 进 Copilot Chat 模型选择器**，tooltip 里直接给价。三个模型都原生支持图片输入，M3 还支持视频。
+- **M3 / M2.7 / M2.7-highspeed 进 Copilot Chat 模型选择器**，tooltip 里直接给价。M3 原生支持图片和视频；M2.7 系列在 Anthropic 兼容 API 上只支持文本和工具调用块。
 - **M3 原生视频输入** — 直接发 `type: "video"` part，硬限 64 MB 请求体上限。
 - **思考模式开关** — Anthropic 兼容端点只暴露二值 `disabled` / `adaptive` 开关，挂在 M3 picker 下拉菜单里。
 - **驱动 Source Control ✨ 提交按钮** — 通过 `chat.utilitySmallModel` 把 Copilot 内置的 commit 信息生成路由到 MiniMax。
@@ -44,11 +44,11 @@
 
 ## 模型
 
-| Model | 上下文（官方 / 生效） | 图片输入 | 备注 |
+| Model | 上下文（官方 / 生效） | 原生媒体输入 | 备注 |
 | --- | ---: | --- | --- |
-| **MiniMax M3** | 1,000,000 / 512,000 | ✅ 原生 | 顶级编码；原生视频输入（MP4 / AVI / MOV / MKV）。生效值 512K 是因为 >512K 输入层还在限量发布。 |
-| **MiniMax M2.7** | 204,800 | ✅ 原生 | 自迭代，~60 TPS |
-| **MiniMax M2.7-highspeed** | 204,800 | ✅ 原生 | 同质量，~100 TPS |
+| **MiniMax M3** | 1,000,000 / 512,000 | ✅ 图片 + 视频 | 顶级编码；原生视频输入（MP4 / AVI / MOV / MKV）。生效值 512K 是因为 >512K 输入层还在限量发布。 |
+| **MiniMax M2.7** | 204,800 | — | 自迭代，~60 TPS；只支持文本和工具调用内容块。 |
+| **MiniMax M2.7-highspeed** | 204,800 | — | 同质量，~100 TPS；只支持文本和工具调用内容块。 |
 
 拿到 >512K 权限的用户可以跑 **MiniMax: 切换 M3 1M 上下文** 把 cap 抬到 1M（开之前会弹模态警告说明 2× 计费）。完整规格见 [Supported models 页](https://platform.minimaxi.com/docs/guides/text-generation)。
 

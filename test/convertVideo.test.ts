@@ -114,6 +114,8 @@ test('toChatInfo: M2.x does not advertise a configurationSchema', () => {
 	// M2.x always stays adaptive; no dropdown is rendered.
 	const flash = findModelById('MiniMax-M2.7')!;
 	const hs = findModelById('MiniMax-M2.7-highspeed')!;
+	assert.equal(flash.capabilities.imageInput, undefined);
+	assert.equal(hs.capabilities.imageInput, undefined);
 	assert.equal(
 		(flash && (toChatInfo(flash, true) as unknown as { configurationSchema?: unknown }).configurationSchema),
 		undefined,

@@ -193,7 +193,7 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		maxOutputTokens: 73_728,
 		capabilities: {
 			toolCalling: MINIMAX_TOOLS_LIMIT,
-			imageInput: true,
+			// M2.x only supports text and tool-call blocks on MiniMax's Anthropic API.
 			thinking: true,
 		},
 		thinking: {
@@ -214,7 +214,7 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		maxOutputTokens: 73_728,
 		capabilities: {
 			toolCalling: MINIMAX_TOOLS_LIMIT,
-			imageInput: true,
+			// M2.x only supports text and tool-call blocks on MiniMax's Anthropic API.
 			thinking: true,
 		},
 		thinking: {
