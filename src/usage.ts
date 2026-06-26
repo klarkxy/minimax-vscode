@@ -35,7 +35,7 @@ export interface UsageStats {
 	daily: Record<string, ModelUsage>;
 }
 
-function emptyUsage(): ModelUsage {
+export function emptyUsage(): ModelUsage {
 	return {
 		inputTokens: 0,
 		outputTokens: 0,
@@ -45,7 +45,7 @@ function emptyUsage(): ModelUsage {
 	};
 }
 
-function defaultStats(): UsageStats {
+export function defaultStats(): UsageStats {
 	const now = new Date().toISOString();
 	return {
 		startedAt: now,
@@ -316,7 +316,7 @@ function shiftDays(base: Date, delta: number): Date {
 	return d;
 }
 
-function sumRange(
+export function sumRange(
 	daily: Record<string, ModelUsage>,
 	days: number,
 ): ModelUsage {
@@ -336,7 +336,7 @@ function sumRange(
 	return total;
 }
 
-function buildSeries(
+export function buildSeries(
 	daily: Record<string, ModelUsage>,
 	days: number,
 ): Array<{ date: string; usage: ModelUsage }> {

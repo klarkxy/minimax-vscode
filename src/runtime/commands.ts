@@ -21,8 +21,10 @@ import {
 	createClaudeCodeIngest,
 	type ClaudeCodeIngestHandle,
 } from '../dashboard/claudeCodeIngest';
+import { KeyManager } from '../keyManager';
 
 let cachedContext: vscode.ExtensionContext | undefined;
+let cachedKeyManager: KeyManager | undefined;
 let cachedAuth: AuthManager | undefined;
 let cachedUsage: UsageStore | undefined;
 let cachedPlanCache: PlanCache | undefined;
@@ -31,6 +33,20 @@ let cachedPlanStatusBar: PlanStatusBar | undefined;
 let cachedClaudeCodeIngest: ClaudeCodeIngestHandle | undefined;
 let cachedMcpProvider: MiniMaxMcpHandle | undefined;
 let turnNotifierDisposable: vscode.Disposable | undefined;
+
+/** Read the shared `KeyManager` instance. Created lazily on first
+ *  call (or on `setCommandContext` if the context is already known)
+ *  so modules that need a snapshot before activation still get one
+ *  via the fallback `KeyManager(context)` constructor. */
+export function getKeyManager(): KeyManager {
+	if (!cachedKeyManager) {
+		if (!cachedContext) {
+			throw new Error('KeyManager accessed before setCommandContext');
+		}
+		cachedKeyManager = new KeyManager(cachedContext);
+	}
+	return cachedKeyManager;
+}
 
 function getPlanCache(): PlanCache {
 	if (!cachedPlanCache) {
@@ -72,8 +88,9 @@ export function getMcpProvider(): MiniMaxMcpHandle | undefined {
 
 export function setCommandContext(context: vscode.ExtensionContext): void {
 	cachedContext = context;
-	cachedAuth = new AuthManager(context);
-	cachedUsage = createUsageStore(context.globalState);
+	cachedKeyManager = new KeyManager(context);
+	cachedAuth = new AuthManager(context, cachedKeyManager);
+	cachedUsage = createUsageStore(context.globalState, { keyManager: cachedKeyManager });
 	if (!cachedPlanStatusBar) {
 		cachedPlanStatusBar = createPlanStatusBar({ cache: getPlanCache() });
 		context.subscriptions.push(cachedPlanStatusBar);
@@ -228,7 +245,7 @@ async function refreshPlanKeyState(): Promise<void> {
 
 export function registerCommands(context: vscode.ExtensionContext): void {
 	setCommandContext(context);
-	const auth = cachedAuth ?? new AuthManager(context);
+	const auth = cachedAuth ?? new AuthManager(context, getKeyManager());
 	context.subscriptions.push(
 		vscode.commands.registerCommand('minimax.switchToGlobal', () => switchBaseUrl('global')),
 		vscode.commands.registerCommand('minimax.switchToChina', () => switchBaseUrl('china')),

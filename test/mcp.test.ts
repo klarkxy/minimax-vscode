@@ -81,7 +81,9 @@ function makeAuth(context: FakeContext, _key?: string) {
 	// same code path as the running extension. Seed the SecretStorage
 	// on the context directly — see the `seedSecret` helper below.
 	const { AuthManager } = require('../src/auth.js');
-	return new AuthManager(context as never);
+	const { KeyManager } = require('../src/keyManager.js');
+	const keyManager = new KeyManager(context as never);
+	return new AuthManager(context as never, keyManager);
 }
 
 /** Configure the mock workspace to return `value` for

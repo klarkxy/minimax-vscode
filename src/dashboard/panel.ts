@@ -204,7 +204,7 @@ export class DashboardPanel {
 				: null;
 			const planSnapshot = platform ? this.deps.planCache.read(platform) : undefined;
 			const mmxCliSnapshot = this.deps.mmxCliCache.read();
-			const cachedView = buildCachedDashboardView({
+			const cachedView = await buildCachedDashboardView({
 				store: this.deps.usageStore,
 				planSnapshot,
 				planSource: planSnapshot

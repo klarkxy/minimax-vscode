@@ -456,7 +456,7 @@ function aggregateSourceViews(views: SourceView[]): SourceView {
 	};
 }
 
-export function buildCachedDashboardView(options: {
+export async function buildCachedDashboardView(options: {
 	store: UsageStore;
 	planSnapshot?: PlanSnapshot;
 	planSource: DashboardView['sources']['plan'];
@@ -476,7 +476,7 @@ export function buildCachedDashboardView(options: {
 	 *  default is `all`; the dashboard lets the user flip to a
 	 *  per-key scope from the API Keys section. */
 	usageScope?: UsageScope;
-}): DashboardView {
+}): Promise<DashboardView> {
 	const usageScope: UsageScope = options.usageScope ?? { kind: 'all' };
 	const copilotView = resolveCopilotView(options.store, usageScope);
 	const allKeysCopilot = buildCopilotViewAllKeys(options.store);
@@ -597,6 +597,7 @@ export async function buildDashboardView(
 			usageScope,
 			allKeysCopilot,
 		};
+	}
 
 	// Reuse a pre-fetched snapshot when the caller has one — that's
 	// the common dashboard path, where the panel consults the shared
@@ -659,12 +660,12 @@ export async function buildDashboardView(
 		},
 		apiKeys: keyPool?.keys ?? [],
 		activeKeyId: keyPool?.activeKeyId,
+		usageScope,
+		allKeysCopilot,
 	};
 	if (planSection) {
 		view.plan = planSection;
 	}
-	view.usageScope = usageScope;
-	view.allKeysCopilot = allKeysCopilot;
 	return view;
 }
 
