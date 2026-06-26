@@ -26,6 +26,37 @@ const quickPicks: unknown[] = [];
 const informationMessages: string[] = [];
 const errorMessages: string[] = [];
 const warningMessages: string[] = [];
+const statusBarItems: Array<{
+	alignment: number;
+	priority?: number;
+	text: string;
+	tooltip?: unknown;
+	color?: unknown;
+	command?: string;
+	name?: string;
+	visible: boolean;
+	disposed: boolean;
+}> = [];
+const webviewPanels: Array<{
+	viewType: string;
+	title: string;
+	viewColumn: number;
+	options: unknown;
+	revealed: number[];
+	disposed: boolean;
+	webview: {
+		html: string;
+		options: unknown;
+		cspSource: string;
+		postedMessages: unknown[];
+		postMessage: (message: unknown) => Promise<boolean>;
+		onDidReceiveMessage: (listener: (message: unknown) => void) => Disposable;
+	};
+	reveal: (viewColumn?: number) => void;
+	dispose: () => void;
+	onDidDispose: (listener: () => void) => Disposable;
+	onDidChangeViewState: (listener: () => void) => Disposable;
+}> = [];
 /**
  * Records every URI passed to `vscode.env.openExternal` so tests can
  * assert on the scheme (e.g. that an "open the dump folder" command
@@ -51,14 +82,19 @@ export const mockState = {
 	informationMessages,
 	errorMessages,
 	warningMessages,
+	statusBarItems,
+	webviewPanels,
 	reset() {
 		outputChannels.length = 0;
 		quickPicks.length = 0;
 		informationMessages.length = 0;
 		errorMessages.length = 0;
 		warningMessages.length = 0;
+		statusBarItems.length = 0;
+		webviewPanels.length = 0;
 		openExternalCalls.length = 0;
 		registeredCommands.clear();
+		Object.keys(mockConfig).forEach((key) => delete mockConfig[key]);
 	},
 };
 
@@ -162,6 +198,41 @@ export class ThemeIcon {
 	constructor(public id: string) {}
 }
 
+export class ThemeColor {
+	constructor(public id: string) {}
+}
+
+export const ViewColumn = {
+	Active: -1,
+	Beside: -2,
+	One: 1,
+	Two: 2,
+	Three: 3,
+} as const;
+
+export const ColorThemeKind = {
+	Light: 1,
+	Dark: 2,
+	HighContrast: 3,
+	HighContrastLight: 4,
+	1: 'Light',
+	2: 'Dark',
+	3: 'HighContrast',
+	4: 'HighContrastLight',
+} as const;
+
+export const StatusBarAlignment = {
+	Left: 1,
+	Right: 2,
+} as const;
+
+export const FileType = {
+	Unknown: 0,
+	File: 1,
+	Directory: 2,
+	SymbolicLink: 64,
+} as const;
+
 // `vscode.Uri` in production is both a class and a namespace with
 // `parse`/`file` helpers. We expose it as a callable function (the
 // `parse` binding) that also carries the `parse` / `file` static
@@ -248,11 +319,71 @@ export const workspace = {
 	},
 };
 
+function createMockWebviewPanel(
+	viewType: string,
+	title: string,
+	viewColumn: number,
+	options: unknown,
+): (typeof webviewPanels)[number] {
+	const disposeListeners: Array<() => void> = [];
+	const viewStateListeners: Array<() => void> = [];
+	const messageListeners: Array<(message: unknown) => void> = [];
+	const panel = {
+		viewType,
+		title,
+		viewColumn,
+		options,
+		revealed: [] as number[],
+		disposed: false,
+		webview: {
+			html: '',
+			options: undefined as unknown,
+			cspSource: 'vscode-resource:',
+			postedMessages: [] as unknown[],
+			postMessage(message: unknown) {
+				panel.webview.postedMessages.push(message);
+				return Promise.resolve(true);
+			},
+			onDidReceiveMessage(listener: (message: unknown) => void) {
+				messageListeners.push(listener);
+				return new Disposable(() => {
+					const idx = messageListeners.indexOf(listener);
+					if (idx >= 0) messageListeners.splice(idx, 1);
+				});
+			},
+		},
+		reveal(nextViewColumn?: number) {
+			panel.revealed.push(nextViewColumn ?? viewColumn);
+		},
+		dispose() {
+			if (panel.disposed) return;
+			panel.disposed = true;
+			for (const listener of disposeListeners.slice()) listener();
+		},
+		onDidDispose(listener: () => void) {
+			disposeListeners.push(listener);
+			return new Disposable(() => {
+				const idx = disposeListeners.indexOf(listener);
+				if (idx >= 0) disposeListeners.splice(idx, 1);
+			});
+		},
+		onDidChangeViewState(listener: () => void) {
+			viewStateListeners.push(listener);
+			return new Disposable(() => {
+				const idx = viewStateListeners.indexOf(listener);
+				if (idx >= 0) viewStateListeners.splice(idx, 1);
+			});
+		},
+	};
+	return panel;
+}
+
 export const window = {
 	tabGroups: {
 		activeTabGroup: undefined,
 	},
 	activeTerminal: undefined as undefined | { name?: string; shellPath?: string },
+	activeColorTheme: { kind: ColorThemeKind.Dark },
 	showInformationMessage: (msg: string) => {
 		informationMessages.push(msg);
 		return Promise.resolve(undefined);
@@ -286,6 +417,36 @@ export const window = {
 				entry.log.length = 0;
 			},
 		};
+	},
+	createStatusBarItem: (alignment: number, priority?: number) => {
+		const item = {
+			alignment,
+			priority,
+			text: '',
+			tooltip: undefined as unknown,
+			color: undefined as unknown,
+			command: undefined as string | undefined,
+			name: undefined as string | undefined,
+			visible: false,
+			disposed: false,
+			show() {
+				item.visible = true;
+			},
+			hide() {
+				item.visible = false;
+			},
+			dispose() {
+				item.disposed = true;
+				item.visible = false;
+			},
+		};
+		statusBarItems.push(item);
+		return item;
+	},
+	createWebviewPanel: (viewType: string, title: string, viewColumn: number, options: unknown) => {
+		const panel = createMockWebviewPanel(viewType, title, viewColumn, options);
+		webviewPanels.push(panel);
+		return panel;
 	},
 };
 

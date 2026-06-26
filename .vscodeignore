@@ -41,6 +41,7 @@ test/**
 # Local build artefacts
 dist/**
 out-test/**
+coverage/**
 **/*.vsix
 
 # Stray scratch / test logs from ad-hoc `> foo.log` runs. `.gitignore`

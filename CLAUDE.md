@@ -20,6 +20,7 @@ npm run watch:tsc       # tsc --noEmit --watch
 # Unit tests (Node's built-in test runner, no test framework dep)
 npm run test:unit       # esbuild.tests.mjs → out-test/*.test.js, then `node --test`
 npm test                # alias for test:unit
+npm run test:coverage   # same tests under c8; reports src/**/*.ts line/branch coverage
 # Run a single test file:
 node esbuild.tests.mjs && node --test out-test/cacheControl.test.js
 
