@@ -7,7 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { fetchPlanUsage } from '../src/dashboard/api.js';
-import { buildDashboardView, totalTokens, totalNetTokens, createPlanCache, planCacheFingerprint } from '../src/dashboard/aggregator.js';
+import { buildDashboardView, buildCachedDashboardView, totalTokens, totalNetTokens, createPlanCache, planCacheFingerprint } from '../src/dashboard/aggregator.js';
 import { createChatTurnNotifier } from '../src/dashboard/chatTurnNotifier.js';
 import {
 	createClaudeCodeIngest,

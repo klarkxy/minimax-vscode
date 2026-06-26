@@ -222,10 +222,23 @@ test('markMissingSecrets flips the flag when the SecretStorage entry is gone', a
 	const secondAfter = after.keys.find((k: { id: string }) => k.id !== first.id)!;
 	assert.equal(firstAfter.missingSecret, true);
 	assert.equal(secondAfter.missingSecret, false);
-	// The legacy slot is also probed.
+	// The legacy slot is also probed. Wiping the legacy secret
+	// MUST NOT silently flip named-pool entries back to `healthy`:
+	// each named key's `missingSecret` flag is driven by its own
+	// secret slot, not by the legacy slot. The only key whose
+	// `missingSecret` state is allowed to change in response to a
+	// legacy wipe is the legacy entry itself, and that entry is
+	// not in the snapshot (it is read separately by the dashboard
+	// via the `LEGACY_KEY_ID` slot).
 	await secrets.delete('minimax-vscode.apiKey');
 	const withLegacy = await manager.markMissingSecrets(manager.snapshot());
-	assert.equal(withLegacy.keys.every((k: { missingSecret: boolean }) => !k.missingSecret), true);
+	// Re-running after the legacy wipe preserves the per-key
+	// flags: the previously-deleted `first` is still `true`, the
+	// still-present `second` is still `false`.
+	const firstAfterLegacy = withLegacy.keys.find((k: { id: string }) => k.id === first.id)!;
+	const secondAfterLegacy = withLegacy.keys.find((k: { id: string }) => k.id !== first.id)!;
+	assert.equal(firstAfterLegacy.missingSecret, true);
+	assert.equal(secondAfterLegacy.missingSecret, false);
 });
 
 test('setActiveKey returns the new entry, marks it active, and touches lastUsedAt', async () => {

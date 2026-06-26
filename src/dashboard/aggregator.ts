@@ -266,14 +266,18 @@ function aggregateKeyScopes(map: Record<string, UsageStats>): UsageStats {
 	const out: UsageStats = defaultStats();
 	for (const value of Object.values(map)) {
 		if (!value) continue;
-		addUsage(out.total, value.total);
+		// `addUsage` is pure and returns a new `ModelUsage`; the
+		// accumulator slots on `out` (total, per-model, per-day) must
+		// be replaced with the merged value, otherwise every `add`
+		// silently no-ops and the all-keys aggregate stays empty.
+		out.total = addUsage(out.total, value.total);
 		for (const [modelId, usage] of Object.entries(value.byModel)) {
-			const bucket = (out.byModel[modelId] ??= emptyUsage());
-			addUsage(bucket, usage);
+			const prev = out.byModel[modelId] ?? emptyUsage();
+			out.byModel[modelId] = addUsage(prev, usage);
 		}
 		for (const [date, usage] of Object.entries(value.daily)) {
-			const bucket = (out.daily[date] ??= emptyUsage());
-			addUsage(bucket, usage);
+			const prev = out.daily[date] ?? emptyUsage();
+			out.daily[date] = addUsage(prev, usage);
 		}
 	}
 	return out;

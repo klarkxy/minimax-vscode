@@ -237,7 +237,13 @@ export class KeyManager {
 	 *  if there was no previous active key). */
 	async setActiveKey(id: string): Promise<{ entry: KeyMetadata; previousId?: string }> {
 		const meta = this.readMetadata();
-		const previousId = meta.activeKeyId;
+		// `previousId` describes the key that was active immediately
+		// before this call. A no-op switch (target id already active)
+		// must report `undefined` — otherwise callers cannot tell a
+		// real rotation apart from an idempotent re-selection. This
+		// matters for the dashboard's "previous active key" tooltip
+		// and for the plan-cache invalidation side effect.
+		const previousId = meta.activeKeyId === id ? undefined : meta.activeKeyId;
 		const entry = await this.switchApiKey(id);
 		await this.updateApiBaseUrl(entry.apiBaseUrl);
 		return { entry, previousId };

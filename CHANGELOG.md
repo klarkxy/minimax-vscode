@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.5.0 — 2026-06-26
 
 ### Added — Named API key pool
 
@@ -17,6 +17,19 @@
 - **Cross-window sync.** `KeyManager.onDidChange` fans out to the chat model picker, the dashboard, the status bar, and the PlanCache. `secrets.onDidChange` listens on the whole `minimax-vscode.apiKeys.*` prefix, so adding / switching / deleting in window A refreshes window B without a reload.
 - **Active key switch invalidates the plan cache + re-registers the MCP provider.** `runtime/commands.ts` now hooks the pool's `onDidChange` to drop every cached `coding_plan/remains` snapshot (the previous `(apiKey, host)` identity no longer matches the new active key) and to fire `mcp.refreshDefinitions()` so the next MCP spawn picks up the new key + endpoint. The legacy single-key slot is also re-detected on every refresh, so an out-of-band SecretStorage reset surfaces a `secret missing` badge in the dashboard's API Keys section instead of failing silently.
 - **Add key auto-probe is advisory.** `KeyManager.addApiKey` runs `coding_plan/remains` against both official hosts and picks the narrowest result (`china` / `global`). When both succeed it falls back to the China default (matching `autoSelectEndpointIfUnset`). When neither succeeds, the key is saved with `region: 'custom'` and the user's existing `minimax.apiBaseUrl`; the dashboard renders it as "unrecognised". The user can override at any time via `minimax.switchApiKey` / `minimax.switchToGlobal` / `minimax.switchToChina`.
+
+### Added — Terminal environment injection
+
+- **System prompt and tool descriptions now describe the host terminal.** [`injectTerminalEnvironment`](src/provider/terminalEnvironment.ts) builds a short environment block (OS, shell, default working directory, `git status` short SHA when available) and prepends it to the system prompt on every chat turn. The same block is appended to each tool's `description` so an MCP server / `Activate_*` placeholder tool can decide whether to spawn a subprocess without asking the model. The block is bounded to a few hundred bytes; local-only; never sent anywhere except MiniMax's Anthropic-compatible endpoint on the active key.
+- **Toggleable.** New setting `minimax.experimental.injectTerminalEnvironment` (default `true`) lets advanced users disable the injection when they want the system prompt to mirror the upstream baseline. Off is unconditional — the field is never silently re-enabled.
+
+### Added — BYOK signal on chat models
+
+- All chat models are now advertised as `isBYOK: true` in [`LanguageModelChatInformation`](src/provider/models.ts). MiniMax's Token-Plan billing is wholly separate from Copilot's premium-request budget, and the host uses this flag to avoid charging the round-trip to its own quota. The flag is part of the same proposed-API bucket as `configurationSchema`; keep the literal-`true` type and inline comment so any host that knows about the field picks it up.
+
+### Changed — Provider request body
+
+- **Adjacent same-role messages are merged before the API call.** The Anthropic-compatible protocol rejects runs of consecutive `user` or `assistant` turns; when Copilot emits fragmented turns (e.g. a tool result chunked across two `LanguageModelChatRequestMessage` entries) the converter used to forward the run as-is and let the upstream error out. [`request.ts`](src/provider/request.ts) now collapses every contiguous run into a single message and concatenates the content blocks in order. No content is dropped, no role is re-labelled, and tool-call / tool-result pairing is preserved across the merge.
 
 ### Changed
 
