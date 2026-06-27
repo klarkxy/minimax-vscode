@@ -98,6 +98,16 @@ export class DashboardPanel {
 	private pendingRefresh = false;
 	private pendingRefreshForce = false;
 	private refreshSeq = 0;
+	/**
+	 * Lifecycle gate set by `dispose()`. `refreshOnce` checks this
+	 * after every `await` and `safePostMessage` short-circuits when
+	 * it is `true`, so a refresh that started before the user closed
+	 * the panel cannot deliver a message to a torn-down webview. The
+	 * mock mirrors what VS Code does in production: postMessage to a
+	 * disposed webview throws synchronously. Catching the throw is
+	 * the last line of defence; preventing the call is the first.
+	 */
+	private disposed = false;
 	private readonly messageListener = (raw: vscode.WebviewMessage) => this.handleMessage(raw);
 
 	private constructor(
@@ -154,12 +164,12 @@ export class DashboardPanel {
 
 	static show(deps: DashboardPanelDeps): DashboardPanel {
 		if (DashboardPanel.current) {
-			logger.info(`${LOG_PREFIX} reveal existing panel`);
+			logger.info('dashboard.panel.reveal', { component: 'dashboard' });
 			DashboardPanel.current.panel.reveal(vscode.ViewColumn.Beside);
 			void DashboardPanel.current.refresh();
 			return DashboardPanel.current;
 		}
-		logger.info(`${LOG_PREFIX} create panel`);
+		logger.info('dashboard.panel.create', { component: 'dashboard' });
 		const panel = vscode.window.createWebviewPanel(
 			VIEW_TYPE,
 			'MiniMax Dashboard',
@@ -177,6 +187,20 @@ export class DashboardPanel {
 	}
 
 	dispose(): void {
+		// Lifecycle gate. Once we've been disposed:
+		//  - `safePostMessage` becomes a no-op (returns false), so an
+		//    in-flight `refreshOnce` cannot land a `postMessage` on a
+		//    torn-down webview and trip VS Code's "Webview is disposed"
+		//    error.
+		//  - `pendingRefresh` is cleared so a late notification
+		//    (auth.onDidChangeApiKey, planCache.subscribe, etc.) does
+		//    NOT schedule a follow-up refresh against a panel whose
+		//    listeners have already been disposed below.
+		// Set this BEFORE disposing the subscriptions so any callback
+		// they fire during teardown observes the new state.
+		this.disposed = true;
+		this.pendingRefresh = false;
+		this.pendingRefreshForce = false;
 		this.storeSubscription.dispose();
 		this.authChangeSubscription.dispose();
 		this.planCacheSubscription.dispose();
@@ -189,6 +213,31 @@ export class DashboardPanel {
 		if (DashboardPanel.current === this) {
 			DashboardPanel.current = undefined;
 		}
+		logger.debug('dashboard.panel.dispose', { component: 'dashboard' });
+	}
+
+	/**
+	 * `true` if the panel is past the point of no return — either we
+	 * have called `dispose()`, or the underlying webview has already
+	 * been torn down by VS Code (signalled via the "Webview is
+	 * disposed" error from `webview.postMessage`). Either condition
+	 * means every subsequent `postMessage` would throw, and every
+	 * subsequent `await` afterwards would be wasted work.
+	 */
+	private isTornDown(): boolean {
+		return this.disposed;
+	}
+
+	/**
+	 * Recognise the error VS Code throws when callers reach into a
+	 * webview that has already been disposed. We treat it as a
+	 * lifecycle event, not a business failure, and suppress the
+	 * `refresh failed` warning that previously polluted the
+	 * diagnostics channel.
+	 */
+	private isWebviewDisposedError(error: unknown): boolean {
+		const msg = error instanceof Error ? error.message : String(error);
+		return /webview is disposed/i.test(msg);
 	}
 
 	/**
@@ -202,11 +251,18 @@ export class DashboardPanel {
 		if (this.inFlight) {
 			this.pendingRefresh = true;
 			this.pendingRefreshForce = this.pendingRefreshForce || force;
-			logger.info(`${LOG_PREFIX} refresh queued force=${force} pendingForce=${this.pendingRefreshForce}`);
+			logger.debug('dashboard.refresh.queued', {
+				component: 'dashboard',
+				force,
+				pendingForce: this.pendingRefreshForce,
+			});
 			return;
 		}
 		this.inFlight = true;
-		logger.info(`${LOG_PREFIX} refresh loop start force=${force}`);
+		logger.info('dashboard.refresh.loop.start', {
+			component: 'dashboard',
+			force,
+		});
 		try {
 			do {
 				force = force || this.pendingRefreshForce;
@@ -217,24 +273,57 @@ export class DashboardPanel {
 			} while (this.pendingRefresh);
 		} finally {
 			this.inFlight = false;
-			logger.info(`${LOG_PREFIX} refresh loop end`);
+			logger.info('dashboard.refresh.loop.end', { component: 'dashboard' });
 		}
 	}
 
 	private async refreshOnce(options?: { force?: boolean }): Promise<void> {
 		const seq = ++this.refreshSeq;
+		// Reuse `refreshSeq` as the traceId. The webview echoes this
+		// back on `renderAck` / `renderError`, so a single identifier
+		// stitches the host-side refresh and the front-end render into
+		// one traceable operation. `dashboard.refresh#<seq>` is
+		// guaranteed unique per panel instance and is the value the
+		// `handleMessage` logger entry already uses.
+		const traceId = `dashboard.refresh#${seq}`;
+		// `logger.operation` gives every line in this refresh a
+		// matching `traceId` + `spanId` for the diagnostic export.
+		// The webview's `renderAck` echoes `traceId`, so the front
+		// end can be cross-referenced with the host log without
+		// adding any new fields. Every entry path — including
+		// disposal short-circuits — calls `op.end(...)` with a
+		// `status: 'skipped'` payload so the span closes exactly
+		// once. Open spans in the export would otherwise look
+		// identical to a genuinely stuck refresh.
+		const op = logger.operation('dashboard.refresh', {
+			component: 'dashboard',
+			traceId,
+			fields: {
+				force: options?.force === true,
+				seq,
+			},
+		});
 		const startedAt = Date.now();
+		if (this.isTornDown()) {
+			op.end({ status: 'skipped', reason: 'disposed_before_start' });
+			return;
+		}
 		try {
 			const apiKey = await this.authForRefresh();
+			if (this.isTornDown()) {
+				op.end({ status: 'skipped', reason: 'disposed_after_auth' });
+				return;
+			}
 			const platform = apiKey
 				? {
 					apiKey,
 					host: this.deps.getHost?.() ?? null,
 				}
 				: null;
-			logger.info(
-				`${LOG_PREFIX} #${seq} start force=${options?.force === true} hasKey=${!!apiKey} host=${platform?.host ?? 'none'}`,
-			);
+			op.info('start', {
+				hasKey: !!apiKey,
+				host: platform?.host ?? 'none',
+			});
 			const planSnapshot = platform ? this.deps.planCache.read(platform) : undefined;
 			const mmxCliSnapshot = this.deps.mmxCliCache.read();
 			// MCP host/apiKey are stable for the duration of a refresh —
@@ -243,6 +332,10 @@ export class DashboardPanel {
 			// of running the same host picker + provider-registered probe
 			// for both the cached and the refreshed view.
 			const mcp = await this.computeMcpStatus(apiKey);
+			if (this.isTornDown()) {
+				op.end({ status: 'skipped', reason: 'disposed_after_mcp' });
+				return;
+			}
 			const cachedView = await buildCachedDashboardView({
 				store: this.deps.usageStore,
 				planSnapshot,
@@ -255,10 +348,29 @@ export class DashboardPanel {
 				mcp,
 				claudeCodeIngest: this.deps.claudeCodeIngest,
 			});
-			logger.info(
-				`${LOG_PREFIX} #${seq} cached view plan=${cachedView.sources.plan} snapshot=${!!planSnapshot}`,
-			);
-			await this.postData(cachedView, `${seq}:cached`);
+			op.info('cached.build', {
+				plan: cachedView.sources.plan,
+				hasSnapshot: !!planSnapshot,
+			});
+			if (this.isTornDown()) {
+				op.end({ status: 'skipped', reason: 'disposed_before_cached_post' });
+				return;
+			}
+			const cachedPosted = await this.postData(cachedView, traceId);
+			if (!cachedPosted) {
+				// `safePostMessage` returned `false` because the
+				// webview was torn down between the `isTornDown`
+				// check above and the actual `postMessage` call.
+				// That race is exactly the bug Phase 0 fixed for
+				// the channel layer; here we propagate it so the
+				// refresh operation reports a `cached.post.skip`
+				// line instead of a misleading `cached.post` and
+				// `end` pair that the diagnostic-export would
+				// read as "post succeeded, refresh completed".
+				op.end({ status: 'skipped', reason: 'cached_post_failed' });
+				return;
+			}
+			op.info('cached.post', { plan: cachedView.sources.plan });
 
 			// Refresh the plan cache in the background. We kick this off
 			// before awaiting `buildDashboardView` so the aggregator can
@@ -274,13 +386,13 @@ export class DashboardPanel {
 			let planRefreshError: string | undefined;
 			let planRefreshPromise: Promise<unknown> = Promise.resolve();
 			if (platform) {
-				logger.info(`${LOG_PREFIX} #${seq} plan refresh start force=${force}`);
+				op.info('plan.refresh.start', { force });
 				planRefreshPromise = this.deps.planCache.refresh(
 					platform,
 					{ force },
 				).catch((error) => {
 					planRefreshError = error instanceof Error ? error.message : String(error);
-					logger.warn('plan cache refresh failed', error);
+					op.warn('plan.refresh.fail', { host: platform.host }, error);
 					return null;
 				});
 			}
@@ -290,11 +402,17 @@ export class DashboardPanel {
 			// dashboard open. Failure here does NOT clear the cache —
 			// the previous snapshot is preserved.
 			const mmxPromise = this.deps.mmxCliCache.refresh().catch((error) => {
-				logger.warn('mmx-cli cache refresh failed', error);
+				op.warn('mmx.refresh.fail', undefined, error);
 				return null;
 			});
 			await planRefreshPromise;
-			logger.info(`${LOG_PREFIX} #${seq} plan refresh end error=${planRefreshError ? 'yes' : 'no'}`);
+			if (this.isTornDown()) {
+				op.end({ status: 'skipped', reason: 'disposed_after_plan_refresh' });
+				return;
+			}
+			op.info('plan.refresh.end', {
+				error: planRefreshError ? 'yes' : 'no',
+			});
 			// Read the cache again post-refresh so the final view
 			// reflects whatever the background fetch landed.
 			const refreshedPlanSnapshot = platform ? this.deps.planCache.read(platform) : undefined;
@@ -318,14 +436,54 @@ export class DashboardPanel {
 					mcp,
 					claudeCodeIngest: this.deps.claudeCodeIngest,
 				});
-			logger.info(
-				`${LOG_PREFIX} #${seq} final view plan=${view.sources.plan} elapsedMs=${Date.now() - startedAt}`,
-			);
-			await this.postData(view, `${seq}:final`);
+			op.info('final.build', {
+				plan: view.sources.plan,
+				elapsedMs: Date.now() - startedAt,
+			});
+			if (this.isTornDown()) {
+				op.end({ status: 'skipped', reason: 'disposed_before_final_post' });
+				return;
+			}
+			const finalPosted = await this.postData(view, traceId);
+			if (!finalPosted) {
+				// Same race-handling as `cached_post_failed` above:
+				// the webview was torn down between the
+				// `isTornDown` check and the actual `postMessage`
+				// call. Logging `final.post` here would tell the
+				// diagnostic export the user saw a fresh
+				// dashboard, when in fact they did not.
+				op.end({ status: 'skipped', reason: 'final_post_failed' });
+				return;
+			}
+			op.info('final.post', { plan: view.sources.plan });
 			await mmxPromise;
+			op.end({ plan: view.sources.plan });
 		} catch (error) {
-			logger.warn(`${LOG_PREFIX} #${seq} refresh failed`, error);
-			await this.postError(error);
+			// Lifecycle event, not a business failure. VS Code throws
+			// "Webview is disposed" the moment a `postMessage` lands
+			// after the panel has been torn down (user closed the
+			// panel, or the extension is shutting down). The throw
+			// is the host's way of saying "nobody's listening", and
+			// the previous behaviour of logging it as
+			// "Dashboard refresh failed" was a false alarm that
+			// drowned out real failures. Close the span with
+			// `status: 'skipped'` so the diagnostic export sees a
+			// completed operation, not an open one.
+			if (this.isWebviewDisposedError(error) || this.isTornDown()) {
+				op.end({
+					status: 'skipped',
+					reason: 'disposed_after_throw',
+					elapsedMs: Date.now() - startedAt,
+				});
+				return;
+			}
+			op.fail(error, { elapsedMs: Date.now() - startedAt });
+			// `postError` is itself a `safePostMessage` wrapper, so if
+			// the panel was torn down between the throw and this line
+			// it short-circuits silently — no double-fault.
+			if (!this.isTornDown()) {
+				await this.postError(error, traceId);
+			}
 		}
 	}
 
@@ -369,42 +527,108 @@ export class DashboardPanel {
 		return buildMcpStatus({ apiBaseUrl, hasApiKey, providerRegistered, reason });
 	}
 
-	private async postData(view: DashboardView, traceId: string): Promise<void> {
-		const ok = await this.panel.webview.postMessage({
-			type: 'data',
-			traceId,
-			payload: view,
-		});
-		logger.info(`${LOG_PREFIX} post data trace=${traceId} ok=${ok} plan=${view.sources.plan}`);
+	/**
+	 * `webview.postMessage` with the lifecycle guard baked in. Returns
+	 * `false` (and emits a debug log) when:
+	 *   - the panel has been disposed (`disposed === true`), or
+	 *   - VS Code throws "Webview is disposed" because the host
+	 *     tore down the webview between our last `isTornDown()`
+	 *     check and the call (race between two `await`s in
+	 *     `refreshOnce`).
+	 *
+	 * The boolean return mirrors VS Code's own contract: `true` if
+	 * the message was queued, `false` if the webview is no longer
+	 * alive. Production callers MUST treat a `false` here as
+	 * "abort the refresh" — never as a transport error.
+	 */
+	private async safePostMessage(message: unknown, traceId: string): Promise<boolean> {
+		if (this.isTornDown()) {
+			logger.debug('dashboard.post.skip', {
+				component: 'dashboard',
+				traceId,
+				reason: 'disposed',
+			});
+			return false;
+		}
+		try {
+			return await this.panel.webview.postMessage(message);
+		} catch (error) {
+			if (this.isWebviewDisposedError(error)) {
+				// First-line defence did not catch the race; the
+				// webview was torn down between the `isTornDown`
+				// check and the call. Mark ourselves disposed so the
+				// rest of the refresh short-circuits, and do NOT
+				// rethrow — the panel is past the point of no return.
+				this.disposed = true;
+				logger.debug('dashboard.post.skip', {
+					component: 'dashboard',
+					traceId,
+					reason: 'disposed_throw',
+				});
+				return false;
+			}
+			throw error;
+		}
 	}
 
-	private async postError(error: unknown): Promise<void> {
-		const message = error instanceof Error ? error.message : String(error);
-		await this.panel.webview.postMessage({
-			type: 'error',
-			payload: { message },
+	/**
+	 * Returns `true` if the message was delivered to a live
+	 * webview, `false` if the panel was torn down (or the
+	 * webview was disposed out from under the call). Callers
+	 * MUST treat a `false` here as "abort the refresh" —
+	 * continuing to log `cached.post` / `final.post` / `end`
+	 * would tell the diagnostic export the user saw a fresh
+	 * dashboard when they did not.
+	 */
+	private async postData(view: DashboardView, traceId: string): Promise<boolean> {
+		const ok = await this.safePostMessage(
+			{ type: 'data', traceId, payload: view },
+			traceId,
+		);
+		logger.info('dashboard.post.data', {
+			component: 'dashboard',
+			traceId,
+			ok,
+			plan: view.sources.plan,
 		});
+		return ok;
+	}
+
+	private async postError(error: unknown, traceId: string): Promise<void> {
+		const message = error instanceof Error ? error.message : String(error);
+		await this.safePostMessage(
+			{ type: 'error', payload: { message, traceId } },
+			traceId,
+		);
 	}
 
 	private async handleMessage(raw: vscode.WebviewMessage): Promise<void> {
 		const message = raw as { type?: string; payload?: unknown };
-		logger.info(`${LOG_PREFIX} webview message type=${message.type ?? 'unknown'}`);
+		logger.debug('dashboard.webview.message', {
+			component: 'dashboard',
+			type: message.type ?? 'unknown',
+		});
 		switch (message.type) {
 			case 'ready':
 				await this.refresh();
 				return;
 			case 'renderAck': {
 				const payload = message.payload as { traceId?: unknown; plan?: unknown; elapsedMs?: unknown } | undefined;
-				logger.info(
-					`${LOG_PREFIX} render ack trace=${String(payload?.traceId ?? '?')} plan=${String(payload?.plan ?? '?')} elapsedMs=${String(payload?.elapsedMs ?? '?')}`,
-				);
+				logger.info('dashboard.webview.render.ack', {
+					component: 'dashboard',
+					traceId: String(payload?.traceId ?? '?'),
+					plan: String(payload?.plan ?? '?'),
+					elapsedMs: Number(payload?.elapsedMs ?? 0),
+				});
 				return;
 			}
 			case 'renderError': {
 				const payload = message.payload as { traceId?: unknown; message?: unknown } | undefined;
-				logger.warn(
-					`${LOG_PREFIX} render error trace=${String(payload?.traceId ?? '?')} message=${String(payload?.message ?? '?')}`,
-				);
+				logger.warn('dashboard.webview.render.error', {
+					component: 'dashboard',
+					traceId: String(payload?.traceId ?? '?'),
+					message: String(payload?.message ?? '?'),
+				});
 				return;
 			}
 			case 'refresh':

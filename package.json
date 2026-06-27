@@ -201,6 +201,57 @@
           ],
           "markdownDescription": "Diagnostic verbosity. `verbose` writes full request payloads to `<globalStorage>/request-dumps/<segmentId>/` for debugging."
         },
+        "minimax.logLevel": {
+          "type": "string",
+          "default": "info",
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
+          "enumItemLabels": [
+            "Error (only user-visible failures)",
+            "Warn (degradations + recoverable failures)",
+            "Info (lifecycle + key state changes — default)",
+            "Debug (development diagnostics)",
+            "Trace (high-frequency details — turn on for a specific incident)"
+          ],
+          "markdownDescription": "Minimum severity the `MiniMax` Output channel writes. Default `info` matches what the dashboard's lifecycle gate and the request/stream path emit under normal use. Set to `debug` or `trace` when investigating a specific incident, then drop back to `info` so the channel stays useful for the next one."
+        },
+        "minimax.diagnostics.traceDashboard": {
+          "type": "boolean",
+          "default": false,
+          "tags": [
+            "diagnostics"
+          ],
+          "markdownDescription": "Emit trace-level log lines for dashboard open / refresh / webview-render lifecycle. Off by default — the dashboard already logs `info` events on every refresh; this flag turns on the per-checkpoint `trace` lines used when the user reports a stuck dashboard."
+        },
+        "minimax.diagnostics.traceRequests": {
+          "type": "boolean",
+          "default": false,
+          "tags": [
+            "diagnostics"
+          ],
+          "markdownDescription": "Emit trace-level log lines for the request / stream lifecycle (header events, delta arrivals, usage accounting). Off by default; turn on when the user reports missing usage data or unexpected token counts."
+        },
+        "minimax.diagnostics.traceMcp": {
+          "type": "boolean",
+          "default": false,
+          "tags": [
+            "diagnostics"
+          ],
+          "markdownDescription": "Emit trace-level log lines for the MiniMax MCP provider registration and resolution paths. Off by default; turn on when the Copilot MCP picker does not see the `MiniMax` server."
+        },
+        "minimax.diagnostics.traceKeys": {
+          "type": "boolean",
+          "default": false,
+          "tags": [
+            "diagnostics"
+          ],
+          "markdownDescription": "Emit trace-level log lines for the named-key pool (add / probe / switch / activate / delete). Off by default; turn on when the user reports the wrong key being picked."
+        },
         "minimax.modelIdOverrides": {
           "type": "object",
           "default": {},

@@ -78,6 +78,14 @@ const openExternalCalls: Array<{ uri: UriLike; scheme: string }> = [];
  */
 const registeredCommands = new Map<string, (...args: unknown[]) => unknown>();
 
+/**
+ * Debug counter incremented every time the default mock
+ * `postMessage` body runs. Tests that swap the property out for
+ * a throwing variant assert this counter is frozen during the
+ * "throwing" window — a regression where the production code
+ * path silently reaches the original mock would advance this
+ * counter instead of the replacement.
+ */
 export const mockState = {
 	outputChannels,
 	quickPicks,
