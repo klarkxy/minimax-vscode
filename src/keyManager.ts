@@ -26,6 +26,7 @@ import {
 	type KeyRegion,
 } from './consts';
 import { fetchPlanUsage } from './dashboard/api';
+import { t } from './i18n';
 
 /** Discriminated union returned by the auto-detect step when adding
  *  a new key. `unsupported` means neither official host accepted
@@ -168,15 +169,15 @@ export class KeyManager {
 	}): Promise<KeyMetadata> {
 		const trimmedName = input.name.trim();
 		if (!trimmedName) {
-			throw new Error('Key name is required');
+			throw new Error(t('keys.emptyName'));
 		}
 		const trimmedKey = input.apiKey.trim();
 		if (!trimmedKey) {
-			throw new Error('API key is required');
+			throw new Error(t('keys.emptySecret'));
 		}
 		const meta = this.readMetadata();
 		if (meta.keys.some((k) => k.name === trimmedName)) {
-			throw new Error(`Key name "${trimmedName}" is already in use`);
+			throw new Error(t('keys.duplicateName', trimmedName));
 		}
 
 		let region: KeyRegion = input.region ?? 'custom';

@@ -84,6 +84,41 @@ test('registerCommands wires the command context and creates the plan status bar
 	);
 });
 
+test('registered switchToGlobal command updates apiBaseUrl to the global endpoint', async () => {
+	const context = newContext();
+	registerCommands(context);
+
+	const command = getRegisteredCommand('minimax.switchToGlobal');
+	assert.ok(command);
+	await command();
+	assert.equal(
+		mockConfig['minimax.apiBaseUrl'],
+		'https://api.minimax.io/anthropic',
+	);
+	// The confirmation toast was shown.
+	assert.ok(
+		mockState.informationMessages.some((m) => /global endpoint/i.test(m)),
+		'expected the global-endpoint confirmation toast',
+	);
+});
+
+test('registered switchToChina command updates apiBaseUrl to the China endpoint', async () => {
+	const context = newContext();
+	registerCommands(context);
+
+	const command = getRegisteredCommand('minimax.switchToChina');
+	assert.ok(command);
+	await command();
+	assert.equal(
+		mockConfig['minimax.apiBaseUrl'],
+		'https://api.minimaxi.com/anthropic',
+	);
+	assert.ok(
+		mockState.informationMessages.some((m) => /china endpoint/i.test(m)),
+		'expected the china-endpoint confirmation toast',
+	);
+});
+
 test('registered openRequestDumpsFolder command uses globalStorageUri and opens a file URI', async () => {
 	const context = newContext();
 	registerCommands(context);

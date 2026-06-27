@@ -5,7 +5,7 @@ import { getApiModelId, getMaxTokens } from '../config';
 import { CONFIG_SECTION } from '../consts';
 import { t } from '../i18n';
 import { findModelById } from '../models/registry';
-import type { ConvertedConversation, MiniMaxRequest, MiniMaxTool } from '../types';
+import type { ConvertedConversation, MiniMaxRequest } from '../types';
 import { convertMessages, countMessageChars } from './convert';
 import {
 	classifyMiniMaxRequest,
@@ -18,7 +18,7 @@ import {
 import { getConfiguredThinkingEffort, type ModelConfigurationOptions } from './models';
 import type { ReplayMarkerMetadata } from './replay';
 import type { ConversationSegment } from './segment';
-import { prepareRequestTools } from './tools/request';
+import { prepareRequestTools, collectTrailingToolResultIds } from './tools/request';
 import { logger } from '../logger';
 import { safeStringify } from '../json';
 import { appendTerminalGuidanceToSystemPrompt, buildTerminalGuidance } from './terminalEnvironment';
@@ -132,7 +132,7 @@ export async function prepareChatRequest({
 		converted.messages,
 		systemPrompt,
 		effectiveMaxTokens,
-		tools as MiniMaxTool[] | undefined,
+		tools,
 		buildThinkingPayload(modelDef, thinkingEffort),
 		// Anthropic requires `temperature=1` whenever thinking is enabled
 		// and forbids `top_p` in the same request. MiniMax inherits this
@@ -165,18 +165,14 @@ export async function prepareChatRequest({
 
 	const diagnosticsRun = cacheDiagnostics.beginRequest();
 
-	const trailingToolResultIds: string[] = [];
-	for (const message of converted.messages) {
-		if (typeof message.content === 'string') {
-			continue;
-		}
-		for (const block of message.content) {
-			if (block.type === 'tool_result' && block.tool_use_id) {
-				trailingToolResultIds.push(block.tool_use_id);
-			}
-		}
-	}
-	trailingToolResultIds.reverse();
+	// The trailing-tool-result count is used by cache diagnostics to
+	// report how many `tool_result` blocks the most recent assistant
+	// turn left dangling. The previous hand-rolled loop walked
+	// EVERY message in EVERY direction and pushed every `tool_use_id`
+	// it found, which inflated the count for long tool-calling
+	// histories. Reuse the tail-walking helper from
+	// `tools/request.ts` so the request layer and tool flow agree.
+	const trailingToolResultIds = collectTrailingToolResultIds(converted.messages);
 
 	return {
 		client,
@@ -212,31 +208,30 @@ function readUserSampling(
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 	const raw = config.get<Record<string, unknown>>('sampling', {});
 	const entry = raw?.[modelId];
-	if (!entry || typeof entry !== 'object') {
+	if (!isPlainObject(entry)) {
 		return undefined;
 	}
-	const src = entry as Record<string, unknown>;
 	const out: {
 		temperature?: number;
 		topP?: number;
 		topK?: number;
 		frequencyPenalty?: number;
 	} = {};
-	if (typeof src.temperature === 'number' && src.temperature >= 0 && src.temperature <= 2) {
-		out.temperature = src.temperature;
+	if (typeof entry.temperature === 'number' && entry.temperature >= 0 && entry.temperature <= 2) {
+		out.temperature = entry.temperature;
 	}
-	if (typeof src.topP === 'number' && src.topP >= 0 && src.topP <= 1) {
-		out.topP = src.topP;
+	if (typeof entry.topP === 'number' && entry.topP >= 0 && entry.topP <= 1) {
+		out.topP = entry.topP;
 	}
-	if (typeof src.topK === 'number' && Number.isInteger(src.topK) && src.topK >= 0) {
-		out.topK = src.topK;
+	if (typeof entry.topK === 'number' && Number.isInteger(entry.topK) && entry.topK >= 0) {
+		out.topK = entry.topK;
 	}
 	if (
-		typeof src.frequencyPenalty === 'number' &&
-		src.frequencyPenalty >= -2 &&
-		src.frequencyPenalty <= 2
+		typeof entry.frequencyPenalty === 'number' &&
+		entry.frequencyPenalty >= -2 &&
+		entry.frequencyPenalty <= 2
 	) {
-		out.frequencyPenalty = src.frequencyPenalty;
+		out.frequencyPenalty = entry.frequencyPenalty;
 	}
 	return Object.keys(out).length === 0 ? undefined : out;
 }
@@ -250,10 +245,20 @@ function readUserExtra(modelId: string): Record<string, unknown> | undefined {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 	const raw = config.get<Record<string, unknown>>('experimental.modelDefPresets', {});
 	const entry = raw?.[modelId];
-	if (!entry || typeof entry !== 'object') {
-		return undefined;
-	}
-	return entry as Record<string, unknown>;
+	return isPlainObject(entry) ? entry : undefined;
+}
+
+/**
+ * Narrow `unknown` to a plain record without an explicit cast. The
+ * previous `entry as Record<string, unknown>` was redundant because
+ * the `typeof === 'object'` check already rules out primitives;
+ * arrays slip through the same check, so we also rule those out
+ * explicitly. Returning a typed record via a user-defined type
+ * guard keeps the cast out of the call sites and lets TypeScript
+ * carry the narrowing through.
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -345,7 +350,7 @@ function countInputVideos(
  * get the original byte length. URL sources are passed through as-is
  * (the API will decode them).
  */
-function estimateRequestBodyBytes(
+export function estimateRequestBodyBytes(
 	converted: ConvertedConversation,
 ): number {
 	let bytes = 0;
@@ -413,7 +418,7 @@ function estimateRequestBodyBytes(
  * pre-flight check to surface oversized chats before the API bounces
  * them with HTTP 413.
  */
-function enforceRequestBodySizeLimit(
+export function enforceRequestBodySizeLimit(
 	converted: ConvertedConversation,
 	modelId: string,
 ): void {

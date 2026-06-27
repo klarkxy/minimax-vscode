@@ -520,7 +520,7 @@ function getDiagnosticErrorActions(
  * - `*` `_` — emphasis delimiters; an unescaped asterisk inside
  *   `**...**` splits the bold, an unescaped underscore starts
  *   italic.
- * - `<` — block-level HTML / autolink start.
+ * - `<` — block-level HTML / `<scheme>://` autolink start.
  * - `[` `]` — link delimiters; an unescaped `[` in the userSummary
  *   can pair with a later `](url)` (including a `](url)` in a later
  *   chat message rendered alongside) to form an unintended link.
@@ -530,15 +530,22 @@ function getDiagnosticErrorActions(
  *
  * What this does NOT escape: `>`, `#`, `+`, `-`, `.`, `!`, `|`, `{`,
  * `}`, `=`, `:`, `@`. None of these characters can break the
- * surrounding `**...**` block or form a link on their own inside a
- * span — they are block-level or list-leading characters that only
- * matter at line start. (Note: GFM autolink triggers — `<scheme>://`,
- * `www.<domain>`, `user@domain.tld` — are not escaped here. Codex
- * 2nd review [high] flagged this as a residual injection vector; the
- * fix is tracked in LRN-20260611-005 as a follow-up.)
+ * surrounding `**...**` block on their own inside a span — they are
+ * block-level or list-leading characters that only matter at line
+ * start.
+ *
+ * GFM autolink triggers — `<scheme>://`, `www.<domain>`,
+ * `user@domain.tld` — were the residual injection vector flagged
+ * in LRN-20260611-005. `<scheme>://` is already neutralised by the
+ * `<` escape above; the other two are wrapped in inline backticks
+ * so Markdown treats them as code (not a link) without losing
+ * readability for the human reader.
  */
+const WWW_AUTOLINK_RE = /(^|[\s(])(www\.[A-Za-z0-9][A-Za-z0-9.\-]*\.[A-Za-z]{2,}(?:\/[^\s]*)?)/g;
+const EMAIL_AUTOLINK_RE = /([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})/g;
+
 function escapeMarkdownInline(text: string): string {
-	return text
+	const escaped = text
 		.replace(/\\/g, '\\\\')
 		.replace(/`/g, '\\`')
 		.replace(/\*/g, '\\*')
@@ -549,6 +556,13 @@ function escapeMarkdownInline(text: string): string {
 		.replace(/\(/g, '\\(')
 		.replace(/\)/g, '\\)')
 		.replace(/~/g, '\\~');
+	// Neutralise the two remaining GFM autolink triggers. The
+	// preceding step already escaped any raw backticks, so a token
+	// that contained `` ` `` cannot reach here, and wrapping in
+	// backticks is therefore safe.
+	return escaped
+		.replace(WWW_AUTOLINK_RE, (_match, prefix: string, body: string) => `${prefix}\`${body}\``)
+		.replace(EMAIL_AUTOLINK_RE, (_match, body: string) => `\`${body}\``);
 }
 
 function joinDiagnosticParts(...parts: (string | undefined)[]): string {

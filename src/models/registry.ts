@@ -1,11 +1,17 @@
 import * as vscode from 'vscode';
 import { getBaseUrl, getM3ContextWindow } from '../config';
 import {
+	isChineseLocale as isChineseLocaleShared,
 	MINIMAX_TOOLS_LIMIT,
 	PLATFORM_HOST_CHINA,
 	resolvePlatformHost,
 } from '../consts';
 import type { ModelDefinition, ModelPricing } from '../types';
+
+/** Re-export the shared `isChineseLocale` so existing call sites
+ *  (`import { isChineseLocale } from '../models/registry'`) keep
+ *  working — the canonical definition lives in `consts.ts`. */
+export const isChineseLocale = isChineseLocaleShared;
 
 /**
  * Per-million-token prices scraped from the official pricing pages.
@@ -86,11 +92,10 @@ const PRICING_USD: Record<PricingKey, ModelPricing> = {
 	},
 };
 
-/** Whether the user's locale is Chinese (so we use CNY / ¥). */
-export function isChineseLocale(language: string = vscode.env.language): boolean {
-	const lower = language.toLowerCase();
-	return lower === 'zh' || lower.startsWith('zh-') || lower.startsWith('zh_');
-}
+/** Whether the user's locale is Chinese (so we use CNY / ¥).
+ *  Re-exported from `consts.ts` so existing call sites that already
+ *  import it from here keep working — see `consts.ts` for the
+ *  authoritative definition. */
 
 /**
  * True if `baseUrl` points to the China Anthropic-compatible API host.
@@ -111,7 +116,7 @@ export function isChinaBaseUrl(baseUrl: string): boolean {
 /** Pick the CNY vs USD price table for a given baseUrl + locale. */
 export function pickPricingTable(baseUrl: string): Record<PricingKey, ModelPricing> {
 	if (isChinaBaseUrl(baseUrl)) return PRICING_CNY;
-	if (isChineseLocale()) return PRICING_CNY;
+	if (isChineseLocale(vscode.env.language)) return PRICING_CNY;
 	return PRICING_USD;
 }
 

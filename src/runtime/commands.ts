@@ -548,8 +548,8 @@ async function switchBaseUrl(target: 'global' | 'china'): Promise<void> {
 	await config.update('apiBaseUrl', url, vscode.ConfigurationTarget.Global);
 	const confirm =
 		target === 'global'
-			? 'MiniMax: Switched to Global Anthropic endpoint (minimax.io)'
-			: 'MiniMax: Switched to China Anthropic endpoint (minimaxi.com)';
+			? t('endpoint.switchedGlobal')
+			: t('endpoint.switchedChina');
 	vscode.window.showInformationMessage(confirm);
 }
 

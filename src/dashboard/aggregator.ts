@@ -622,7 +622,19 @@ export async function buildDashboardView(
 			? fetchPlanUsage(options.platform)
 			: Promise.resolve<PlanApiResult>({ ok: false, reason: 'unconfigured' });
 
-	const [planResult, mmxStatus] = await Promise.all([planPromise, mmxPromise]);
+	// Defensive: `fetchPlanUsage` resolves (never rejects) in the
+	// current implementation, but a future custom `fetchImpl` injected
+	// by a caller, or a runtime bug in the JSON parser, could throw
+	// and crash the whole dashboard render. Anchor the failure to
+	// `planSource = 'error'` so the user sees the platform card as
+	// failed rather than a blank / broken dashboard.
+	const safePlanPromise = planPromise.catch((error: unknown) => ({
+		ok: false as const,
+		reason: 'error' as const,
+		error: error instanceof Error ? error.message : String(error),
+	}));
+
+	const [planResult, mmxStatus] = await Promise.all([safePlanPromise, mmxPromise]);
 
 	if (planResult.ok) {
 		planSection = planResult.usage;

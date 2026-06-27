@@ -10,6 +10,14 @@ import type {
 	MiniMaxThinkingBlock,
 	MiniMaxUsage,
 } from '../types';
+
+/**
+ * Single shared `TextEncoder` for the whole module. Constructing one
+ * is cheap but not free, and `reportCopilotContextUsage` runs once
+ * per API response — re-using one instance avoids the allocation
+ * churn on a hot path.
+ */
+const textEncoder = new TextEncoder();
 import {
 	createReplayMarkerPart,
 	hasReplayMarkerMetadata,
@@ -87,21 +95,30 @@ export async function streamChatCompletion({
 		prepared.request.top_p,
 		{
 			onContent: (content: string) => {
+				if (token.isCancellationRequested) return;
 				reportInitialResponseNoticeOnce(progress, state, initialResponseNotice);
 				progress.report(new vscode.LanguageModelTextPart(content));
 			},
 
 			onThinking: (text: string, signature?: string) => {
+				if (token.isCancellationRequested) return;
 				reportInitialResponseNoticeOnce(progress, state, initialResponseNotice);
 				handleThinking(text, signature, state, progress);
 			},
 
 			onToolCall: (toolCall: { id: string; name: string; inputJson: string }) => {
+				if (token.isCancellationRequested) return;
 				reportInitialResponseNoticeOnce(progress, state, initialResponseNotice);
 				handleToolCall(toolCall, state, progress);
 			},
 
 			onError: (error: Error) => {
+				// Cancellation is delivered as a stream-level error in
+				// the SDK adapter; treat it as a quiet abort instead of
+				// routing through the user-facing error path (which
+				// would surface a "request failed" toast for what is
+				// really "the user already moved on").
+				if (token.isCancellationRequested) return;
 				// Copilot Chat treats upstream quota / rate-limit errors as its
 				// own "quota exceeded" signal and pops a "reached the limit /
 				// upgrade" modal. MiniMax balance (402) and rate limits (429)
@@ -119,6 +136,7 @@ export async function streamChatCompletion({
 			},
 
 			onDone: () => {
+				if (token.isCancellationRequested) return;
 				reportReplayMarkerOnce(prepared, state, progress);
 				finalizeReplayDiagnostics(
 					prepared.trailingToolResultIds,
@@ -128,6 +146,7 @@ export async function streamChatCompletion({
 			},
 
 			onUsage: (usage: MiniMaxUsage) => {
+				if (token.isCancellationRequested) return;
 				const charsPerToken = updateCharsPerToken(
 					prepared.totalRequestChars,
 					usage,
@@ -206,14 +225,24 @@ function handleThinking(
 	if (text.length > 0) {
 		state.accumulatedThinkingText += text;
 
+		// Track this block so the signature_delta that follows can be
+		// backfilled onto the right block. Without this push, the
+		// signature always lands on `undefined` and is silently lost
+		// (replay markers then omit thinking blocks entirely).
+		state.pendingThinkingIndex = state.accumulatedThinkingBlocks.length;
+		state.accumulatedThinkingBlocks.push({
+			type: 'thinking',
+			thinking: text,
+		});
+
 		// Emit a VS Code thinking part for in-progress reasoning. The
 		// signature_delta that follows will be attached to the same block.
 		emitThinkingPart(progress, text);
-	} else if (signature) {
-		// Backfill signature onto the last thinking block.
-		const last = state.accumulatedThinkingBlocks[state.accumulatedThinkingBlocks.length - 1];
-		if (last) {
-			last.signature = signature;
+	} else if (signature && state.pendingThinkingIndex !== undefined) {
+		// Backfill signature onto the thinking block it paired with.
+		const target = state.accumulatedThinkingBlocks[state.pendingThinkingIndex];
+		if (target) {
+			target.signature = signature;
 		}
 	}
 }
@@ -280,7 +309,68 @@ function finalizeReplayDiagnostics(
 	});
 }
 
-function updateCharsPerToken(
+/**
+ * Build the Copilot-Chat-compatible usage data part payload from an
+ * Anthropic-shaped usage object.
+ *
+ * Anthropic charges for the full input prefix on cache-creation turns
+ * (the prompt that *wrote* the cache entry, which is then re-used on
+ * subsequent turns). Aggregating all three counters into `prompt_tokens`
+ * matches both the oai-compatible-copilot upstream and what Copilot
+ * Chat's status-bar widget actually expects to see.
+ *
+ * Note on `cached_tokens`: per Anthropic's API, this field counts
+ * only the *read* portion of the cache (i.e. the cached prefix that
+ * was actually re-used on this turn). We deliberately do NOT
+ * include `cache_creation_input_tokens` here because the OAI-
+ * compatible copilot widget interprets `cached_tokens` as "tokens
+ * served from cache" — adding the write portion would double-count
+ * it. The all-in `prompt_tokens` above is the right number for the
+ * "tokens billed on this turn" view; `cached_tokens` is for the
+ * cache-effectiveness sub-stat.
+ *
+ * Returns `null` on a zero-usage turn so the caller can skip
+ * reporting it (avoids churning the status bar with empty updates).
+ */
+export function buildUsageDataPart(usage: MiniMaxUsage): {
+	mime: typeof COPILOT_USAGE_DATA_PART_MIME;
+	data: {
+		prompt_tokens: number;
+		completion_tokens: number;
+		total_tokens: number;
+		prompt_tokens_details: { cached_tokens: number };
+	};
+} | null {
+	const inputTokens = usage.input_tokens ?? 0;
+	const cacheCreateTokens = usage.cache_creation_input_tokens ?? 0;
+	const cacheReadTokens = usage.cache_read_input_tokens ?? 0;
+	const outputTokens = usage.output_tokens ?? 0;
+	const promptTokens = inputTokens + cacheCreateTokens + cacheReadTokens;
+	if (promptTokens === 0 && outputTokens === 0) {
+		return null;
+	}
+	return {
+		mime: COPILOT_USAGE_DATA_PART_MIME,
+		data: {
+			prompt_tokens: promptTokens,
+			completion_tokens: outputTokens,
+			total_tokens: promptTokens + outputTokens,
+			prompt_tokens_details: {
+				cached_tokens: cacheReadTokens,
+			},
+		},
+	};
+}
+
+/**
+ * Update the chars-per-token ratio using an exponential moving
+ * average (EMA) over the latest observed ratio. The 0.7/0.3 split
+ * was tuned by the deepseek-v4-for-copilot authors; we keep the
+ * same factors for parity. Returns the previous `charsPerToken`
+ * unchanged when the inputs are degenerate (zero prompt tokens,
+ * zero request chars) — the EMA is undefined there.
+ */
+export function updateCharsPerToken(
 	totalRequestChars: number,
 	usage: MiniMaxUsage,
 	charsPerToken: number,
@@ -297,52 +387,19 @@ function reportCopilotContextUsage(
 	progress: vscode.Progress<vscode.LanguageModelResponsePart>,
 	usage: MiniMaxUsage,
 ): void {
-	// Anthropic charges for the full input prefix on cache-creation turns
-	// (the prompt that *wrote* the cache entry, which is then re-used on
-	// subsequent turns). Aggregating all three counters into `prompt_tokens`
-	// matches both the oai-compatible-copilot upstream and what Copilot
-	// Chat's status-bar widget actually expects to see.
-	//
-	// Note on `cached_tokens`: per Anthropic's API, this field counts
-	// only the *read* portion of the cache (i.e. the cached prefix that
-	// was actually re-used on this turn). We deliberately do NOT
-	// include `cache_creation_input_tokens` here because the OAI-
-	// compatible copilot widget interprets `cached_tokens` as "tokens
-	// served from cache" — adding the write portion would double-count
-	// it. The all-in `prompt_tokens` above is the right number for the
-	// "tokens billed on this turn" view; `cached_tokens` is for the
-	// cache-effectiveness sub-stat.
-	const inputTokens = usage.input_tokens ?? 0;
-	const cacheCreateTokens = usage.cache_creation_input_tokens ?? 0;
-	const cacheReadTokens = usage.cache_read_input_tokens ?? 0;
-	const outputTokens = usage.output_tokens ?? 0;
-	const promptTokens = inputTokens + cacheCreateTokens + cacheReadTokens;
-
-	// Skip the data part entirely on a zero-usage turn so we don't churn
-	// the status bar with empty `0 + 0 = 0` updates.
-	if (promptTokens === 0 && outputTokens === 0) {
+	const part = buildUsageDataPart(usage);
+	if (!part) {
 		return;
 	}
-
-	const data = {
-		prompt_tokens: promptTokens,
-		completion_tokens: outputTokens,
-		total_tokens: promptTokens + outputTokens,
-		prompt_tokens_details: {
-			cached_tokens: cacheReadTokens,
-		},
-	};
-
 	logger.debug('usage.report', {
 		usage,
-		emitted: data,
+		emitted: part.data,
 	});
-
 	try {
 		progress.report(
 			new vscode.LanguageModelDataPart(
-				new TextEncoder().encode(JSON.stringify(data)),
-				COPILOT_USAGE_DATA_PART_MIME,
+				textEncoder.encode(JSON.stringify(part.data)),
+				part.mime,
 			),
 		);
 	} catch (error) {

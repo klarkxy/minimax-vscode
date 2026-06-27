@@ -5,6 +5,8 @@
 // payload, so we never have to round-trip text through VS Code's
 // `vscode.env.language` from inside the iframe.
 
+import { isChineseLocale } from '../consts';
+
 export type DashboardLocale = 'en' | 'zh';
 
 export interface DashboardMessages {
@@ -404,11 +406,7 @@ export function pickDashboardLocale(value: string | undefined): DashboardLocale 
 	if (!value) {
 		return 'en';
 	}
-	const lower = value.toLowerCase();
-	if (lower === 'zh-cn' || lower === 'zh' || lower.startsWith('zh-')) {
-		return 'zh';
-	}
-	return 'en';
+	return isChineseLocale(value) ? 'zh' : 'en';
 }
 
 export function dashboardMessages(locale: DashboardLocale): DashboardMessages {

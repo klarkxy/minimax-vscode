@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { isChineseLocale } from './consts';
 
 /**
  * Lightweight i18n module — zero dependencies, follows VS Code display language.
@@ -9,8 +10,7 @@ import * as vscode from 'vscode';
  */
 
 function isZh(): boolean {
-	const lang = vscode.env.language.toLowerCase();
-	return lang === 'zh-cn' || lang === 'zh';
+	return isChineseLocale(vscode.env.language);
 }
 
 // ---- Translation dictionaries ----
@@ -56,7 +56,7 @@ const zh: Translations = {
 	// API Key pool
 	'keys.managerUnavailable': 'MiniMax 钥匙管理器不可用，请重载窗口。',
 	'keys.emptyName': '名称不能为空。',
-	'keys.duplicateName': '该名称已被使用。',
+	'keys.duplicateName': '名称 "{0}" 已被使用。',
 	'keys.emptySecret': 'API Key 不能为空。',
 	'keys.promptName': '为这把 API Key 起个名字（例如 `copilot-1`、`个人`、`工作`）。',
 	'keys.placeholderName': 'copilot-1',
@@ -144,6 +144,9 @@ const zh: Translations = {
 	'extension.deactivateFailed': 'MiniMax 停用异常',
 	'extension.welcomeFailed': '欢迎引导加载异常',
 	'extension.openRequestDumpsFolderFailed': '打开请求 dump 目录失败，请运行 "MiniMax: 显示日志" 查看详情。',
+	// Endpoint switch toast (commands.ts#switchBaseUrl)
+	'endpoint.switchedGlobal': '已切换至全球端点（api.minimax.io）。',
+	'endpoint.switchedChina': '已切换至中国端点（api.minimaxi.com）。',
 
 	// Set Copilot's chat.utility* models
 	'commit.pickModelTitle': '选择要写入的 chat model',
@@ -163,6 +166,25 @@ const zh: Translations = {
 	'usage.empty': '暂未产生任何请求。打开 Copilot Chat，选用一个 MiniMax 模型并发送消息即可。',
 	'status.thinking': '思考模式',
 	'usage.resetDone': '已清空用量统计。',
+
+	// Plan status bar (`src/dashboard/planStatusBar.ts`).
+	// The bar lives in VS Code's status bar (not the dashboard webview),
+	// so it has to compute its own copy at render time — it cannot reach
+	// into the webview's pre-baked i18n payload.
+	'statusBar.plan.fiveHour': '5小时',
+	'statusBar.plan.weekly': '周',
+	'statusBar.plan.unlimitedText': '无限',
+	'statusBar.plan.noKey':
+		'未配置 API Key，无法读取 Token Plan。运行 "MiniMax: Set API Key" 配置。',
+	'statusBar.plan.loading': '正在加载 Token Plan ...',
+	'statusBar.plan.weeklyUnlimited': 'Token Plan 周限额为无限',
+	'statusBar.plan.usedPair': '已用 {0} / {1}',
+	'statusBar.plan.remaining': '剩余 {0}%',
+	'statusBar.plan.usedHeader': '已用 {0}%',
+	'statusBar.plan.resetsIn': '重置',
+	'statusBar.plan.activeKey': '当前 Key: {0}',
+	'statusBar.plan.activeMarker': ' ●当前',
+	'statusBar.plan.openDashboard': '点击打开 Dashboard 查看详情',
 
 	// mmx-cli — the extension only copies the official install
 	// prompt to the clipboard. The user decides what to do next.
@@ -252,7 +274,7 @@ const en: Translations = {
 	// API Key pool
 	'keys.managerUnavailable': 'MiniMax key manager is not available. Please reload the window.',
 	'keys.emptyName': 'Name is required.',
-	'keys.duplicateName': 'This name is already in use.',
+	'keys.duplicateName': 'Name "{0}" is already in use.',
 	'keys.emptySecret': 'API key cannot be empty.',
 	'keys.promptName': 'Name this API key (e.g. `copilot-1`, `personal`, `work`).',
 	'keys.placeholderName': 'copilot-1',
@@ -339,6 +361,9 @@ const en: Translations = {
 	'extension.deactivateFailed': 'MiniMax deactivation failed',
 	'extension.welcomeFailed': 'Welcome flow failed to load',
 	'extension.openRequestDumpsFolderFailed': 'Failed to open request dumps folder. Run "MiniMax: Show Logs" for details.',
+	// Endpoint switch toast (commands.ts#switchBaseUrl)
+	'endpoint.switchedGlobal': 'Switched to the global endpoint (api.minimax.io).',
+	'endpoint.switchedChina': 'Switched to the China endpoint (api.minimaxi.com).',
 
 	// Set Copilot's chat.utility* models
 	'commit.pickModelTitle': 'Pick a chat model',
@@ -358,6 +383,22 @@ const en: Translations = {
 	'usage.empty': 'No requests have been made yet. Open Copilot Chat, pick a MiniMax model, and send a message.',
 	'status.thinking': 'Thinking Mode',
 	'usage.resetDone': 'Usage statistics have been reset.',
+
+	// Plan status bar (`src/dashboard/planStatusBar.ts`).
+	'statusBar.plan.fiveHour': '5h',
+	'statusBar.plan.weekly': 'Week',
+	'statusBar.plan.unlimitedText': '∞',
+	'statusBar.plan.noKey':
+		'No API key configured. Run "MiniMax: Set API Key" to fetch the Token Plan quota.',
+	'statusBar.plan.loading': 'Loading Token Plan ...',
+	'statusBar.plan.weeklyUnlimited': 'Weekly limit: unlimited',
+	'statusBar.plan.usedPair': 'Used {0} / {1}',
+	'statusBar.plan.remaining': '{0}% remaining',
+	'statusBar.plan.usedHeader': '{0}% used',
+	'statusBar.plan.resetsIn': 'Resets in',
+	'statusBar.plan.activeKey': 'Active key: {0}',
+	'statusBar.plan.activeMarker': ' ● active',
+	'statusBar.plan.openDashboard': 'Click to open the dashboard for details',
 
 	// mmx-cli — the extension only copies the official install
 	// prompt to the clipboard. The user decides what to do next.

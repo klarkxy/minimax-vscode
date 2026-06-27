@@ -5,6 +5,25 @@
  * no secrets API). For run-time settings reads see `config.ts`.
  */
 
+/**
+ * Single source of truth for "is the user's locale Chinese?". The
+ * previous setup had three independent rules in `i18n.ts`,
+ * `models/registry.ts`, and `dashboard/messages.ts` that disagreed
+ * about edge cases like `zh-hant` / `zh-hans-cn` — the i18n
+ * dictionary would pick English while the pricing layer picked CNY
+ * and the dashboard webview picked Chinese. This helper is the
+ * authoritative predicate; every locale-dependent call site should
+ * import it. Accepts any BCP-47 / POSIX tag (`zh`, `zh-cn`,
+ * `zh-hant-hk`, `zh_hans_CN`, …) and is case-insensitive.
+ */
+export function isChineseLocale(language?: string): boolean {
+	if (!language) {
+		return false;
+	}
+	const lower = language.toLowerCase();
+	return lower === 'zh' || lower.startsWith('zh-') || lower.startsWith('zh_');
+}
+
 /** VS Code configuration section prefix for all extension settings. */
 export const CONFIG_SECTION = 'minimax';
 
@@ -276,3 +295,30 @@ export const USAGE_STATS_BY_KEY_KEY = 'minimax-vscode.usageStatsByKey';
  *  matches the oai-compatible-copilot upstream and what Copilot Chat
  *  expects on the receiving end. */
 export const COPILOT_USAGE_DATA_PART_MIME = 'usage';
+
+/**
+ * Debug-mode request-dump retention knobs. The verbose dump mode writes
+ * full request payloads to disk under `<globalStorage>/request-dumps/`.
+ * Without bounds this grows without limit under heavy use, so we cap
+ * concurrency (memory ceiling on the in-process write queue) and disk
+ * usage (per-segment directory count + observations-file size).
+ */
+export const REQUEST_DUMP_MAX_CONCURRENT_WRITES = 3;
+/** Maximum number of `<segmentId>/` directories retained under
+ *  `request-dumps/`. Older segments are pruned FIFO when exceeded. */
+export const REQUEST_DUMP_MAX_SEGMENT_DIRS = 50;
+/** Maximum size of the `_request-observations.jsonl` rollover file before
+ *  it is rotated. */
+export const REQUEST_DUMP_OBSERVATIONS_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Claude Code JSONL ingester knobs. The polling reader walks the
+ * `~/.claude/projects/` directory recursively; without per-tick size
+ * caps a chatty session can produce a single file that grows to
+ * hundreds of MB between polls and would be slurped into a single
+ * string.
+ */
+export const CLAUDE_CODE_INGEST_MAX_READ_BYTES = 10 * 1024 * 1024;
+/** Maximum recursion depth when walking the JSONL log directory. Caps the
+ *  blast radius of symlink cycles / pathological nesting. */
+export const CLAUDE_CODE_INGEST_MAX_DISCOVERY_DEPTH = 4;

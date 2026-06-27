@@ -11,6 +11,11 @@ export async function registerProvider(
 		vscode.commands.registerCommand('minimax.setApiKey', () => provider.configureApiKey()),
 		vscode.commands.registerCommand('minimax.clearApiKey', () => provider.clearApiKey()),
 		vscode.lm.registerLanguageModelChatProvider('minimax', provider),
+		// The provider holds the chat-turn notifier and the internal
+		// `disposed` flag. Pushing it here lets VS Code call
+		// `dispose()` on deactivation — without it the notifier's
+		// listener sets would keep closures alive across restarts.
+		provider,
 	);
 
 	// Copilot Chat can serve cached model info without configurationSchema.

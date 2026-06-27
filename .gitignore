@@ -9,6 +9,8 @@ Thumbs.db
 
 .idea/
 .learnings/
+.codegraph/
+coverage/
 
 # 参考的插件库
 deepseek-v4-for-copilot/

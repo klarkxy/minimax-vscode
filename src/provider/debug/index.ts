@@ -1,7 +1,6 @@
 export {
 	createCacheDiagnosticsRecorder,
 	logToolFlowDiagnostics,
-	observeCancellationToken,
 } from './diagnostics';
 export type {
 	CacheDiagnosticsRecorder,

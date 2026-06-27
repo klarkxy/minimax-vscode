@@ -70,6 +70,26 @@ function assistantText(text: string): vscode.LanguageModelChatRequestMessage {
 	};
 }
 
+/**
+ * Edge-case: an assistant message that bundles BOTH a tool_call AND a
+ * tool_result on the same turn. The Anthropic protocol requires the
+ * `tool_result` to live on a *user* message that follows the assistant's
+ * `tool_use` block — so the converter must split this single VS Code
+ * message into two MiniMax messages. Regression for the previous bug
+ * where the user message was discarded by `return out[0]`.
+ */
+function assistantToolCallAndResult(): vscode.LanguageModelChatRequestMessage {
+	return {
+		role: LanguageModelChatMessageRole.Assistant,
+		content: [
+			new LanguageModelToolCallPart('call_1', 'read_file', { path: '/x' }) as unknown as vscode.LanguageModelToolCallPart,
+			new LanguageModelToolResultPart('call_1', [
+				new LanguageModelTextPart('file contents') as unknown as vscode.LanguageModelTextPart,
+			]) as unknown as vscode.LanguageModelToolResultPart,
+		],
+	};
+}
+
 function userToolResult(callId: string, text: string): vscode.LanguageModelChatRequestMessage {
 	return {
 		role: LanguageModelChatMessageRole.User,
@@ -163,6 +183,23 @@ test('convertMessages: tool result becomes a tool_result block on a user message
 	assert.equal(blocks[0].type, 'tool_result');
 	assert.equal(blocks[0].tool_use_id, 'call_1');
 	assert.equal(blocks[0].content, 'ok');
+});
+
+// Regression: previously the assistant message + bundled tool_result
+// pair was collapsed to just the assistant block by `return out[0]`,
+// silently dropping the tool_result and breaking tool-call continuity
+// against the Anthropic API. The converter must now emit both.
+test('convertMessages: assistant message with bundled tool_result emits both assistant and user messages', () => {
+	const result = convertMessages([assistantToolCallAndResult()], M3_ID);
+	assert.equal(result.messages.length, 2);
+	assert.equal(result.messages[0].role, 'assistant');
+	const assistantBlocks = result.messages[0].content as Array<Record<string, unknown>>;
+	assert.equal(assistantBlocks[0].type, 'tool_use');
+	assert.equal(result.messages[1].role, 'user');
+	const userBlocks = result.messages[1].content as Array<Record<string, unknown>>;
+	assert.equal(userBlocks[0].type, 'tool_result');
+	assert.equal(userBlocks[0].tool_use_id, 'call_1');
+	assert.equal(userBlocks[0].content, 'file contents');
 });
 
 // --- Image / video handling ------------------------------------------

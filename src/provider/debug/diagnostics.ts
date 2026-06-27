@@ -52,15 +52,6 @@ export function logToolFlowDiagnostics(options: LogToolFlowOptions): void {
 	}
 }
 
-export function observeCancellationToken(
-	token: vscode.CancellationToken,
-	diagnostics?: CacheDiagnosticsRun,
-): vscode.Disposable {
-	return token.onCancellationRequested(() => {
-		diagnostics?.onCancellationTokenRequested();
-	});
-}
-
 /**
  * Lightweight diagnostics recorder. Most call sites only care about the
  * final reasoning char count and tool call count, so we keep the

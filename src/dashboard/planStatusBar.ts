@@ -10,6 +10,7 @@
 // placeholder and the tooltip nudges them to run "MiniMax: Set API Key".
 
 import * as vscode from 'vscode';
+import { t } from '../i18n';
 import type { PlanCache } from './aggregator';
 import type { PlanUsage } from './types';
 
@@ -51,9 +52,9 @@ interface RenderState {
 	error?: string;
 }
 
-function emptyText(usage: PlanUsage, key: 'current' | 'weekly', isZh: boolean): string {
+function emptyText(usage: PlanUsage, key: 'current' | 'weekly'): string {
 	if (key === 'weekly' && usage.weeklyUnlimited) {
-		return isZh ? '无限' : '∞';
+		return t('statusBar.plan.unlimitedText');
 	}
 	return '';
 }
@@ -94,20 +95,18 @@ function remainingPctOf(plan: PlanUsage, key: 'current' | 'weekly'): number | nu
 	return 100 - plan.weeklyPercentage;
 }
 
-function buildPoolTooltip(
-	isZh: boolean,
+export function buildPoolTooltip(
 	pool: Array<{ name: string; region: string; fingerprint: string; isActive: boolean }> | undefined,
 	activeName: string | undefined,
 ): string {
 	if (!pool || pool.length === 0) return '';
+	const activeMarker = t('statusBar.plan.activeMarker');
 	const lines = pool.map((entry) => {
-		const marker = entry.isActive ? (isZh ? ' ●当前' : ' ● active') : '';
+		const marker = entry.isActive ? activeMarker : '';
 		return `• ${entry.name}${marker}  ${entry.region}  ${entry.fingerprint}`;
 	});
 	if (activeName) {
-		return isZh
-			? `当前 Key: ${activeName}\n${lines.join('\n')}`
-			: `Active key: ${activeName}\n${lines.join('\n')}`;
+		return t('statusBar.plan.activeKey', activeName) + '\n' + lines.join('\n');
 	}
 	return lines.join('\n');
 }
@@ -115,27 +114,21 @@ function buildPoolTooltip(
 function renderQuota(
 	state: RenderState,
 	key: 'current' | 'weekly',
-	labelEn: string,
-	labelZh: string,
+	label: string,
 	activeName: string | undefined,
 	poolTooltip: string,
 ): { text: string; tooltip: string; color: vscode.ThemeColor | undefined } {
-	const isZh = vscode.env.language.toLowerCase().startsWith('zh');
-	const label = isZh ? labelZh : labelEn;
-
 	if (state.key !== 'set') {
 		return {
 			text: `${label} —`,
-			tooltip: isZh
-				? '未配置 API Key，无法读取 Token Plan。运行 "MiniMax: Set API Key" 配置。'
-				: 'No API key configured. Run "MiniMax: Set API Key" to fetch the Token Plan quota.',
+			tooltip: t('statusBar.plan.noKey'),
 			color: undefined,
 		};
 	}
 	if (!state.usage) {
 		return {
 			text: `${label} ...`,
-			tooltip: isZh ? '正在加载 Token Plan ...' : 'Loading Token Plan ...',
+			tooltip: t('statusBar.plan.loading'),
 			color: undefined,
 		};
 	}
@@ -144,10 +137,8 @@ function renderQuota(
 	const usedPct = usedPctOf(plan, key);
 	if (usedPct == null) {
 		return {
-			text: `${label} ${emptyText(plan, key, isZh)}`,
-			tooltip: isZh
-				? 'Token Plan 周限额为无限'
-				: 'Weekly limit: unlimited',
+			text: `${label} ${emptyText(plan, key)}`,
+			tooltip: t('statusBar.plan.weeklyUnlimited'),
 			color: undefined,
 		};
 	}
@@ -164,30 +155,25 @@ function renderQuota(
 	// used 54%, not "54% remains"). Tooltip carries both halves for
 	// the user who wants to do the subtraction.
 	const pairLine = total > 0
-		? isZh
-			? `已用 ${used.toLocaleString('en-US')} / ${total.toLocaleString('en-US')}`
-			: `Used ${used.toLocaleString('en-US')} / ${total.toLocaleString('en-US')}`
+		? t('statusBar.plan.usedPair', used.toLocaleString('en-US'), total.toLocaleString('en-US'))
 		: '';
 	const remainingLine = remainingPct != null
-		? isZh
-			? `剩余 ${remainingPct}%`
-			: `${remainingPct}% remaining`
+		? t('statusBar.plan.remaining', String(remainingPct))
 		: '';
 
 	const tooltip = [
-		`${label}: ${usedText} ${isZh ? '已用' : 'used'}`,
+		t('statusBar.plan.usedHeader', usedText),
 		pairLine,
 		remainingLine,
-		`${isZh ? '重置' : 'Resets in'}: ${resetText}`,
+		`${t('statusBar.plan.resetsIn')}: ${resetText}`,
 		poolTooltip,
-		isZh ? '点击打开 Dashboard 查看详情' : 'Click to open the dashboard for details',
+		t('statusBar.plan.openDashboard'),
 	].filter(Boolean).join('\n');
 
 	return { text: `${label} ${usedText}`, tooltip, color };
 }
 
 export function createPlanStatusBar(deps: PlanStatusBarDeps): PlanStatusBar {
-	const isZh = vscode.env.language.toLowerCase().startsWith('zh');
 	const fiveHour = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 60);
 	const weekly = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 59);
 	fiveHour.command = SHOW_COMMAND;
@@ -198,7 +184,7 @@ export function createPlanStatusBar(deps: PlanStatusBarDeps): PlanStatusBar {
 	let lastKey: KeyState = 'unknown';
 
 	function poolTooltip(): string {
-		return buildPoolTooltip(isZh, deps.getKeyPool?.(), deps.getActiveKeyLabel?.());
+		return buildPoolTooltip(deps.getKeyPool?.(), deps.getActiveKeyLabel?.());
 	}
 
 	function activeLabel(): string | undefined {
@@ -209,15 +195,17 @@ export function createPlanStatusBar(deps: PlanStatusBarDeps): PlanStatusBar {
 		const snap = deps.cache.read();
 		const state: RenderState = { key: lastKey, usage: snap?.usage };
 		const pool = poolTooltip();
-		const five = renderQuota(state, 'current', '5h', '5小时', activeLabel(), pool);
-		fiveHour.text = activeLabel() && five.text.startsWith('5h')
+		const fiveLabel = t('statusBar.plan.fiveHour');
+		const weekLabel = t('statusBar.plan.weekly');
+		const five = renderQuota(state, 'current', fiveLabel, activeLabel(), pool);
+		fiveHour.text = activeLabel() && five.text.startsWith(fiveLabel)
 			? `${activeLabel()} ${five.text}`
 			: five.text;
 		fiveHour.tooltip = five.tooltip;
 		fiveHour.color = five.color;
 		fiveHour.show();
 
-		const week = renderQuota(state, 'weekly', 'Week', '周', activeLabel(), pool);
+		const week = renderQuota(state, 'weekly', weekLabel, activeLabel(), pool);
 		weekly.text = week.text;
 		weekly.tooltip = week.tooltip;
 		weekly.color = week.color;
@@ -248,9 +236,5 @@ export function createPlanStatusBar(deps: PlanStatusBarDeps): PlanStatusBar {
 			weekly.dispose();
 		},
 	};
-
-	// Suppress unused warning on `isZh` in case we later add a tooltip
-	// that needs it directly (renderQuota is already bilingual).
-	void isZh;
 	return handle;
 }

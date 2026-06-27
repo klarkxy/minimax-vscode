@@ -44,6 +44,10 @@ out-test/**
 coverage/**
 **/*.vsix
 
+# codegraph knowledge graph — local SQLite index, must not ship.
+# Mirrored from .gitignore because vsce only consults .vscodeignore.
+.codegraph/**
+
 # Stray scratch / test logs from ad-hoc `> foo.log` runs. `.gitignore`
 # already denies `*.log`, but `vsce package` only consults `.vscodeignore`
 # — so we have to mirror the deny here, otherwise a 23 KB `test-all.log`

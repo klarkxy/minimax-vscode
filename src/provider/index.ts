@@ -23,13 +23,16 @@ import { processToolFlow } from './tools/flow';
  * MiniMax Chat Provider — implements vscode.LanguageModelChatProvider so
  * MiniMax models appear directly in the Copilot Chat model picker.
  */
-export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
+export class MiniMaxChatProvider
+	implements vscode.LanguageModelChatProvider, vscode.Disposable
+{
 	private readonly keyManager: KeyManager;
 	private readonly authManager: AuthManager;
 	private readonly globalStorageUri: vscode.Uri;
 	private readonly onDidChangeLanguageModelChatInformationEmitter = new vscode.EventEmitter<void>();
 	private readonly usageStore: UsageStore;
 	private isActive = true;
+	private disposed = false;
 
 	readonly onDidChangeLanguageModelChatInformation =
 		this.onDidChangeLanguageModelChatInformationEmitter.event;
@@ -132,15 +135,22 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 					this.onDidChangeLanguageModelChatInformationEmitter.fire();
 				}
 			}),
-			// Pool-internal changes (add / switch / rename / delete) are
-			// mirrored through `KeyManager.onDidChange`. The events fire
-			// synchronously after the SecretStorage write, so the
-			// picker's warning state ("no API key" / "no host" / "ok")
-			// stays current even on the window that initiated the change.
-			keyManager.onDidChange(() => {
-				this.onDidChangeLanguageModelChatInformationEmitter.fire();
-			}),
 		);
+
+		// The KeyManager listener is internal to this provider instance,
+		// not to the extension lifecycle — store the disposable so we
+		// can release it on `dispose()` and let the KeyManager be GC'd
+		// even if `context.subscriptions` keeps it alive through the
+		// `KeyManager` reference itself.
+		const keyManagerListener = keyManager.onDidChange(() => {
+			this.onDidChangeLanguageModelChatInformationEmitter.fire();
+		});
+		// Pool-internal changes (add / switch / rename / delete) are
+		// mirrored through `KeyManager.onDidChange`. The events fire
+		// synchronously after the SecretStorage write, so the
+		// picker's warning state ("no API key" / "no host" / "ok")
+		// stays current even on the window that initiated the change.
+		context.subscriptions.push(keyManagerListener);
 	}
 
 	// ---- Public commands ----
@@ -200,6 +210,26 @@ export class MiniMaxChatProvider implements vscode.LanguageModelChatProvider {
 			// Non-fatal: the model picker may already be empty.
 			void error;
 		}
+	}
+
+	/**
+	 * Idempotent resource cleanup. Releases the chat-turn notifier's
+	 * listener sets, the AuthManager's KeyManager subscription, and flips
+	 * the active flag so any in-flight
+	 * `provideLanguageModelChatResponse` short-circuits to an empty
+	 * model list. The other disposables (workspace config listener,
+	 * SecretStorage listener, the key manager subscription, and the
+	 * picker's EventEmitter) are pushed to `context.subscriptions` by
+	 * the constructor and VS Code disposes them on deactivation.
+	 */
+	dispose(): void {
+		if (this.disposed) {
+			return;
+		}
+		this.disposed = true;
+		this.isActive = false;
+		this._chatTurnNotifier.dispose();
+		this.authManager.dispose();
 	}
 
 	// ---- LanguageModelChatProvider ----

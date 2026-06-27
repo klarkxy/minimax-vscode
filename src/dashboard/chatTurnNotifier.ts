@@ -33,6 +33,14 @@ export interface ChatTurnNotifier {
 	 * Set to 0 to disable throttling.
 	 */
 	readonly minIntervalMs: number;
+	/**
+	 * Drop every listener. Idempotent. The notifier stays usable after
+	 * dispose() (a fresh subscription can be added), but the previous
+	 * subscribers' references are released — important on extension
+	 * re-activation, where the old notifier may be kept alive by
+	 * captured closures.
+	 */
+	dispose(): void;
 }
 
 export function createChatTurnNotifier(options: { minIntervalMs?: number } = {}): ChatTurnNotifier {
@@ -78,6 +86,10 @@ export function createChatTurnNotifier(options: { minIntervalMs?: number } = {})
 			return new vscode.Disposable(() => {
 				endListeners.delete(listener);
 			});
+		},
+		dispose() {
+			startListeners.clear();
+			endListeners.clear();
 		},
 	};
 }

@@ -364,6 +364,48 @@ test('ingester: malformed lines increment parseErrors but do not break the file'
 	}
 });
 
+test('ingester: stats Memento is written once per poll, not once per record', async () => {
+	const dir = await mkTmpDir();
+	try {
+		const f1 = path.join(dir, 's.jsonl');
+		// Three complete lines on the first poll — would previously
+		// trigger three Memento writes via `accept()`.
+		const lines = [
+			assistantLine({ model: 'm', ts: '2026-06-09T10:00:00Z', input: 10, output: 20, messageId: 'a' }),
+			assistantLine({ model: 'm', ts: '2026-06-09T10:00:01Z', input: 11, output: 21, messageId: 'b' }),
+			assistantLine({ model: 'm', ts: '2026-06-09T10:00:02Z', input: 12, output: 22, messageId: 'c' }),
+		].join('\n') + '\n';
+		await writeFile(f1, lines);
+		const memento = new FakeMemento();
+		// Wrap update so we can count calls.
+		const originalUpdate = memento.update.bind(memento);
+		const calls: Array<{ key: string; totalRequests: number }> = [];
+		memento.update = (key, value) => {
+			if (key === CLAUDE_CODE_USAGE_STATS_KEY) {
+				const v = value as { total?: { requests?: number } };
+				calls.push({ key, totalRequests: v.total?.requests ?? 0 });
+			}
+			return originalUpdate(key, value);
+		};
+		const handle = createClaudeCodeIngest({
+			globalState: memento,
+			logPath: dir,
+			pollIntervalMs: 60_000,
+			allowedModels: [],
+			fs: realFs(dir),
+		});
+		await handle.refresh();
+		// Stats are written once at end-of-poll, carrying the full
+		// count of accepted records. Previously this was once per
+		// record — three writes for three lines.
+		assert.equal(calls.length, 1, `expected 1 Memento write, got ${calls.length}`);
+		assert.equal(calls[0].totalRequests, 3);
+		handle.dispose();
+	} finally {
+		await fsp.rm(dir, { recursive: true, force: true });
+	}
+});
+
 test('ingester: cursor blob is persisted to memento after each poll', async () => {
 	const dir = await mkTmpDir();
 	try {

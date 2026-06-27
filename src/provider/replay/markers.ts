@@ -41,7 +41,15 @@ function parseReplayMarkerPart(part: unknown): ReplayMarkerParseResult | undefin
 	if (part.mimeType !== REPLAY_MARKER_MIME) {
 		return undefined;
 	}
-	return parseReplayMarkerData(part.data);
+	const result = parseReplayMarkerData(part.data);
+	// Return `undefined` for invalid payloads so `findFirstReplayMarker`
+	// can skip past them. The previous code returned the `{ valid:
+	// false }` object itself, which was truthy, causing
+	// `findFirstReplayMarker` to short-circuit on the first
+	// non-marker DataPart that happened to share the replay
+	// marker MIME (e.g. a future feature that emits its own
+	// `minimax_marker` payloads).
+	return result.valid ? result : undefined;
 }
 
 export function hasReplayMarkerMetadata(metadata: ReplayMarkerMetadata): boolean {

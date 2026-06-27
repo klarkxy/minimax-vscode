@@ -468,6 +468,50 @@ test('escapeMarkdownInline: covers all GFM inline special characters', async () 
 	}
 });
 
+// Regression for LRN-20260611-005: the previous escape only
+// backslash-escaped characters, leaving the two remaining GFM
+// autolink triggers (`www.<domain>` and `user@domain.tld`) renderable
+// as clickable links. The fix wraps the autolink body in backticks
+// so Markdown treats it as inline code, which also happens to be
+// the most readable form for the human reader.
+test('escapeMarkdownInline: wraps www. and email autolink bodies in backticks', async () => {
+	const cases: Array<{ input: string; mustContain: string; mustNotContain: string }> = [
+		{
+			input: 'see www.example.com for details',
+			mustContain: '`www.example.com`',
+			mustNotContain: ' www.example.com ', // raw, unbackticked
+		},
+		{
+			input: 'reach out to support@example.com please',
+			mustContain: '`support@example.com`',
+			mustNotContain: ' support@example.com ',
+		},
+		{
+			input: 'prefix www.evil.io suffix',
+			mustContain: '`www.evil.io`',
+			mustNotContain: ' www.evil.io ',
+		},
+	];
+	for (const { input, mustContain, mustNotContain } of cases) {
+		const err = new MiniMaxRequestError({
+			message: 'test',
+			userSummary: input,
+			kind: 'http',
+			status: 500,
+			baseUrl: 'https://api.minimax.io/anthropic',
+		});
+		const display = createUserFacingError(err);
+		assert.ok(
+			display.message.includes(mustContain),
+			`input ${JSON.stringify(input)} should wrap autolink (got: ${display.message})`,
+		);
+		assert.ok(
+			!display.message.includes(mustNotContain),
+			`input ${JSON.stringify(input)} should NOT contain raw autolink (got: ${display.message})`,
+		);
+	}
+});
+
 test('createUserFacingError: upstream [text](url) is rendered as escaped text, not a link', async () => {
 	// Pinned regression for Finding 5: a hostile upstream `message`
 	// containing `[click](http://attacker.example.com)` must NOT

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { CONFIG_SECTION } from '../consts';
 import { t } from '../i18n';
+import { findModelById } from '../models/registry';
 import type { ModelDefinition, PriceCategory } from '../types';
 
 /**
@@ -206,9 +207,13 @@ function buildThinkingEnabledSchema(): vscode.LanguageModelConfigurationSchema {
  * Resolve the per-model thinking switch. The decision is made in
  * two steps:
  *
- *   1. If the model is M2.x, return `'adaptive'`. The docs say
- *      M2.x thinking cannot be turned off — sending `disabled` is
- *      a no-op — so we ignore the user's selection for that family.
+ *   1. Look up the model definition and read `thinking.supportsAdaptive`.
+ *      Models that cannot be turned off (M2.x, per the docs) short-
+ *      circuit to `'adaptive'`, and a future thinking-capable model
+ *      that *can* be disabled will be picked up automatically without
+ *      editing this function. Previously this compared the model ID
+ *      against the literal `'MiniMax-M3'` string, which silently
+ *      regressed as soon as a new model was added.
  *   2. Otherwise read the per-call `modelConfiguration[thinkingEnabled]`
  *      the Copilot Chat picker supplies. The dropdown is the single
  *      source of truth; absent the field (e.g. a misbehaving host
@@ -218,7 +223,8 @@ export function getConfiguredThinkingEffort(
 	modelId: string,
 	options?: ModelConfigurationOptions,
 ): ThinkingEffort {
-	if (modelId !== 'MiniMax-M3') {
+	const modelDef = findModelById(modelId);
+	if (!modelDef?.thinking.supportsAdaptive) {
 		return 'adaptive';
 	}
 	const configured = options?.modelConfiguration?.[THINKING_ENABLED_KEY]

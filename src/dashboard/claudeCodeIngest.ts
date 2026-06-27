@@ -39,6 +39,8 @@ import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { logger } from '../logger';
 import {
+	CLAUDE_CODE_INGEST_MAX_DISCOVERY_DEPTH,
+	CLAUDE_CODE_INGEST_MAX_READ_BYTES,
 	CLAUDE_CODE_USAGE_STATS_KEY,
 	CLAUDE_CODE_INGEST_CURSOR_KEY,
 } from '../consts';
@@ -182,6 +184,21 @@ export interface ClaudeCodeIngestOptions {
 }
 
 const DEFAULT_DEDUP_LRU_SIZE = 1000;
+
+/**
+ * Clamp the polling interval to the same [min, max] the user-facing
+ * setting advertises (see `minimax.claudeCode.pollIntervalMs` in
+ * `package.json`). A user who enters `1` would otherwise busy-loop;
+ * `Number.MAX_SAFE_INTEGER` would stall the ingester entirely. The
+ * settings UI already enforces the range, but tests and direct
+ * `opts.pollIntervalMs` overrides can bypass it.
+ */
+function clampPollInterval(value: number): number {
+	if (!Number.isFinite(value)) {
+		return 30_000;
+	}
+	return Math.max(5000, Math.min(600_000, Math.floor(value)));
+}
 
 // ---- JSONL parser ----
 
@@ -389,7 +406,12 @@ async function discoverJsonlFiles(
 	fs: FileSystemLike,
 ): Promise<string[]> {
 	const out: string[] = [];
-	async function walk(dir: string): Promise<void> {
+	async function walk(dir: string, depth: number): Promise<void> {
+		// Cap recursion at CLAUDE_CODE_INGEST_MAX_DISCOVERY_DEPTH so a
+		// symlink cycle or pathological nesting can't blow the stack.
+		if (depth > CLAUDE_CODE_INGEST_MAX_DISCOVERY_DEPTH) {
+			return;
+		}
 		let entries: Array<{ name: string; isFile(): boolean; isDirectory(): boolean }>;
 		try {
 			entries = await fs.readdir(dir, { withFileTypes: true });
@@ -400,14 +422,14 @@ async function discoverJsonlFiles(
 		for (const e of entries) {
 			const full = path.join(dir, e.name);
 			if (e.isDirectory()) {
-				await walk(full);
+				await walk(full, depth + 1);
 			} else if (e.isFile() && e.name.endsWith('.jsonl')) {
 				out.push(full);
 			}
 		}
 	}
 	try {
-		await walk(root);
+		await walk(root, 0);
 	} catch {
 		// Root missing or unreadable — same as no files.
 		return [];
@@ -420,20 +442,46 @@ async function discoverJsonlFiles(
 async function readNewPortion(
 	filePath: string,
 	start: number,
-): Promise<{ text: string; eof: boolean }> {
+): Promise<{ text: string; bytesRead: number; eof: boolean }> {
 	return new Promise((resolve, reject) => {
+		// Cap each read at CLAUDE_CODE_INGEST_MAX_READ_BYTES. If the file
+		// has more data than that, the next poll picks it up from
+		// `start + bytesRead` — we never materialise an arbitrarily
+		// large string into memory.
 		const stream = createReadStream(filePath, {
 			start,
+			end: start + CLAUDE_CODE_INGEST_MAX_READ_BYTES - 1,
 			encoding: 'utf8',
 		});
+		let bytesRead = 0;
 		const chunks: string[] = [];
+		let settled = false;
+		const finish = (eof: boolean) => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			resolve({ text: chunks.join(''), bytesRead, eof });
+		};
 		stream.on('data', (chunk: string | Buffer) => {
-			chunks.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
+			const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+			chunks.push(text);
+			bytesRead += Buffer.byteLength(text, 'utf8');
 		});
-		stream.on('end', () => {
-			resolve({ text: chunks.join(''), eof: true });
+		stream.on('end', () => finish(true));
+		stream.on('close', () => {
+			// Fires when the fd is released — including the case where
+			// we hit the `end` cap and the stream stopped before EOF.
+			finish(bytesRead >= CLAUDE_CODE_INGEST_MAX_READ_BYTES ? false : true);
 		});
-		stream.on('error', (err) => reject(err));
+		stream.on('error', (err) => {
+			// Explicit destroy so we don't leak the fd until GC.
+			stream.destroy();
+			if (!settled) {
+				settled = true;
+				reject(err);
+			}
+		});
 	});
 }
 
@@ -455,7 +503,7 @@ export function createClaudeCodeIngest(
 		},
 		readdir: (p, o) => fsp.readdir(p, o),
 	};
-	const pollIntervalMs = opts.pollIntervalMs ?? getClaudeCodePollIntervalMs();
+	const pollIntervalMs = clampPollInterval(opts.pollIntervalMs ?? getClaudeCodePollIntervalMs());
 	const dedupLruSize = opts.dedupLruSize ?? DEFAULT_DEDUP_LRU_SIZE;
 
 	// Resolve the model allowlist once at construction. Two cases:
@@ -588,7 +636,9 @@ export function createClaudeCodeIngest(
 		dayBucket.cacheWriteTokens += record.usage.cacheWriteTokens;
 		dayBucket.requests += 1;
 		statsCache.updatedAt = new Date(clock.now()).toISOString();
-		void opts.globalState?.update(CLAUDE_CODE_USAGE_STATS_KEY, statsCache);
+		// Stats are flushed once per poll in `pollOnce` — see the
+		// `accept(...)` comment above. Avoids one Memento write per
+		// JSONL record (which can be hundreds per poll).
 	}
 
 	async function ingestFile(
@@ -620,12 +670,7 @@ export function createClaudeCodeIngest(
 			return next;
 		}
 
-		const { text, eof } = await readNewPortion(filePath, next.offset);
-		if (!eof) {
-			// Shouldn't happen with `fs.createReadStream` + `'end'`, but
-			// be defensive — if it does, we don't advance the cursor.
-			return cur ?? next;
-		}
+		const { text, bytesRead } = await readNewPortion(filePath, next.offset);
 
 		let buffer = (partials.get(filePath) ?? '') + text;
 		let bytesConsumed = next.offset;
@@ -667,21 +712,27 @@ export function createClaudeCodeIngest(
 			lineIdx = buffer.indexOf('\n');
 		}
 
+		// `bytesConsumed` is the byte position right after the last
+		// fully-consumed `\n`. Anything left in `buffer` is a partial
+		// trailing line we must NOT count yet. We advance the cursor
+		// to `bytesConsumed` so the next poll skips the consumed bytes.
+		// If the read was truncated by the size cap, `bytesRead <
+		// (stat.size - next.offset)` — the next poll will pick up from
+		// `bytesConsumed` (which may equal `bytesRead` or be inside
+		// the still-partial last line). Either way we don't reread.
 		if (buffer.length > 0) {
-			// Partial last line — hold it for the next poll and
-			// advance the cursor to the end of the read so we don't
-			// re-read the same bytes on the next poll.
 			partials.set(filePath, buffer);
-			return {
-				offset: next.offset + Buffer.byteLength(text, 'utf8'),
-				mtimeMs: stat.mtimeMs,
-				size: stat.size,
-			};
+		} else {
+			partials.delete(filePath);
 		}
-		partials.delete(filePath);
 
+		// `bytesRead` may be < bytesConsumed when the buffer held a
+		// partial-line continuation from a previous poll — those bytes
+		// came from the prior read, not this one. Use the larger of
+		// the two so the cursor always moves forward.
+		const newOffset = Math.max(bytesConsumed, next.offset + bytesRead);
 		return {
-			offset: bytesConsumed,
+			offset: newOffset,
 			mtimeMs: stat.mtimeMs,
 			size: stat.size,
 		};
@@ -727,6 +778,13 @@ export function createClaudeCodeIngest(
 		} finally {
 			isFirstPoll = false;
 			await writeCursor(opts.globalState, cursor);
+			// Flush the in-memory stats cache to Memento once per poll.
+			// `accept(...)` mutates the cache without persisting, so a
+			// single end-of-poll write covers every record processed in
+			// this cycle — previously we wrote once per record, which
+			// could be hundreds of concurrent Memento writes for a
+			// burst of Claude Code JSONL.
+			await opts.globalState?.update(CLAUDE_CODE_USAGE_STATS_KEY, statsCache);
 			notify();
 		}
 	}

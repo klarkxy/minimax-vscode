@@ -10,18 +10,43 @@ import type { KeyManager } from './keyManager';
  * `promptForApiKey`). New code should use `KeyManager` directly so
  * the named key pool is visible to it.
  */
-export class AuthManager {
+export class AuthManager implements vscode.Disposable {
 	private readonly _onDidChangeApiKey = new vscode.EventEmitter<void>();
 	/** Fires whenever the API key is written, cleared, or replaced. */
 	readonly onDidChangeApiKey: vscode.Event<void> = this._onDidChangeApiKey.event;
+
+	/** Disposer for the KeyManager listener captured in the constructor.
+	 *  Without it, recreating AuthManager (e.g. on extension re-activation)
+	 *  would add a fresh listener to the same KeyManager while leaving the
+	 *  previous one subscribed. */
+	private readonly keyManagerSubscription: vscode.Disposable;
+	private disposed = false;
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
 		private readonly keyManager: KeyManager,
 	) {
 		// Re-fire as a plain `void` event so legacy consumers don't
-		// have to learn about the snapshot type.
-		this.keyManager.onDidChange(() => this._onDidChangeApiKey.fire());
+		// have to learn about the snapshot type. Store the disposable
+		// so dispose() can release it on shutdown / re-activation.
+		this.keyManagerSubscription = keyManager.onDidChange(() =>
+			this._onDidChangeApiKey.fire(),
+		);
+	}
+
+	/**
+	 * Release internal subscriptions. Idempotent. After dispose() the
+	 * AuthManager is still callable (the KeyManager reference is kept),
+	 * but its change event will no longer fire — callers that need
+	 * post-dispose notifications should re-subscribe.
+	 */
+	dispose(): void {
+		if (this.disposed) {
+			return;
+		}
+		this.disposed = true;
+		this.keyManagerSubscription.dispose();
+		this._onDidChangeApiKey.dispose();
 	}
 
 	/**
@@ -42,7 +67,7 @@ export class AuthManager {
 	async setApiKey(apiKey: string): Promise<void> {
 		const trimmed = apiKey.trim();
 		if (!trimmed) {
-			throw new Error('API key is required');
+			throw new Error(t('keys.emptySecret'));
 		}
 		// The legacy slot is read-only in the new model; mirror
 		// historical behaviour by storing into SecretStorage and

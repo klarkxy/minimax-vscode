@@ -90,6 +90,24 @@ test('addApiKey refuses duplicate names', async () => {
 	);
 });
 
+// Regression: validation errors used to be hardcoded English
+// (`'Key name is required'`, `'API key is required'`) and bypassed
+// the `t()` system. The fix routes them through `t('keys.emptyName')`
+// and `t('keys.emptySecret')`, which carry the localised strings
+// and interpolate the conflicting name on `duplicateName`.
+test('addApiKey throws localised validation errors (not hardcoded English)', async () => {
+	const { context } = newContext();
+	const manager = loadManager(context);
+	await assert.rejects(
+		() => manager.addApiKey({ name: '  ', apiKey: 'sk-a', probe: false }),
+		/Name is required|名称不能为空/,
+	);
+	await assert.rejects(
+		() => manager.addApiKey({ name: 'k', apiKey: '   ', probe: false }),
+		/API key cannot be empty|API Key 不能为空/,
+	);
+});
+
 test('switchApiKey updates the active pointer and lastUsedAt', async () => {
 	const { context, secrets } = newContext();
 	const manager = loadManager(context);

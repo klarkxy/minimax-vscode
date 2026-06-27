@@ -1,8 +1,13 @@
 import { createHash } from 'crypto';
-import { appendFile, mkdir, writeFile } from 'fs/promises';
+import { appendFile, mkdir, readdir, rename, rm, stat, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import * as vscode from 'vscode';
+import {
+	REQUEST_DUMP_MAX_CONCURRENT_WRITES,
+	REQUEST_DUMP_MAX_SEGMENT_DIRS,
+	REQUEST_DUMP_OBSERVATIONS_MAX_BYTES,
+} from '../../consts';
 import { getRequestDumpEnabled } from '../../config';
 import { safeStringify } from '../../json';
 import { logger } from '../../logger';
@@ -19,7 +24,25 @@ import {
 
 let dumpCounter = 0;
 let providerInputDumpCounter = 0;
-let dumpWriteQueue: Promise<void> = Promise.resolve();
+
+/**
+ * Bounded concurrency dump queue. The previous implementation chained
+ * every write into a single Promise (`dumpWriteQueue = dumpWriteQueue.then(...)`),
+ * which is functionally a serial pipeline with an ever-growing tail of
+ * closures held in memory. Under verbose-mode bursts this can OOM. We
+ * now keep at most `REQUEST_DUMP_MAX_CONCURRENT_WRITES` in-flight tasks
+ * and queue the rest; new writes that would exceed the cap are dropped
+ * with a warning so the writer path never blocks a chat response.
+ */
+let activeDumpWrites = 0;
+const pendingDumpWrites: Array<() => void> = [];
+let lastDropWarnAt = 0;
+// Resolvers waiting for the queue to drain. Resolved when both
+// `activeDumpWrites` and `pendingDumpWrites` reach zero — i.e. every
+// write enqueued up to the call site has finished. Used by tests
+// (`flushPendingDumpWrites`) to wait deterministically for the
+// fire-and-forget queue instead of `setTimeout(...)`.
+let dumpFlushResolvers: Array<() => void> = [];
 
 const REQUEST_OBSERVATIONS_FILE = '_request-observations.jsonl';
 const HASH_WINDOW_CHARS = 2_048;
@@ -115,6 +138,7 @@ export function dumpProviderInput(options: DumpProviderInputOptions): void {
 			}),
 		);
 		logProviderInputDump(options, paths, toolSummary, requestKind);
+		await pruneOldDumpSegments(options.globalStorageUri);
 	});
 }
 
@@ -161,7 +185,11 @@ export function dumpMiniMaxRequest(
 		await mkdir(context.root, { recursive: true });
 		await writeJsonFile(paths.input, createInputSnapshot(options, context, msg0Text));
 		await writeJsonFile(paths.resolved, createResolvedSnapshot(options, context));
-		await writeJsonFile(paths.request, safeStringify(request));
+		// `request` is the literal MiniMax request object — pass it
+		// to `writeJsonFile` so the file is JSON, not a JSON-encoded
+		// string. The previous `safeStringify(request)` here double-
+		// encoded the payload (file contained a quoted string).
+		await writeJsonFile(paths.request, request);
 		if (paths.msg0) {
 			await writeFile(paths.msg0, msg0Text, 'utf8');
 		}
@@ -191,6 +219,7 @@ export function dumpMiniMaxRequest(
 					`→ ${context.root}`,
 			),
 		);
+		await pruneOldDumpSegments(options.globalStorageUri);
 	});
 }
 
@@ -419,11 +448,71 @@ async function writeJsonFile(path: string, value: unknown): Promise<void> {
 }
 
 function enqueueDumpWrite(label: string, action: () => Promise<void>): void {
-	dumpWriteQueue = dumpWriteQueue
-		.then(() => action())
-		.catch((error) => {
-			logger.warn(`${label} write failed:`, error);
-		});
+	if (pendingDumpWrites.length > 0) {
+		// Backpressure: drop oldest queued write rather than letting the
+		// queue grow without bound. The label goes through `logger.debug`
+		// (one per burst, throttled) so we don't spam the output channel.
+		const now = Date.now();
+		if (now - lastDropWarnAt > 10_000) {
+			logger.warn(`${label} dropped: dump writer backpressure (queue=${pendingDumpWrites.length})`);
+			lastDropWarnAt = now;
+		}
+		// Intentionally skip enqueueing this write.
+		return;
+	}
+
+	const run = () => {
+		activeDumpWrites += 1;
+		const done = action()
+			.catch((error) => {
+				logger.warn(`${label} write failed:`, error);
+			})
+			.finally(() => {
+				activeDumpWrites -= 1;
+				const next = pendingDumpWrites.shift();
+				if (next) {
+					next();
+				}
+				maybeResolveFlushWaiters();
+			});
+		// `done` is intentionally not awaited here — the call site is
+		// fire-and-forget. We only attach it to `activeDumpPromises` so
+		// `flushPendingDumpWrites()` can wait for it to settle.
+		void done;
+	};
+
+	if (activeDumpWrites < REQUEST_DUMP_MAX_CONCURRENT_WRITES) {
+		run();
+	} else {
+		pendingDumpWrites.push(run);
+	}
+}
+
+function maybeResolveFlushWaiters(): void {
+	if (activeDumpWrites === 0 && pendingDumpWrites.length === 0 && dumpFlushResolvers.length > 0) {
+		const resolvers = dumpFlushResolvers;
+		dumpFlushResolvers = [];
+		for (const resolve of resolvers) {
+			resolve();
+		}
+	}
+}
+
+/**
+ * Resolves once every dump write enqueued up to this call has settled.
+ * Test-only escape hatch: the dump queue is fire-and-forget by design
+ * (so chat responses are never blocked by I/O), which means tests cannot
+ * assert on the on-disk shape with a fixed `setTimeout`. Call this
+ * after `dumpProviderInput` / `dumpMiniMaxRequest` to make the queue
+ * observable. No-op in production.
+ */
+export function flushPendingDumpWrites(): Promise<void> {
+	if (activeDumpWrites === 0 && pendingDumpWrites.length === 0) {
+		return Promise.resolve();
+	}
+	return new Promise<void>((resolve) => {
+		dumpFlushResolvers.push(resolve);
+	});
 }
 
 async function writeDumpObservation(
@@ -433,7 +522,78 @@ async function writeDumpObservation(
 	const root = ensureRequestDumpRoot(globalStorageUri);
 	await mkdir(root, { recursive: true });
 	const file = join(root, REQUEST_OBSERVATIONS_FILE);
+	await rotateObservationsIfNeeded(globalStorageUri, file);
 	await appendFile(file, `${safeStringify(observation)}\n`, 'utf8');
+}
+
+/**
+ * Roll the observations file over when it crosses the configured cap.
+ * Keeps the newest entries under a `.1` sibling and starts a fresh file.
+ * No-op on platforms where stat() throws (e.g. permission denied) — the
+ * append will still succeed; we just lose the rotation guarantee for
+ * that single write.
+ */
+async function rotateObservationsIfNeeded(
+	globalStorageUri: vscode.Uri,
+	file: string,
+): Promise<void> {
+	let info;
+	try {
+		info = await stat(file);
+	} catch {
+		return; // file does not exist yet
+	}
+	if (info.size < REQUEST_DUMP_OBSERVATIONS_MAX_BYTES) {
+		return;
+	}
+	const rotated = `${file}.1`;
+	try {
+		await rm(rotated, { force: true });
+		await rename(file, rotated);
+	} catch (error) {
+		logger.warn('observations rotation failed:', error);
+	}
+}
+
+/**
+ * Trim the dump root so it never accumulates more than
+ * `REQUEST_DUMP_MAX_SEGMENT_DIRS` segment directories. Each segment is
+ * a directory of related dumps; we sort by mtime ascending and remove
+ * the oldest until we're under the cap. Errors are swallowed (best-
+ * effort: never let a cleanup failure block the next dump).
+ */
+async function pruneOldDumpSegments(globalStorageUri: vscode.Uri): Promise<void> {
+	const root = ensureRequestDumpRoot(globalStorageUri);
+	let entries;
+	try {
+		entries = await readdir(root, { withFileTypes: true });
+	} catch {
+		return;
+	}
+	const dirs = entries.filter((entry) => entry.isDirectory());
+	if (dirs.length <= REQUEST_DUMP_MAX_SEGMENT_DIRS) {
+		return;
+	}
+	const withMtime = await Promise.all(
+		dirs.map(async (entry) => {
+			const full = join(root, entry.name);
+			try {
+				const info = await stat(full);
+				return { full, mtimeMs: info.mtimeMs };
+			} catch {
+				return { full, mtimeMs: Number.POSITIVE_INFINITY };
+			}
+		}),
+	);
+	withMtime.sort((a, b) => a.mtimeMs - b.mtimeMs);
+	const toRemove = withMtime.slice(0, withMtime.length - REQUEST_DUMP_MAX_SEGMENT_DIRS);
+	for (const entry of toRemove) {
+		try {
+			await rm(entry.full, { recursive: true, force: true });
+		} catch (error) {
+			logger.warn('pruneOldDumpSegments: failed to remove', entry.full, error);
+		}
+	}
 }
 
 function logProviderInputDump(

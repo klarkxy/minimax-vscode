@@ -100,7 +100,10 @@ export function convertMessages(
 		if (message.role === vscode.LanguageModelChatMessageRole.Assistant) {
 			const converted = convertAssistantMessage(message);
 			if (converted) {
-				result.push(converted);
+				// convertAssistantMessage may emit a synthetic user message
+				// after the assistant's tool_use blocks to carry the
+				// tool_result blocks Anthropic requires. Append all of them.
+				result.push(...converted);
 			}
 			continue;
 		}
@@ -141,7 +144,7 @@ function contentToBlocks(content: string | MiniMaxContentBlock[]): MiniMaxConten
 
 function convertAssistantMessage(
 	message: vscode.LanguageModelChatRequestMessage,
-): MiniMaxMessage | undefined {
+): MiniMaxMessage[] | undefined {
 	const blocks: MiniMaxContentBlock[] = [];
 	let textBuf = '';
 	const toolResults: Array<{ callId: string; content: string }> = [];
@@ -224,7 +227,7 @@ function convertAssistantMessage(
 		out.push({ role: 'user', content: resultBlocks });
 	}
 
-	return out[0];
+	return out;
 }
 
 function convertUserMessage(

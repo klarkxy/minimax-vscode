@@ -51,6 +51,7 @@ const webviewPanels: Array<{
 		postedMessages: unknown[];
 		postMessage: (message: unknown) => Promise<boolean>;
 		onDidReceiveMessage: (listener: (message: unknown) => void) => Disposable;
+		asWebviewUri: (uri: UriLike) => UriLike;
 	};
 	reveal: (viewColumn?: number) => void;
 	dispose: () => void;
@@ -282,6 +283,13 @@ export const ProgressLocation = {
  */
 export const mockConfig: Record<string, unknown> = {};
 
+/** Test-only helper: clear every key previously set on `mockConfig`. */
+export function resetMockConfig(): void {
+	for (const key of Object.keys(mockConfig)) {
+		delete mockConfig[key];
+	}
+}
+
 export const workspace = {
 	getConfiguration: (section: string) => ({
 		get: <T>(key: string, defaultValue?: T): T | undefined => {
@@ -294,9 +302,17 @@ export const workspace = {
 			}
 			return defaultValue;
 		},
-		update: async (_key: string, _value: unknown, _target?: unknown): Promise<void> => {
-			// No-op default. Tests that need to assert configuration writes
-			// should stub `vscode.workspace.getConfiguration` locally.
+		update: async (key: string, value: unknown, _target?: unknown): Promise<void> => {
+			// Mirror the real VS Code behaviour: writes land in
+			// `mockConfig` so subsequent `get()` calls see them. Tests
+			// that need a different behaviour can stub
+			// `vscode.workspace.getConfiguration` locally.
+			const fullKey = `${section}.${key}`;
+			if (value === undefined) {
+				delete mockConfig[fullKey];
+			} else {
+				mockConfig[fullKey] = value;
+			}
 		},
 	}),
 	onDidChangeConfiguration: (
@@ -350,6 +366,15 @@ function createMockWebviewPanel(
 					const idx = messageListeners.indexOf(listener);
 					if (idx >= 0) messageListeners.splice(idx, 1);
 				});
+			},
+			asWebviewUri(uri: UriLike) {
+				// Real `asWebviewUri` rewrites the URI scheme to a
+				// webview-resolvable form (`vscode-resource:`). The
+				// panel test only checks that the rendered HTML
+				// references the script; rewriting the scheme keeps
+				// the mock consistent with how VS Code serves the
+				// bundled file.
+				return new UriInstance('vscode-resource', uri.path, uri.fsPath);
 			},
 		},
 		reveal(nextViewColumn?: number) {

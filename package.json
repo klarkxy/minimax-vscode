@@ -391,6 +391,8 @@
     "prepare:readme": "node .github/scripts/prepare-marketplace-readme.mjs",
     "watch:esbuild": "node esbuild.mjs --watch",
     "watch:tsc": "tsc -p ./ --noEmit --watch",
+    "watch:tsc:webview": "tsc -p ./tsconfig.webview.json --noEmit --watch",
+    "typecheck:webview": "tsc -p ./tsconfig.webview.json --noEmit",
     "compile:tests": "node esbuild.tests.mjs",
     "test:unit": "node esbuild.tests.mjs && node --test out-test/*.test.js",
     "test:coverage": "npm run compile:tests && c8 --exclude-after-remap --all --src src --include \"**/*.ts\" --exclude \"test/**\" --exclude \"**/*.d.ts\" --exclude \"**/types.ts\" --reporter=text --reporter=lcov node --test out-test/*.test.js",
