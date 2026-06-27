@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { createUserFacingError, MiniMaxClient, MiniMaxRequestError } from '../client';
-import { getBaseUrl } from '../config';
 import { COPILOT_USAGE_DATA_PART_MIME } from '../consts';
 import { logger } from '../logger';
 import { t } from '../i18n';
@@ -85,7 +84,7 @@ export async function streamChatCompletion({
 	await prepared.client.streamChat(
 		prepared.request.model,
 		prepared.request.messages,
-		{ apiKey, baseUrl: getBaseUrl(), modelDef: prepared.modelDef },
+		{ apiKey, baseUrl: prepared.baseUrl, modelDef: prepared.modelDef },
 		token,
 		prepared.request.system,
 		prepared.request.max_tokens,

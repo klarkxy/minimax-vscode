@@ -1,10 +1,10 @@
 # Changelog
 
-## 2.5.0 — 2026-06-26
+## 2.5.0 — 2026-06-27
 
 ### Added — Named API key pool
 
-- **Multiple named API keys.** Run **MiniMax: Add API Key** to give a key a name; the extension auto-probes the official China / Global `coding_plan/remains` endpoint, picks the right region, stores the secret in VS Code SecretStorage, sets the key active, and mirrors its endpoint into `minimax.apiBaseUrl`. Add as many keys as you like.
+- **Multiple named API keys.** Run **MiniMax: Add API Key** to give a key a name; the extension auto-probes the official China / Global `coding_plan/remains` endpoint, picks the right region, stores the secret in VS Code SecretStorage, and sets the key active. The key's `apiBaseUrl` is the source of truth for which Anthropic-compatible endpoint the chat request hits — the legacy `minimax.apiBaseUrl` setting is **not** mirrored (see "Key owns the host" below). Add as many keys as you like.
 - **Five new commands** alongside the historical "Set / Clear":
   - **MiniMax: Add API Key** — name + secret + region probe + activate.
   - **MiniMax: Switch API Key** — pick from the pool; the active key's endpoint wins.
@@ -39,6 +39,34 @@
 ### Fixed
 
 - **M2.7 models no longer advertise native image input.** MiniMax's Anthropic-compatible API only accepts text and tool-call content blocks for the M2.x family; image and video blocks are M3-only. The picker capabilities, converter tests, and README model table now reflect that boundary so image attachments are not forwarded to `MiniMax-M2.7` / `MiniMax-M2.7-highspeed` as unsupported `image` blocks.
+
+### Added — Key owns the host
+
+The MiniMax API key is now the source of truth for which Anthropic-compatible endpoint to talk to. The `minimax.apiBaseUrl` setting is **deprecated** and is only consulted as a fallback when the named-key pool has no active entry. Switching the active key no longer rewrites the setting, and custom-proxy users keep their proxy URL.
+
+- **Legacy single-key slot is auto-migrated on activation.** On `activate()`, the manager detects the legacy `secrets['minimax-vscode.apiKey']` slot and copies it into a `__legacy__` entry in the named pool with `region: 'custom'` and an empty `apiBaseUrl`. Migration is idempotent across windows and is skipped when a non-legacy key is already active. A fire-and-forget region probe (`coding_plan/remains` against both official hosts) then fills in `region` + `apiBaseUrl` without blocking activation; the request path falls back to the configured setting while the probe is in flight.
+- **`reprobeActiveKey()` on `KeyManager`** re-runs the official China / Global probe against the currently active key and updates the entry's `region` / `apiBaseUrl` in place. Already-probed named keys short-circuit to a no-op. When the probe returns `unsupported`, the entry keeps `region: 'custom'` and falls back to the user's configured `minimax.apiBaseUrl` (custom-proxy preserved). On success, the legacy `secrets['minimax-vscode.apiKey']` slot is deleted once the migrated legacy entry has a confirmed host.
+- **One new command:**
+  - **`MiniMax: Re-probe Active API Key`** — re-detect China / Global region for the active key on demand. No-op when the active key is already on a known region + URL. Invalidates the plan cache on a real change so the dashboard quota card re-fetches against the new host.
+  - Available in the **MiniMax: Manage API Keys** sub-menu as **Re-probe active API key**.
+- **Request path reads the host from the active key.** [`PreparedChatRequest`](src/provider/request.ts) carries a new `baseUrl` field that [`prepareChatRequest`](src/provider/request.ts) resolves via `keyManager.getActiveApiBaseUrl()`. [`streamChatCompletion`](src/provider/stream.ts) passes that into `MiniMaxClient.streamChat` instead of `getBaseUrl()` from `src/config.ts`. The setting is still read by `getActiveApiBaseUrl()` as a fallback when the pool is empty.
+- **Plan cache + dashboard quota card follow the active key.** [`detectHost`](src/runtime/commands.ts) reads the active key's `apiBaseUrl` first, then falls back to `minimax.apiBaseUrl`. Same pattern in `refreshMcp` so the MCP server definition matches the chat request host.
+
+### Changed
+
+- **`minimax.apiBaseUrl` setting is deprecated.** Carries a `deprecationMessage` pointing users at **MiniMax: Add API Key**. Will be removed in 3.0. Existing `settings.json` entries still load.
+- **Walkthrough completion events updated.** The "Pick your API endpoint" step now completes on `onCommand:minimax.reprobeApiKey` (was `onCommand:minimax.switchToGlobal` / `onCommand:minimax.switchToChina`). The "Add your first API key" step now completes on `onCommand:minimax.addApiKey` (was `onCommand:minimax.setApiKey`) so it tracks the modern entry point.
+
+### Removed
+
+- **`minimax.switchToGlobal` command.** Replaced by **`MiniMax: Re-probe Active API Key`**. Users with keybindings pointing at the old command id will get a "command not found" — update the binding to the new id.
+- **`minimax.switchToChina` command.** Same replacement story.
+
+### Migration notes for this release
+
+- **Single-key users**: nothing to do. On next activation the legacy secret is migrated into the pool; the region probe runs asynchronously. The first chat turn before the probe completes may use the previously-configured `minimax.apiBaseUrl` setting — that is expected.
+- **Custom-proxy users**: keep using `minimax.apiBaseUrl` to point at your proxy. After you add a named key (via **MiniMax: Add API Key**), the key's probed `apiBaseUrl` wins. To re-bind the proxy URL, run **MiniMax: Re-probe Active API Key** — when the probe returns `unsupported` the entry falls back to your configured `minimax.apiBaseUrl`.
+- **Multi-key users**: switching keys no longer touches the setting. The active key's `apiBaseUrl` is read on every request.
 
 ## 2.4.1 — 2026-06-17
 

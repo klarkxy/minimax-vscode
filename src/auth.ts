@@ -34,6 +34,14 @@ export class AuthManager implements vscode.Disposable {
 		);
 	}
 
+	/** Access to the underlying named-key pool. Exposed so the request
+	 *  path can resolve the *active* key's `apiBaseUrl` (rather than
+	 *  just reading the deprecated `minimax.apiBaseUrl` setting) —
+	 *  the pool is the source of truth for the endpoint. */
+	get keyManagerInstance(): KeyManager {
+		return this.keyManager;
+	}
+
 	/**
 	 * Release internal subscriptions. Idempotent. After dispose() the
 	 * AuthManager is still callable (the KeyManager reference is kept),

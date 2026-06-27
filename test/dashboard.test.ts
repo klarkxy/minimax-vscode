@@ -15,6 +15,8 @@ import {
 } from '../src/dashboard/claudeCodeIngest.js';
 import { createUsageStore } from '../src/usage.js';
 import { dashboardMessages, pickDashboardLocale } from '../src/dashboard/messages.js';
+import { DashboardPanel } from '../src/dashboard/panel.js';
+import { mockState } from './helpers/vscodeMock.js';
 
 class FakeMemento {
 	private store = new Map<string, unknown>();
@@ -53,15 +55,29 @@ test('dashboardMessages: en/zh variants both expose all keys', () => {
 		assert.equal(typeof m.refresh, 'string');
 		assert.equal(typeof m.noLocalData, 'string');
 		assert.equal(typeof m.window7d, 'string');
-		assert.equal(typeof m.fieldExpiryDays(3), 'string');
+		// The three expiry-day branches are now template strings, not
+		// functions (functions don't survive JSON.stringify across the
+		// webview boundary — see messages.ts).
+		assert.equal(typeof m.fieldExpiryDaysFuture, 'string');
+		assert.equal(typeof m.fieldExpiryDaysToday, 'string');
+		assert.equal(typeof m.fieldExpiryDaysPast, 'string');
 	}
 });
 
-test('dashboardMessages: expiry formatter handles past/today/future', () => {
+test('dashboardMessages: expiry templates carry the day-count slot', () => {
+	// Mirror the runtime formatter in `webview/main.ts#platformSection`:
+	// pick the branch by sign of the day count and substitute `{days}`.
+	function formatExpiry(m: ReturnType<typeof dashboardMessages>, days: number): string {
+		const template =
+			days < 0 ? m.fieldExpiryDaysPast :
+			days === 0 ? m.fieldExpiryDaysToday :
+			m.fieldExpiryDaysFuture;
+		return template.replace('{days}', String(Math.abs(days)));
+	}
 	const zh = dashboardMessages('zh');
-	assert.match(zh.fieldExpiryDays(0), /今天|0/);
-	assert.match(zh.fieldExpiryDays(7), /7/);
-	assert.match(zh.fieldExpiryDays(-3), /过期|3/);
+	assert.match(formatExpiry(zh, 0), /今天|0/);
+	assert.match(formatExpiry(zh, 7), /7/);
+	assert.match(formatExpiry(zh, -3), /过期|3/);
 });
 
 // --- fetchPlanUsage --------------------------------------------------
@@ -1104,4 +1120,62 @@ test('buildCachedDashboardView: async getKeyPool resolver is awaited', async () 
 	const view = await viewP;
 	assert.equal(view.activeKeyId, 'cached-async-id');
 	assert.equal(view.apiKeys.length, 0);
+});
+
+test('DashboardPanel: queues webview-ready refresh while initial refresh is in flight', async () => {
+	for (const panel of mockState.webviewPanels.slice()) panel.dispose();
+	mockState.reset();
+	const store = createUsageStore(new FakeMemento());
+	let releasePlanRefresh!: () => void;
+	let refreshCalls = 0;
+	const planCache = {
+		read: () => undefined,
+		refresh: () => {
+			refreshCalls += 1;
+			if (refreshCalls > 1) {
+				return Promise.resolve({ ok: false, reason: 'unsupported' });
+			}
+			return new Promise((resolve) => {
+				releasePlanRefresh = () => resolve({ ok: false, reason: 'unsupported' });
+			});
+		},
+		subscribe: () => ({ dispose() {} }),
+		invalidate: () => {},
+	};
+	const mmxCliCache = {
+		read: () => undefined,
+		refresh: () => Promise.resolve(null),
+		subscribe: () => ({ dispose() {} }),
+	};
+
+	DashboardPanel.show({
+		extensionUri: { scheme: 'file', path: '/extension', fsPath: '/extension' } as never,
+		auth: {
+			getApiKey: () => Promise.resolve('key'),
+			onDidChangeApiKey: () => ({ dispose() {} }),
+		} as never,
+		usageStore: store,
+		planCache: planCache as never,
+		mmxCliCache: mmxCliCache as never,
+		getHost: () => 'china',
+	});
+	await new Promise((resolve) => setImmediate(resolve));
+	const panel = mockState.webviewPanels[0]!;
+	assert.equal(refreshCalls, 1);
+	assert.equal(
+		panel.webview.postedMessages.filter((message) =>
+			!!message && typeof message === 'object' && (message as { type?: string }).type === 'data',
+		).length,
+		1,
+	);
+
+	panel.webview.receiveMessage({ type: 'ready' });
+	releasePlanRefresh();
+	for (let i = 0; i < 80; i += 1) {
+		if (refreshCalls >= 2) break;
+		await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+
+	assert.equal(refreshCalls, 2, 'ready during in-flight refresh should queue a follow-up refresh');
+	panel.dispose();
 });

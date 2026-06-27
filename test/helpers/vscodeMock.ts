@@ -51,6 +51,7 @@ const webviewPanels: Array<{
 		postedMessages: unknown[];
 		postMessage: (message: unknown) => Promise<boolean>;
 		onDidReceiveMessage: (listener: (message: unknown) => void) => Disposable;
+		receiveMessage: (message: unknown) => void;
 		asWebviewUri: (uri: UriLike) => UriLike;
 	};
 	reveal: (viewColumn?: number) => void;
@@ -366,6 +367,9 @@ function createMockWebviewPanel(
 					const idx = messageListeners.indexOf(listener);
 					if (idx >= 0) messageListeners.splice(idx, 1);
 				});
+			},
+			receiveMessage(message: unknown) {
+				for (const listener of messageListeners.slice()) listener(message);
 			},
 			asWebviewUri(uri: UriLike) {
 				// Real `asWebviewUri` rewrites the URI scheme to a

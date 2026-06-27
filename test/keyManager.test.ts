@@ -7,6 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mockConfig } from './helpers/vscodeMock.js';
 
 class FakeSecrets {
 	private map = new Map<string, string>();
@@ -292,4 +293,198 @@ test('snapshot is a stable shape: missingSecret defaults to false, isLegacy is t
 	assert.equal(snap.keys.length, 1);
 	assert.equal(snap.keys[0]!.isLegacy, false);
 	assert.equal(snap.keys[0]!.missingSecret, false);
+});
+
+// ---- migrateLegacySecret ------------------------------------------------
+
+test('migrateLegacySecret: copies the legacy secret into a LEGACY_KEY_ID entry on first run', async () => {
+	const { context, secrets } = newContext();
+	await secrets.store('minimax-vscode.apiKey', 'sk-legacy');
+	const manager = loadManager(context);
+
+	const result = await manager.migrateLegacySecret();
+	assert.deepEqual(result, { result: 'migrated', id: '__legacy__' });
+
+	const snap = manager.snapshot();
+	assert.equal(snap.keys.length, 1);
+	const entry = snap.keys[0]!;
+	assert.equal(entry.id, '__legacy__');
+	assert.equal(entry.region, 'custom');
+	assert.equal(entry.apiBaseUrl, '');
+	assert.ok(entry.fingerprint);
+
+	// Legacy secret is preserved — getActiveApiKey() still falls back
+	// to it until the async probe finishes and confirms a host.
+	assert.equal(await secrets.get('minimax-vscode.apiKey'), 'sk-legacy');
+});
+
+test('migrateLegacySecret: idempotent when the legacy entry already exists', async () => {
+	const { context, secrets } = newContext();
+	await secrets.store('minimax-vscode.apiKey', 'sk-legacy');
+	const manager = loadManager(context);
+
+	assert.equal((await manager.migrateLegacySecret()).result, 'migrated');
+	// Second call: the entry already exists.
+	const second = await manager.migrateLegacySecret();
+	assert.equal(second.result, 'already-migrated');
+});
+
+test('migrateLegacySecret: returns no-legacy-secret when the secret slot is empty', async () => {
+	const { context } = newContext();
+	const manager = loadManager(context);
+	const result = await manager.migrateLegacySecret();
+	assert.equal(result.result, 'no-legacy-secret');
+});
+
+test('migrateLegacySecret: returns pool-already-active when a non-legacy active key is set', async () => {
+	const { context, secrets } = newContext();
+	await secrets.store('minimax-vscode.apiKey', 'sk-legacy');
+	const manager = loadManager(context);
+	await manager.addApiKey({ name: 'named', apiKey: 'sk-named', probe: true });
+
+	const result = await manager.migrateLegacySecret();
+	assert.equal(result.result, 'pool-already-active');
+	// `activeKeyId` is the named one, not the legacy one.
+	if (result.result === 'pool-already-active') {
+		assert.notEqual(result.activeKeyId, '__legacy__');
+	}
+});
+
+// ---- reprobeActiveKey ---------------------------------------------------
+
+test('reprobeActiveKey: no-op when the active key already has a region and apiBaseUrl', async () => {
+	const { context } = newContext();
+	const manager = loadManager(context, async (_k, host) => host === 'china');
+	const entry = await manager.addApiKey({ name: 'a', apiKey: 'sk-a', probe: true });
+	// Already probed by addApiKey: region='china', url=DEFAULT_BASE_URL_CHINA.
+	const beforeRegion = entry.region;
+	const beforeUrl = entry.apiBaseUrl;
+	const result = await manager.reprobeActiveKey();
+	assert.equal(result?.region, beforeRegion);
+	assert.equal(result?.apiBaseUrl, beforeUrl);
+});
+
+test('reprobeActiveKey: probes and updates region/apiBaseUrl for a custom-region entry', async () => {
+	const { context, secrets } = newContext();
+	// Start with a legacy migration (creates a custom-region, empty-url entry).
+	await secrets.store('minimax-vscode.apiKey', 'sk-legacy');
+	const manager = loadManager(context, async (_k, host) => host === 'global');
+	await manager.migrateLegacySecret();
+
+	const updated = await manager.reprobeActiveKey();
+	assert.ok(updated);
+	assert.equal(updated!.region, 'global');
+	assert.equal(updated!.apiBaseUrl, 'https://api.minimax.io/anthropic');
+	// Legacy SecretStorage slot is cleared once the probe confirms a host.
+	assert.equal(await secrets.get('minimax-vscode.apiKey'), undefined);
+});
+
+test('reprobeActiveKey: falls back to the configured apiBaseUrl when probeRegion is "unsupported"', async () => {
+	const { context, secrets } = newContext();
+	await secrets.store('minimax-vscode.apiKey', 'sk-legacy');
+	const manager = loadManager(context, async () => false);
+	await manager.migrateLegacySecret();
+
+	const updated = await manager.reprobeActiveKey();
+	assert.ok(updated);
+	// Region stays custom, URL falls back to whatever was in the setting
+	// (the default China URL since the test doesn't seed anything).
+	assert.equal(updated!.region, 'custom');
+	assert.equal(updated!.apiBaseUrl, 'https://api.minimaxi.com/anthropic');
+});
+
+test('reprobeActiveKey: returns undefined when the secret is missing', async () => {
+	const { context, secrets } = newContext();
+	await secrets.store('minimax-vscode.apiKey', 'sk-legacy');
+	const manager = loadManager(context, async () => false);
+	await manager.migrateLegacySecret();
+	// Wipe the per-key slot (where migration now copies the secret) so
+	// reprobe can't find it. The legacy `minimax-vscode.apiKey` slot is
+	// intentionally not the lookup path here — the manager prefers the
+	// per-key slot, and we want to verify the missing-secret branch.
+	await secrets.delete('minimax-vscode.apiKeys.__legacy__');
+
+	const updated = await manager.reprobeActiveKey();
+	assert.equal(updated, undefined);
+});
+
+// ---- getActiveApiBaseUrl fallback --------------------------------------
+
+test('getActiveApiBaseUrl: returns the configured setting as a fallback when the pool is empty', async () => {
+	const { context } = newContext();
+	// Seed the deprecated fallback setting through the VS Code workspace
+	// mock. Default value mirrors `package.json`'s `minimax.apiBaseUrl.default`.
+	(mockConfig as Record<string, unknown>)['minimax.apiBaseUrl'] = 'https://api.minimax.io/anthropic';
+	const manager = loadManager(context);
+
+	const url = await manager.getActiveApiBaseUrl();
+	assert.equal(url, 'https://api.minimax.io/anthropic');
+});
+
+// Regression: a freshly migrated legacy entry has `apiBaseUrl: ''` (the
+// "probe not finished" sentinel). Before the fix, `getActiveApiBaseUrl()`
+// returned the empty string verbatim and the request path was forced
+// through `MiniMaxClient.streamChat`'s own China-default fallback,
+// which is wrong for international users whose `minimax.apiBaseUrl`
+// was previously set to the global endpoint.
+test('getActiveApiBaseUrl: falls back to the configured setting when the active entry has an empty apiBaseUrl (legacy migration in flight)', async () => {
+	const { context, secrets } = newContext();
+	await secrets.store('minimax-vscode.apiKey', 'sk-legacy');
+	(mockConfig as Record<string, unknown>)['minimax.apiBaseUrl'] = 'https://api.minimax.io/anthropic';
+	const manager = loadManager(context, async () => false);
+	const migration = await manager.migrateLegacySecret();
+	assert.equal(migration.result, 'migrated');
+	// Pre-condition: the migrated entry has the empty-url sentinel.
+	const entry = manager.snapshot().keys[0]!;
+	assert.equal(entry.apiBaseUrl, '');
+
+	// The very first request after activate must use the user's
+	// previously configured endpoint, NOT an empty string and NOT
+	// the China default.
+	const url = await manager.getActiveApiBaseUrl();
+	assert.equal(url, 'https://api.minimax.io/anthropic');
+});
+
+// Regression: when neither official host accepts the new key, the
+// manager used to bind it to the China default (`DEFAULT_BASE_URL_CHINA`)
+// regardless of what `minimax.apiBaseUrl` was set to. That silently
+// broke custom-Anthropic-proxy users — adding a key via `MiniMax:
+// Add API Key` would shift the request host away from their proxy.
+// The new contract: `resolveApiBaseUrlFromProbe('unsupported')`
+// returns `''`, so the post-probe fallback picks up the configured
+// setting verbatim.
+test('addApiKey: unsupported probe preserves the configured proxy URL (custom-proxy users)', async () => {
+	const { context } = newContext();
+	// `mockConfig` is a process-wide singleton; reset before seeding
+	// so the assertion is driven solely by this test's setup.
+	delete (mockConfig as Record<string, unknown>)['minimax.apiBaseUrl'];
+	(mockConfig as Record<string, unknown>)['minimax.apiBaseUrl'] = 'https://my-proxy.example.com/v1';
+	const manager = loadManager(context, async () => false);
+	const entry = await manager.addApiKey({
+		name: 'proxy-1',
+		apiKey: 'sk-proxy',
+		probe: true,
+	});
+	assert.equal(entry.region, 'custom');
+	assert.equal(entry.apiBaseUrl, 'https://my-proxy.example.com/v1');
+});
+
+// Companion to the regression above: with no `minimax.apiBaseUrl`
+// configured, the unsupported-probe path falls back to the China
+// default (the same default the `getBaseUrl()` resolver uses).
+test('addApiKey: unsupported probe without a configured setting falls back to the China default', async () => {
+	const { context } = newContext();
+	// `mockConfig` is a process-wide singleton shared across every
+	// test in this file; clear any seeded `minimax.apiBaseUrl` from
+	// the previous tests so this one exercises the "no setting"
+	// branch.
+	delete (mockConfig as Record<string, unknown>)['minimax.apiBaseUrl'];
+	const manager = loadManager(context, async () => false);
+	const entry = await manager.addApiKey({
+		name: 'no-proxy',
+		apiKey: 'sk-noop',
+		probe: true,
+	});
+	assert.equal(entry.region, 'custom');
+	assert.equal(entry.apiBaseUrl, 'https://api.minimaxi.com/anthropic');
 });

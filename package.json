@@ -52,14 +52,20 @@
   "contributes": {
     "commands": [
       {
-        "command": "minimax.setApiKey",
-        "title": "%minimax.command.setApiKey%",
-        "category": "MiniMax"
+        "command": "minimax.addApiKey",
+        "title": "%minimax.command.addApiKey%",
+        "category": "MiniMax",
+        "aliases": [
+          "minimax.setApiKey"
+        ]
       },
       {
-        "command": "minimax.clearApiKey",
-        "title": "%minimax.command.clearApiKey%",
-        "category": "MiniMax"
+        "command": "minimax.deleteApiKey",
+        "title": "%minimax.command.deleteApiKey%",
+        "category": "MiniMax",
+        "aliases": [
+          "minimax.clearApiKey"
+        ]
       },
       {
         "command": "minimax.showLogs",
@@ -69,16 +75,6 @@
       {
         "command": "minimax.openRequestDumpsFolder",
         "title": "%minimax.command.openRequestDumpsFolder%",
-        "category": "MiniMax"
-      },
-      {
-        "command": "minimax.switchToGlobal",
-        "title": "%minimax.command.switchToGlobal%",
-        "category": "MiniMax"
-      },
-      {
-        "command": "minimax.switchToChina",
-        "title": "%minimax.command.switchToChina%",
         "category": "MiniMax"
       },
       {
@@ -122,23 +118,18 @@
         "category": "MiniMax"
       },
       {
-        "command": "minimax.addApiKey",
-        "title": "%minimax.command.addApiKey%",
-        "category": "MiniMax"
-      },
-      {
         "command": "minimax.switchApiKey",
         "title": "%minimax.command.switchApiKey%",
         "category": "MiniMax"
       },
       {
-        "command": "minimax.renameApiKey",
-        "title": "%minimax.command.renameApiKey%",
+        "command": "minimax.reprobeApiKey",
+        "title": "%minimax.command.reprobeApiKey%",
         "category": "MiniMax"
       },
       {
-        "command": "minimax.deleteApiKey",
-        "title": "%minimax.command.deleteApiKey%",
+        "command": "minimax.renameApiKey",
+        "title": "%minimax.command.renameApiKey%",
         "category": "MiniMax"
       }
     ],
@@ -150,7 +141,8 @@
           "type": "string",
           "default": "https://api.minimaxi.com/anthropic",
           "scope": "application",
-          "markdownDescription": "MiniMax Anthropic-compatible API base URL. Use `https://api.minimaxi.com/anthropic` for users in China, or `https://api.minimax.io/anthropic` for international users. The Anthropic SDK appends `/v1/messages` automatically."
+          "markdownDescription": "MiniMax Anthropic-compatible API base URL. **Deprecated.** The active key's endpoint (selected automatically by `MiniMax: Add API Key` or `MiniMax: Re-probe Active API Key`) is the source of truth; this setting is consulted only as a fallback when the named-key pool is empty. Use `https://api.minimaxi.com/anthropic` for users in China, or `https://api.minimax.io/anthropic` for international users. The Anthropic SDK appends `/v1/messages` automatically.",
+          "deprecationMessage": "Read by KeyManager only as a fallback when no named API key is configured. Use 'MiniMax: Add API Key' to bind an endpoint to a key. This setting will be removed in 3.0."
         },
         "minimax.apiKey": {
           "type": "string",
@@ -325,7 +317,7 @@
             "title": "%minimax.walkthrough.setApiKey.title%",
             "description": "%minimax.walkthrough.setApiKey.description%",
             "completionEvents": [
-              "onCommand:minimax.setApiKey"
+              "onCommand:minimax.addApiKey"
             ]
           },
           {
@@ -333,8 +325,7 @@
             "title": "%minimax.walkthrough.switchEndpoint.title%",
             "description": "%minimax.walkthrough.switchEndpoint.description%",
             "completionEvents": [
-              "onCommand:minimax.switchToGlobal",
-              "onCommand:minimax.switchToChina"
+              "onCommand:minimax.reprobeApiKey"
             ]
           },
           {

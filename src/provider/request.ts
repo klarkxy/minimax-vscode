@@ -26,6 +26,15 @@ import { appendTerminalGuidanceToSystemPrompt, buildTerminalGuidance } from './t
 export interface PreparedChatRequest {
 	client: MiniMaxClient;
 	apiKey: string;
+	/**
+	 * The Anthropic-compatible base URL resolved from the active key's
+	 * `apiBaseUrl`. Falls back to the deprecated `minimax.apiBaseUrl`
+	 * setting (then to the China default) when the pool has no active
+	 * key. Stored on the prepared request so the stream layer does
+	 * not have to re-resolve it and so request-dump diagnostics show
+	 * the URL the request actually went to.
+	 */
+	baseUrl: string;
 	request: MiniMaxRequest;
 	modelDef: ReturnType<typeof findModelById> | undefined;
 	isThinkingModel: boolean;
@@ -69,6 +78,13 @@ export async function prepareChatRequest({
 	if (!apiKey) {
 		throw new Error(t('auth.notConfigured'));
 	}
+
+	// Resolve the host from the active key. The pool is the source of
+	// truth; `getActiveApiBaseUrl()` itself falls back to the
+	// deprecated `minimax.apiBaseUrl` setting when the pool is empty,
+	// so legacy single-key users keep working without any change on
+	// their part.
+	const baseUrl = await authManager.keyManagerInstance.getActiveApiBaseUrl();
 
 	const client = new MiniMaxClient();
 	const modelDef = findModelById(modelInfo.id);
@@ -177,6 +193,7 @@ export async function prepareChatRequest({
 	return {
 		client,
 		apiKey,
+		baseUrl,
 		request,
 		modelDef: enrichedModelDef,
 		isThinkingModel,

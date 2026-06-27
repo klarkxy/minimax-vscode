@@ -57,6 +57,20 @@ import { t } from '../i18n';
 import { logger } from '../logger';
 import type { AuthManager } from '../auth';
 
+/** Resolver the MCP provider consults at every VS Code-driven
+ *  `provideMcpServerDefinitions` / `resolveMcpServerDefinition` call
+ *  to decide which `apiBaseUrl` the server definition should inject
+ *  as `MINIMAX_API_HOST`. Defaults to the deprecated
+ *  `minimax.apiBaseUrl` setting for backward compatibility, but
+ *  production code MUST pass the active-key resolver so the MCP
+ *  server definition follows the same `getActiveApiBaseUrl()` path
+ *  the chat model provider uses — otherwise switching the active
+ *  key would split-brain the chat request host from the MCP spawn
+ *  env. The resolver is called once per definition / resolve, not
+ *  cached, so live `minimax.apiKey` and `KeyManager` changes
+ *  propagate without a manual refresh. */
+export type McpApiBaseUrlResolver = () => Promise<string> | string;
+
 /** Stable id matched by `contributes.mcpServerDefinitionProviders`
  *  in package.json. Changing this is a breaking config change. */
 export const MCP_PROVIDER_ID = 'minimax-web-search';
@@ -253,13 +267,29 @@ export async function provideMiniMaxMcpServers(
  * command (and the dashboard's "Refresh" button) can fire the
  * `onDidChangeMcpServerDefinitions` event VS Code watches for.
  *
+ * The `getApiBaseUrl` resolver decides which URL the server
+ * definition picks up at every `provide` / `resolve` call. Callers
+ * should pass `() => keyManager.getActiveApiBaseUrl()` so the MCP
+ * spawn env matches the chat request host; if omitted, the
+ * provider falls back to the deprecated `minimax.apiBaseUrl`
+ * setting (kept for tests and the historical single-key path).
+ *
  * Call this from `activate()` after `AuthManager` is initialised.
  */
 export function registerMiniMaxMcpProvider(
 	context: vscode.ExtensionContext,
 	auth: AuthManager,
+	opts: { getApiBaseUrl?: McpApiBaseUrlResolver } = {},
 ): MiniMaxMcpHandle {
 	const disposables: vscode.Disposable[] = [];
+	// Snapshot the resolver at registration time so the
+	// `provideMcpServerDefinitions` / `resolveMcpServerDefinition`
+	// callbacks read whatever was current at `activate()`. The
+	// AuthManager's `onDidChangeApiKey` subscription (which
+	// re-fires on every KeyManager change) takes care of the
+	// re-resolve path — VS Code re-asks the provider after the
+	// change event fires, and the resolver picks up the new URL.
+	const resolveApiBaseUrl: McpApiBaseUrlResolver = opts.getApiBaseUrl ?? (() => getBaseUrl());
 
 	// `onDidChangeMcpServerDefinitions` is the signal VS Code uses
 	// to invalidate its cached tool list and re-call
@@ -272,7 +302,11 @@ export function registerMiniMaxMcpProvider(
 		onDidChangeMcpServerDefinitions: changeEmitter.event,
 		async provideMcpServerDefinitions(token) {
 			void token;
-			const apiBaseUrl = getBaseUrl();
+			// Resolve on every call so cross-window edits to the
+			// active key (via `secrets.onDidChange`) and direct
+			// `KeyManager` writes both land on the next MCP call
+			// without needing a manual `refreshMcp` invocation.
+			const apiBaseUrl = await resolveApiBaseUrl();
 			const resolution = await provideMiniMaxMcpServers(auth, apiBaseUrl);
 			if (!resolution.ready || !resolution.definition) {
 				// Don't surface the server until it's ready. VS Code
@@ -285,10 +319,11 @@ export function registerMiniMaxMcpProvider(
 		},
 		async resolveMcpServerDefinition(server, token) {
 			void token;
-			// Re-resolve so the env (especially the API key) is
-			// always fresh at spawn time — VS Code may keep the
-			// previous definition cached between sessions.
-			const apiBaseUrl = getBaseUrl();
+			// Re-resolve so the env (especially the API key + the
+			// active key's URL) is always fresh at spawn time —
+			// VS Code may keep the previous definition cached
+			// between sessions.
+			const apiBaseUrl = await resolveApiBaseUrl();
 			const resolution = await provideMiniMaxMcpServers(auth, apiBaseUrl);
 			if (!resolution.ready || !resolution.definition) {
 				logger.warn(
@@ -304,8 +339,11 @@ export function registerMiniMaxMcpProvider(
 		vscode.lm.registerMcpServerDefinitionProvider(MCP_PROVIDER_ID, provider),
 	);
 
-	// API key changed (set / cleared / replaced) → re-emit so VS
-	// Code re-resolves with the new key.
+	// API key changed (set / cleared / replaced, OR the active key
+	// in the pool was switched) → re-emit so VS Code re-resolves
+	// with the new key + URL. `AuthManager.onDidChangeApiKey` is
+	// driven by `KeyManager.onDidChange`, so any pool mutation
+	// (add / switch / rename / delete) lands here.
 	disposables.push(
 		auth.onDidChangeApiKey(() => {
 			logger.info(`${LOG_TAG} API key changed; firing onDidChangeMcpServerDefinitions`);
@@ -315,7 +353,11 @@ export function registerMiniMaxMcpProvider(
 
 	// `minimax.apiBaseUrl` changed (China ↔ Global switch, or the
 	// user moved to a third-party proxy) → re-emit so the host env
-	// is refreshed.
+	// is refreshed. Note: the active-key resolver does NOT
+	// consult this setting for keys with a non-empty
+	// `apiBaseUrl`; this listener covers the legacy migration
+	// window where the pool's active entry has an empty URL and
+	// the setting is the actual source of truth.
 	disposables.push(
 		vscode.workspace.onDidChangeConfiguration((e) => {
 			if (e.affectsConfiguration('minimax.apiBaseUrl')) {

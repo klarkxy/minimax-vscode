@@ -91,6 +91,13 @@ const zh: Translations = {
 	'keys.actionDelete': '$(trash) 删除 API Key',
 	'keys.actionDeleteDesc': '删除 Key 及其已保存的密钥',
 	'keys.emptyPool': '尚未保存任何 API Key，请先运行 "MiniMax: 添加 API Key"。',
+	'keys.legacyName': '旧 Key（已迁移）',
+	'keys.legacyNotProbed': '旧 Key（尚未识别区域，运行 "MiniMax: 重新识别当前 API Key 区域"）',
+	'keys.actionReprobe': '$(refresh) 重新识别当前 API Key 区域',
+	'keys.actionReprobeDesc': '对当前 Key 重新打双端探测以确定 China / Global 归属',
+	'keys.reprobed': '已重新识别 "{0}"（区域：{1}，端点：{2}）。',
+	'keys.reprobeNoActive': '当前没有可识别的 API Key，请先运行 "MiniMax: 添加 API Key"。',
+	'keys.reprobeMissingSecret': '当前 API Key 在 SecretStorage 中已无密钥，请重新添加或选择其他 Key。',
 
 
 	// Request
@@ -309,6 +316,13 @@ const en: Translations = {
 	'keys.actionDelete': '$(trash) Delete API key',
 	'keys.actionDeleteDesc': 'Remove a key and its stored secret',
 	'keys.emptyPool': 'No API keys yet. Run "MiniMax: Add API key" first.',
+	'keys.legacyName': 'Legacy (migrated)',
+	'keys.legacyNotProbed': 'Legacy key (region not detected yet — run "MiniMax: Re-probe Active API Key")',
+	'keys.actionReprobe': '$(refresh) Re-probe active API key',
+	'keys.actionReprobeDesc': 'Re-detect China / Global region for the active key',
+	'keys.reprobed': 'Re-probed "{0}" — region: {1}, endpoint: {2}.',
+	'keys.reprobeNoActive': 'No active API key to re-probe. Add one first via "MiniMax: Add API key".',
+	'keys.reprobeMissingSecret': 'The active key has no secret in SecretStorage. Re-add it or pick a different key.',
 
 	// Request
 	'request.toolsLimitExceeded':

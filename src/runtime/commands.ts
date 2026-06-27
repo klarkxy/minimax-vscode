@@ -3,13 +3,13 @@ import { AuthManager } from '../auth';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import {
-	getApiHostForPlatform,
 	getClaudeCodeAllowedModels,
 	getClaudeCodeLogPath,
 } from '../config';
 import { toggleM31MContextEnabled } from '../provider/models';
 import { provideMiniMaxMcpServers, type MiniMaxMcpHandle } from './mcp';
 import { getBaseUrl } from '../config';
+import { resolvePlatformHost } from '../consts';
 import { createUsageStore, type UsageStore } from '../usage';
 import { DashboardPanel } from '../dashboard/panel';
 import { createPlanStatusBar, type PlanStatusBar } from '../dashboard/planStatusBar';
@@ -22,6 +22,13 @@ import {
 	type ClaudeCodeIngestHandle,
 } from '../dashboard/claudeCodeIngest';
 import { KeyManager } from '../keyManager';
+import {
+	addApiKeyCommand,
+	deleteApiKeyCommand,
+	manageApiKeysCommand,
+	renameApiKeyCommand,
+	switchApiKeyCommand,
+} from './keyCommands';
 
 let cachedContext: vscode.ExtensionContext | undefined;
 let cachedKeyManager: KeyManager | undefined;
@@ -247,8 +254,12 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 	setCommandContext(context);
 	const auth = cachedAuth ?? new AuthManager(context, getKeyManager());
 	context.subscriptions.push(
-		vscode.commands.registerCommand('minimax.switchToGlobal', () => switchBaseUrl('global')),
-		vscode.commands.registerCommand('minimax.switchToChina', () => switchBaseUrl('china')),
+		vscode.commands.registerCommand('minimax.addApiKey', () => addApiKeyCommand()),
+		vscode.commands.registerCommand('minimax.deleteApiKey', () => deleteApiKeyCommand()),
+		vscode.commands.registerCommand('minimax.switchApiKey', () => switchApiKeyCommand()),
+		vscode.commands.registerCommand('minimax.renameApiKey', () => renameApiKeyCommand()),
+		vscode.commands.registerCommand('minimax.manageApiKeys', () => manageApiKeysCommand()),
+		vscode.commands.registerCommand('minimax.reprobeApiKey', () => reprobeApiKeyCommand()),
 		vscode.commands.registerCommand('minimax.showLogs', () => {
 			logger.show();
 		}),
@@ -332,7 +343,14 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 						);
 						return;
 					}
-					const baseUrl = getBaseUrl();
+					// Prefer the active key's `apiBaseUrl` so the MCP server definition
+				// matches the chat request path. Falls back to the
+				// deprecated `minimax.apiBaseUrl` setting when the pool
+				// is empty (legacy migration in flight).
+				const km = getKeyManager();
+				const active = km?.snapshot();
+				const activeEntry = active?.keys.find((k) => k.id === active.activeKeyId);
+				const baseUrl = activeEntry?.apiBaseUrl?.trim() || getBaseUrl();
 					const { ready, reason, definition } = await provideMiniMaxMcpServers(
 						cachedAuth ?? auth,
 						baseUrl,
@@ -515,14 +533,14 @@ async function useForCopilotCommitMessages(): Promise<void> {
 }
 
 function detectHost(): 'china' | 'global' | null {
-	// Defer to the configured `minimax.apiBaseUrl` so a fresh
-	// international install lands on the global platform instead of
-	// the previously-hard-coded `'china'` default. `getApiHostForPlatform`
-	// shares the same resolution rules as the 401/402 action buttons
-	// in `client/error.ts`, so the dashboard's "Token Plan" widget and
-	// the error toasts both agree on which platform the user is on.
+	// Prefer the active key's `apiBaseUrl` — the pool is the source of
+	// truth. Falls back to the deprecated `minimax.apiBaseUrl` setting
+	// when the pool has no active entry (legacy migration in flight).
+	// Synchronous because the dashboard panel calls this from render
+	// paths; the active key's URL is always available from the
+	// `snapshot()` cache without an async fetch.
 	//
-	// Returns `null` when the configured URL is a third-party proxy
+	// Returns `null` when the resolved URL is a third-party proxy
 	// (e.g. a self-hosted Anthropic-compatible gateway). Callers that
 	// need a non-null value (e.g. the mmx-cli install prompt) should
 	// use `?? 'global'` at the call site; callers that care about
@@ -530,7 +548,11 @@ function detectHost(): 'china' | 'global' | null {
 	// (e.g. `refreshPlanKeyState`, the PlanCache) propagate `null`
 	// all the way to `fetchPlanUsage` so the call short-circuits.
 	try {
-		const host = getApiHostForPlatform();
+		const km = getKeyManager();
+		const snap = km?.snapshot();
+		const activeEntry = snap?.keys.find((k) => k.id === snap.activeKeyId);
+		const url = activeEntry?.apiBaseUrl?.trim() || getBaseUrl();
+		const host = resolvePlatformHost(url);
 		if (host === null) return null;
 		return host === 'api.minimaxi.com' ? 'china' : 'global';
 	} catch {
@@ -538,19 +560,39 @@ function detectHost(): 'china' | 'global' | null {
 	}
 }
 
-async function switchBaseUrl(target: 'global' | 'china'): Promise<void> {
-	const config = vscode.workspace.getConfiguration('minimax');
-	// Anthropic-compatible base URLs. SDK appends /v1/messages automatically.
-	const url =
-		target === 'global'
-			? 'https://api.minimax.io/anthropic'
-			: 'https://api.minimaxi.com/anthropic';
-	await config.update('apiBaseUrl', url, vscode.ConfigurationTarget.Global);
-	const confirm =
-		target === 'global'
-			? t('endpoint.switchedGlobal')
-			: t('endpoint.switchedChina');
-	vscode.window.showInformationMessage(confirm);
+async function reprobeApiKeyCommand(): Promise<void> {
+	const manager = getKeyManager();
+	if (!manager) {
+		void vscode.window.showWarningMessage(t('keys.managerUnavailable'));
+		return;
+	}
+	const snapshot = manager.snapshot();
+	if (!snapshot.activeKeyId) {
+		void vscode.window.showInformationMessage(t('keys.reprobeNoActive'));
+		return;
+	}
+	const activeBefore = snapshot.keys.find((k) => k.id === snapshot.activeKeyId);
+	const updated = await manager.reprobeActiveKey();
+	if (!updated) {
+		// Active entry exists but has no usable secret. (The reprobe
+		// fast-path also returns the entry unchanged when the region
+		// is already known; in that case we don't toast and skip the
+		// cache invalidation.)
+		if (activeBefore) {
+			void vscode.window.showWarningMessage(t('keys.reprobeMissingSecret'));
+		}
+		return;
+	}
+	// Only invalidate + toast when something actually changed. The
+	// fast-path returns the same entry, so a no-op probe is silent.
+	const regionChanged = activeBefore?.region !== updated.region;
+	const urlChanged = activeBefore?.apiBaseUrl !== updated.apiBaseUrl;
+	if (regionChanged || urlChanged) {
+		getPlanCache().invalidate();
+		void vscode.window.showInformationMessage(
+			t('keys.reprobed', updated.name, updated.region, updated.apiBaseUrl),
+		);
+	}
 }
 
 async function openRequestDumpsFolder(): Promise<void> {

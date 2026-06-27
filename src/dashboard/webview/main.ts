@@ -68,7 +68,9 @@ export interface I18nBundle {
 	fieldUpdated: string;
 	fieldWeekly: string;
 	fieldExpiry: string;
-	fieldExpiryDays: (days: number) => string;
+	fieldExpiryDaysFuture: string;
+	fieldExpiryDaysToday: string;
+	fieldExpiryDaysPast: string;
 	platformLoading: string;
 	platformUnconfigured: string;
 	platformUnavailable: string;
@@ -381,7 +383,18 @@ export function platformSection(i18n: I18nBundle, plan: PlanSection | undefined)
 		: cardWithReset(i18n.fieldWeekly, plan.weeklyPercentage, plan.weeklyResetText);
 
 	const expiryCard = plan.expiryDate
-		? card(i18n.fieldExpiry, [[plan.expiryDate, i18n.fieldExpiryDays(plan.expiryDays ?? 0)]])
+		? (() => {
+			// Pick the right template for the day count, then substitute
+			// the absolute day number. `Math.abs` keeps the past-tense
+			// label readable ("已过期 5 天" not "已过期 -5 天").
+			const days = plan.expiryDays ?? 0;
+			const template =
+				days < 0 ? i18n.fieldExpiryDaysPast :
+				days === 0 ? i18n.fieldExpiryDaysToday :
+				i18n.fieldExpiryDaysFuture;
+			const text = template.replace('{days}', String(Math.abs(days)));
+			return card(i18n.fieldExpiry, [[plan.expiryDate, text]]);
+		})()
 		: '';
 
 	return (
@@ -675,12 +688,29 @@ export interface WindowLike {
 	addEventListener(event: string, listener: (event: unknown) => void): void;
 }
 
+export interface DocumentLike {
+	addEventListener(event: string, listener: (event: unknown) => void): void;
+}
+
 export function start(opts: {
 	vscode: VsCodeApi;
 	root: HTMLElement;
 	updatedStamp: HTMLElement;
 	i18n: I18nBundle;
 	win?: WindowLike;
+	/**
+	 * Document used for the global click delegate. The dashboard's
+	 * action buttons live in the static header (`<header>`) which is
+	 * a SIBLING of `<div id="root">`, not a descendant — clicks on
+	 * those buttons never bubble through `root`, so attaching the
+	 * listener to `root` silently swallows them. We attach to the
+	 * document instead and rely on `event.target.closest()` to
+	 * resolve the action regardless of where the button lives.
+	 *
+	 * Optional so unit tests that only exercise root-internal
+	 * rendering can keep passing it as `undefined`.
+	 */
+	doc?: DocumentLike;
 }): void {
 	const { vscode, root, updatedStamp, i18n, win } = opts;
 	const persisted = (vscode.getState() as PersistedState | null) ?? {};
@@ -723,7 +753,13 @@ export function start(opts: {
 		updatedStamp.textContent = i18n.fieldUpdated + ': ' + new Date().toLocaleTimeString();
 	}
 
-	root.addEventListener('click', (event) => {
+	// Click delegate lives on `document` (not `root`) because the
+	// header action buttons are siblings of `#root`. Click bubbles
+	// up to `document` for any element in the page, and `closest()`
+	// resolves the data-action regardless of nesting depth.
+	const clickTarget: { addEventListener?: DocumentLike['addEventListener'] } =
+		opts.doc ?? ((globalThis as unknown) as { addEventListener?: DocumentLike['addEventListener'] });
+	clickTarget.addEventListener?.('click', (event) => {
 		const targetEl = event.target as Element | null;
 		if (!targetEl) return;
 		const tabEl = targetEl.closest('[data-tab]');
@@ -762,14 +798,42 @@ export function start(opts: {
 	// `globalThis` when `win` is not provided.
 	const target: WindowLike | undefined = win ?? ((globalThis as unknown) as WindowLike);
 	target?.addEventListener?.('message', (event) => {
-		const message = (event as { data?: unknown }).data as { type?: string; payload?: unknown } | null;
-		if (!message || typeof message !== 'object') return;
-		if (message.type === 'data') {
-			render(message.payload as DashboardView);
-		} else if (message.type === 'error') {
-			const payload = message.payload as { message?: unknown } | undefined;
-			const text = payload && typeof payload.message === 'string' ? payload.message : 'error';
-			root.innerHTML = '<div class="banner">' + escapeHtml(text) + '</div>';
+		try {
+			const message = (event as { data?: unknown }).data as { type?: string; payload?: unknown } | null;
+			if (!message || typeof message !== 'object') return;
+			if (message.type === 'data') {
+				const startedAt = Date.now();
+				render(message.payload as DashboardView);
+				const view = message.payload as DashboardView;
+				vscode.postMessage({
+					type: 'renderAck',
+					payload: {
+						traceId: (message as { traceId?: unknown }).traceId,
+						plan: view?.sources?.plan,
+						elapsedMs: Date.now() - startedAt,
+					},
+				});
+			} else if (message.type === 'error') {
+				const payload = message.payload as { message?: unknown } | undefined;
+				const text = payload && typeof payload.message === 'string' ? payload.message : 'error';
+				root.innerHTML = '<div class="banner">' + escapeHtml(text) + '</div>';
+			}
+		} catch (err) {
+			// Defensive: a render-path throw must NEVER freeze the
+			// dashboard. Surface the failure inline so the next
+			// successful `data` payload can repaint, and keep the
+			// listener alive for subsequent messages.
+			root.innerHTML =
+				'<div class="banner">Dashboard render error: ' +
+				escapeHtml(err instanceof Error ? err.message : String(err)) +
+				'</div>';
+			vscode.postMessage({
+				type: 'renderError',
+				payload: {
+					traceId: ((event as { data?: unknown }).data as { traceId?: unknown } | undefined)?.traceId,
+					message: err instanceof Error ? err.message : String(err),
+				},
+			});
 		}
 	});
 
@@ -790,6 +854,6 @@ if (typeof (globalThis as { acquireVsCodeApi?: unknown }).acquireVsCodeApi === '
 	const i18nEl = document.getElementById('i18n');
 	if (rootEl && stampEl && i18nEl) {
 		const i18nBundle = JSON.parse(i18nEl.textContent ?? '{}') as I18nBundle;
-		start({ vscode: api, root: rootEl, updatedStamp: stampEl, i18n: i18nBundle });
+		start({ vscode: api, root: rootEl, updatedStamp: stampEl, i18n: i18nBundle, doc: document });
 	}
 }

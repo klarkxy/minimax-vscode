@@ -8,6 +8,7 @@ import {
 	setCommandContext,
 	setClaudeCodeIngest,
 	bindChatTurnNotifier,
+	getKeyManager,
 } from './commands';
 import { autoSelectEndpointIfUnset } from './endpoint';
 import { initializeDiagnostics } from './diagnostics';
@@ -20,6 +21,29 @@ let activeProvider: MiniMaxChatProvider | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	setCommandContext(context);
+
+	// One-time upgrade of the legacy single-key slot (`minimax-vscode.apiKey`)
+	// into the named pool. Idempotent across windows — if another window
+	// already migrated, this is a no-op. After migration we fire-and-forget
+	// a region probe so the user does not have to re-enter their key or
+	// manually pick a host. The probe is intentionally non-blocking: the
+	// request path falls back to the configured `minimax.apiBaseUrl` while
+	// the probe is in flight, so the very first request still works.
+	try {
+		const km = getKeyManager();
+		const migration = await km.migrateLegacySecret();
+		if (migration.result === 'migrated') {
+			logger.info(
+				`[MiniMax] Migrated legacy single-key slot into named pool (${migration.id}); running async region probe.`,
+			);
+			void km.reprobeActiveKey().catch((error) => {
+				logger.warn('[MiniMax] Async probe after legacy migration failed', error);
+			});
+		}
+	} catch (error) {
+		logger.warn('[MiniMax] Legacy key migration failed', error);
+	}
+
 	// One-time cleanup of memento keys left behind by the removed
 	// Codex / OpenCode ingesters. The modules and their constants are
 	// gone, but users who previously enabled those sources still carry
@@ -55,9 +79,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// MCP server when the user has an API key + known host. The
 	// provider is a no-op when the user is on an unrecognised host
 	// or has no key — the dashboard surfaces the reason separately.
+	//
+	// The MCP provider receives the active-key URL resolver so the
+	// server definition it injects matches the chat request host on
+	// every `provide` / `resolve` call — otherwise switching the
+	// active key would split-brain the chat request host from the
+	// MCP spawn env (the manual `minimax.refreshMcp` command path
+	// already does this; we close the auto-resolve path here).
 	const auth = getAuthManager();
 	if (auth) {
-		const mcpHandle = registerMiniMaxMcpProvider(context, auth);
+		const mcpHandle = registerMiniMaxMcpProvider(context, auth, {
+			getApiBaseUrl: () => getKeyManager().getActiveApiBaseUrl(),
+		});
 		context.subscriptions.push(mcpHandle);
 		// Share the handle with `commands.ts` so the
 		// `minimax.refreshMcp` command (and the dashboard's Refresh
@@ -70,8 +103,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	}
 
 	// First-run language-driven endpoint selection. The function is a no-op
-	// once the user has explicitly chosen an endpoint (via settings or the
-	// switchToGlobal / switchToChina commands).
+	// once the user has explicitly chosen an endpoint (via the setting). It
+	// primes `minimax.apiBaseUrl` only on a clean install so the request
+	// path's setting fallback works until `reprobeActiveKey()` finishes.
 	await autoSelectEndpointIfUnset();
 
 	try {

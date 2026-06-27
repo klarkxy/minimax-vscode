@@ -11,7 +11,7 @@
 // `start()` entry is exercised through a tiny DOM stub that
 // captures `innerHTML` writes and click events.
 
-import { test } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -77,7 +77,9 @@ function i18n(): I18nBundle {
 		fieldUpdated: 'updated',
 		fieldWeekly: 'Week',
 		fieldExpiry: 'Expiry',
-		fieldExpiryDays: (d) => `${d}d`,
+		fieldExpiryDaysFuture: '{days} day(s) remaining',
+		fieldExpiryDaysToday: 'expires today',
+		fieldExpiryDaysPast: 'expired {days}d ago',
 		platformLoading: 'Loading…',
 		platformUnconfigured: 'Not configured',
 		platformUnavailable: 'Unavailable',
@@ -112,6 +114,18 @@ function i18n(): I18nBundle {
 		mcpHostUnrecognised: 'unrecognised',
 		mcpRefreshBtn: 'Refresh',
 	} as unknown as I18nBundle;
+}
+
+// Document-level click handlers. The production webview attaches
+// its action delegate to `document` rather than `root` because the
+// header action buttons live in a sibling subtree (see the
+// `start({ doc })` doc comment in `src/dashboard/webview/main.ts`).
+// Each test that exercises a click registers one here via
+// `makeFakeDoc`; reset between tests via `resetDocHandlers()`.
+const docClickHandlers: Array<(event: unknown) => void> = [];
+
+function resetDocHandlers(): void {
+	docClickHandlers.length = 0;
 }
 
 // ---- Minimal DOM stub -----------------------------------------------
@@ -214,6 +228,11 @@ function makeElement(tagName: string): StubElement {
 				for (const fn of plist) fn(event);
 				p = p.parent;
 			}
+			// Fire document-level click handlers. The production
+			// delegate lives on `document` (not `root`) because the
+			// header action buttons are siblings of `#root`, so
+			// bubble-up never reaches them through the stub tree.
+			for (const fn of docClickHandlers) fn(event);
 		},
 	};
 	return el;
@@ -303,6 +322,14 @@ function makeFakeWin(w: FakeWindow) {
 	return {
 		addEventListener(_event: string, listener: (event: unknown) => void) {
 			w.messageHandlers.push(listener);
+		},
+	};
+}
+
+function makeFakeDoc(_w: FakeWindow) {
+	return {
+		addEventListener(_event: string, listener: (event: unknown) => void) {
+			docClickHandlers.push(listener);
 		},
 	};
 }
@@ -438,9 +465,20 @@ test('platformSection: weekly unlimited shows ∞', () => {
 	assert.match(out, /∞/);
 });
 
-test('platformSection: expiry date renders when present', () => {
+test('platformSection: expiry date renders with formatted days', () => {
 	const out = platformSection(i18n(), makePlan({ expiryDate: '2026-12-31', expiryDays: 5 }));
 	assert.match(out, /2026-12-31/);
+	assert.match(out, /5 day\(s\) remaining/);
+});
+
+test('platformSection: past expiry renders absolute day count', () => {
+	const out = platformSection(i18n(), makePlan({ expiryDate: '2025-01-01', expiryDays: -3 }));
+	assert.match(out, /3d ago/);
+});
+
+test('platformSection: same-day expiry renders the today label', () => {
+	const out = platformSection(i18n(), makePlan({ expiryDate: '2026-06-27', expiryDays: 0 }));
+	assert.match(out, /expires today/);
 });
 
 // ---- chartSection / modelTable / emptyState ---------------------------
@@ -584,6 +622,15 @@ test('sourceSection: composes header + 3 cards + chart + table', () => {
 
 // ---- start() end-to-end (fake DOM) -----------------------------------
 
+// Each `start()` call registers a fresh click delegate via
+// `makeFakeDoc`. The stub's `click()` fans the event out to every
+// handler ever registered, so without a reset earlier suites
+// (e.g. ones that exercise the `refresh` action) leak handlers
+// into later tests and make postMessage assertions over-count.
+beforeEach(() => {
+	resetDocHandlers();
+});
+
 test('start: ready message fires once at mount', () => {
 	const w = setupFakeWindow();
 	try {
@@ -593,7 +640,7 @@ test('start: ready message fires once at mount', () => {
 			getState: () => null,
 			setState: () => {},
 		};
-		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w) });
+		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w), doc: makeFakeDoc(w) });
 		assert.deepEqual(messages, [{ type: 'ready' }]);
 	} finally {
 
@@ -609,7 +656,7 @@ test('start: clicking a tab button posts nothing but updates aria', () => {
 			getState: () => null,
 			setState: (s: unknown) => { setStateCalls.push(s); },
 		};
-		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w) });
+		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w), doc: makeFakeDoc(w) });
 
 		// Build a fake <nav class="tabs"> containing the active +
 		// inactive tab buttons. applyActiveTab() walks via
@@ -650,7 +697,7 @@ test('start: clicking an action button posts the right message', () => {
 			getState: () => null,
 			setState: () => {},
 		};
-		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w) });
+		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w), doc: makeFakeDoc(w) });
 		// start() emits { type: 'ready' } before any user action.
 		// Drop that prefix so the assertion only covers the click.
 		messages.length = 0;
@@ -667,11 +714,51 @@ test('start: clicking an action button posts the right message', () => {
 	}
 });
 
+// Regression: the dashboard's header buttons (refresh / reset /
+// close) live in the static `<header>` block, which is a SIBLING
+// of `<div id="root">`. The previous implementation attached the
+// click delegate to `root`, so clicks on those buttons never
+// reached the listener — both Refresh and Close looked dead to
+// the user. The fix moves the delegate to `document`; this test
+// asserts the buttons fire their `postMessage` even when they
+// share no ancestor with `root` (so the bubble path through
+// `root` is impossible).
+test('start: header action buttons fire even when not nested in root', () => {
+	const w = setupFakeWindow();
+	try {
+		const messages: Array<{ type: string }> = [];
+		const vscode = {
+			postMessage: (m: unknown) => { messages.push(m as { type: string }); },
+			getState: () => null,
+			setState: () => {},
+		};
+		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w), doc: makeFakeDoc(w) });
+		messages.length = 0;
+
+		// Simulate the production HTML: a `<header>` whose children
+		// include action buttons. The header is a sibling of root,
+		// so a click on the button never bubbles through root.
+		const header = makeElement('header');
+		const closeBtn = makeElement('button');
+		closeBtn.attributes.set('data-action', 'close');
+		header.appendChild(closeBtn);
+		const resetBtn = makeElement('button');
+		resetBtn.attributes.set('data-action', 'reset');
+		header.appendChild(resetBtn);
+		closeBtn.click();
+		resetBtn.click();
+
+		assert.deepEqual(messages, [{ type: 'close' }, { type: 'reset' }]);
+	} finally {
+
+	}
+});
+
 test('start: message with type=data renders into the root', () => {
 	const w = setupFakeWindow();
 	try {
 		const vscode = { postMessage: () => {}, getState: () => null, setState: () => {} };
-		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w) });
+		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w), doc: makeFakeDoc(w) });
 
 		// Find the message handler registered on globalThis
 		const handlers = w.messageHandlers;
@@ -688,7 +775,7 @@ test('start: message with type=error shows the error banner', () => {
 	const w = setupFakeWindow();
 	try {
 		const vscode = { postMessage: () => {}, getState: () => null, setState: () => {} };
-		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w) });
+		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w), doc: makeFakeDoc(w) });
 		w.messageHandlers[0]({ data: { type: 'error', payload: { message: 'oops' } } });
 		assert.match(w.root.innerHTML, /oops/);
 	} finally {
@@ -700,7 +787,7 @@ test('start: invalid messages are ignored', () => {
 	const w = setupFakeWindow();
 	try {
 		const vscode = { postMessage: () => {}, getState: () => null, setState: () => {} };
-		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w) });
+		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w), doc: makeFakeDoc(w) });
 		const before = w.root.innerHTML;
 		w.messageHandlers[0]({ data: null });
 		w.messageHandlers[0]({ data: { type: 'unknown' } });

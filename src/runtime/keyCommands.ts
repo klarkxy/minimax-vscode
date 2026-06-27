@@ -6,7 +6,7 @@
 // `registerCommands` switch.
 
 import * as vscode from 'vscode';
-import { getKeyManager } from './commands';
+import { getAuthManager, getKeyManager } from './commands';
 import { getBaseUrl } from '../config';
 import { t } from '../i18n';
 import { logger } from '../logger';
@@ -48,12 +48,15 @@ async function promptForSecret(): Promise<string | undefined> {
 
 /** Build a QuickPick item for each key in the pool, labelling the
  *  active entry and showing the region + fingerprint as secondary
- *  text. */
+ *  text. The legacy entry shows a "not yet probed" hint when its
+ *  `apiBaseUrl` is empty (post-migration, pre-reprobe state). */
 function toPickItem(key: { id: string; name: string; region: string; fingerprint: string; isLegacy: boolean; apiBaseUrl: string }, active: boolean) {
 	return {
 		label: key.name + (active ? `  $(check) ${t('keys.activeSuffix')}` : ''),
 		description: `${key.region} • ${key.fingerprint}`,
-		detail: key.isLegacy ? t('keys.legacyDetail', key.apiBaseUrl) : key.apiBaseUrl,
+		detail: key.isLegacy
+			? (key.apiBaseUrl ? t('keys.legacyDetail', key.apiBaseUrl) : t('keys.legacyNotProbed'))
+			: key.apiBaseUrl,
 		keyId: key.id,
 	};
 }
@@ -61,7 +64,9 @@ function toPickItem(key: { id: string; name: string; region: string; fingerprint
 /** `minimax.addApiKey`: ask for a name + secret, let KeyManager
  *  probe the official China/Global hosts, and persist the new
  *  entry. The new key is always set active; the previous key is
- *  remembered so the user can switch back via `Switch API Key`. */
+ *  remembered so the user can switch back via `Switch API Key`.
+ *  No longer writes `minimax.apiBaseUrl` — the Key pool is the
+ *  source of truth and the request path reads from it directly. */
 export async function addApiKeyCommand(): Promise<KeyCommandResult> {
 	const manager = getKeyManager();
 	if (!manager) {
@@ -77,7 +82,6 @@ export async function addApiKeyCommand(): Promise<KeyCommandResult> {
 
 	try {
 		const entry = await manager.addApiKey({ name, apiKey: secret, probe: true });
-		await manager.updateApiBaseUrl(entry.apiBaseUrl);
 		void vscode.window.showInformationMessage(
 			t('keys.added', entry.name, entry.region),
 		);
@@ -90,8 +94,9 @@ export async function addApiKeyCommand(): Promise<KeyCommandResult> {
 }
 
 /** `minimax.switchApiKey`: QuickPick of all named keys; selecting
- *  one makes it active AND mirrors its endpoint into
- *  `minimax.apiBaseUrl`. */
+ *  one makes it active. Does NOT touch `minimax.apiBaseUrl` — the
+ *  active key's `apiBaseUrl` is read on every request via
+ *  `getActiveApiBaseUrl()`. */
 export async function switchApiKeyCommand(): Promise<KeyCommandResult> {
 	const manager = getKeyManager();
 	if (!manager) {
@@ -158,7 +163,15 @@ export async function renameApiKeyCommand(): Promise<KeyCommandResult> {
 
 /** `minimax.deleteApiKey`: pick a key, confirm, then remove both
  *  the secret and the metadata. The active key auto-falls through
- *  to the next entry inside the manager. */
+ *  to the next entry inside the manager.
+ *
+ *  The legacy single-key slot (`minimax-vscode.apiKey`) is also
+ *  cleared when the pool is empty — this preserves the historical
+ *  "Remove API Key" behaviour for users who never migrated (e.g.
+ *  migration failed and the legacy entry is the only key they have).
+ *  In that case `KeyManager.deleteApiKey` would be a no-op, so we
+ *  delegate to `AuthManager.deleteApiKey()` to wipe the legacy slot
+ *  and fire the same toast the command used to show. */
 export async function deleteApiKeyCommand(): Promise<KeyCommandResult> {
 	const manager = getKeyManager();
 	if (!manager) {
@@ -167,6 +180,16 @@ export async function deleteApiKeyCommand(): Promise<KeyCommandResult> {
 	}
 	const snapshot = manager.snapshot();
 	if (snapshot.keys.length === 0) {
+		// Empty pool — fall back to clearing the legacy single-key
+		// slot so users who never migrated can still wipe their key.
+		// `getAuthManager()` returns `undefined` only if activation
+		// hasn't wired the context yet; in that case the legacy
+		// slot is empty by definition, so we still surface the
+		// "empty pool" toast for consistency.
+		const auth = getAuthManager();
+		if (auth) {
+			await auth.deleteApiKey();
+		}
 		void vscode.window.showInformationMessage(t('keys.emptyPool'));
 		return 'cancelled';
 	}
@@ -209,6 +232,7 @@ export async function manageApiKeysCommand(): Promise<void> {
 	const items: Array<vscode.QuickPickItem & { command: string }> = [
 		{ label: t('keys.actionAdd'), description: t('keys.actionAddDesc'), command: 'minimax.addApiKey' },
 		{ label: t('keys.actionSwitch'), description: t('keys.actionSwitchDesc'), command: 'minimax.switchApiKey' },
+		{ label: t('keys.actionReprobe'), description: t('keys.actionReprobeDesc'), command: 'minimax.reprobeApiKey' },
 		{ label: t('keys.actionRename'), description: t('keys.actionRenameDesc'), command: 'minimax.renameApiKey' },
 		{ label: t('keys.actionDelete'), description: t('keys.actionDeleteDesc'), command: 'minimax.deleteApiKey' },
 	];

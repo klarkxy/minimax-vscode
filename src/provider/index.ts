@@ -153,44 +153,6 @@ export class MiniMaxChatProvider
 		context.subscriptions.push(keyManagerListener);
 	}
 
-	// ---- Public commands ----
-
-	async configureApiKey(): Promise<void> {
-		// `setApiKey` is the historical command (still wired in
-		// `package.json#contributes.commands`). It used to write to
-		// the legacy single-key slot only; now we route it through
-		// the named key pool so the new key gets a name, a region
-		// probe, and a synced `apiBaseUrl` — the same flow as
-		// `minimax.addApiKey`. We import the command handler lazily
-		// to avoid pulling the dashboard / command stack into the
-		// provider's synchronous import graph (it would create a
-		// circular dep through `runtime/keyCommands`).
-		const { addApiKeyCommand } = await import('../runtime/keyCommands.js');
-		const result = await addApiKeyCommand();
-		if (result === 'created') {
-			this.onDidChangeLanguageModelChatInformationEmitter.fire();
-		}
-	}
-
-	async clearApiKey(): Promise<void> {
-		// When there's at least one named key, prefer the rich delete
-		// flow (confirm, drop the secret, rotate active). When the
-		// pool is empty (legacy-only setup), fall back to the
-		// historical behaviour: clear the single-key slot.
-		const snapshot = this.keyManager.snapshot();
-		if (snapshot.keys.length > 0) {
-			const { deleteApiKeyCommand } = await import('../runtime/keyCommands.js');
-			const result = await deleteApiKeyCommand();
-			if (result === 'deleted') {
-				this.onDidChangeLanguageModelChatInformationEmitter.fire();
-			}
-			return;
-		}
-		await this.authManager.deleteApiKey();
-		this.onDidChangeLanguageModelChatInformationEmitter.fire();
-		vscode.window.showInformationMessage(t('auth.removed'));
-	}
-
 	async hasApiKey(): Promise<boolean> {
 		return this.authManager.hasApiKey();
 	}

@@ -264,8 +264,14 @@ export interface KeyMetadata {
 	name: string;
 	/** Display hint; defaults to the resolved host. */
 	region: KeyRegion;
-	/** The endpoint this key was bound to when added. Switching the
-	 *  active key updates `minimax.apiBaseUrl` to this value. */
+	/** The endpoint this key was bound to when it was added
+	 *  (or last reprobed). The active key's `apiBaseUrl` is the
+	 *  source of truth for the chat request host — the deprecated
+	 *  `minimax.apiBaseUrl` setting is consulted only as a
+	 *  fallback when this field is empty (e.g. a freshly migrated
+	 *  legacy entry whose region probe has not yet finished).
+	 *  Switching the active key does NOT write to the setting;
+	 *  the pool's own snapshot is read on every request. */
 	apiBaseUrl: string;
 	/** Last 6 chars of the secret, plus a per-key sha256 prefix.
 	 *  NEVER use as a credential — only for UI display and to keep

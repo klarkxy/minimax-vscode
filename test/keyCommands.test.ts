@@ -125,6 +125,7 @@ test('addApiKeyCommand: adds the key and shows a success toast', async () => {
 		call += 1;
 		return Promise.resolve(call === 1 ? 'k1' : 'sk-secret');
 	};
+	const apiBaseUrlBefore = mockConfig['minimax.apiBaseUrl'];
 	const result = await addApiKeyCommand();
 	assert.equal(result, 'created');
 	// Information toast was shown
@@ -132,6 +133,10 @@ test('addApiKeyCommand: adds the key and shows a success toast', async () => {
 		mockState.informationMessages.some((m) => m.includes('k1')),
 		'expected a confirmation toast naming the new key',
 	);
+	// The pool is the source of truth — adding a key MUST NOT mirror
+	// its endpoint into `minimax.apiBaseUrl`. The setting is the
+	// deprecated fallback only.
+	assert.equal(mockConfig['minimax.apiBaseUrl'], apiBaseUrlBefore);
 });
 
 test('addApiKeyCommand: rejects duplicate name via input box validation', async () => {
@@ -222,6 +227,21 @@ test('deleteApiKeyCommand: deletes the key when the user confirms', async () => 
 	assert.equal(snap.keys.length, 0);
 });
 
+// Regression: when the named pool is empty (e.g. migration failed or
+// was skipped) the legacy `minimax-vscode.apiKey` slot MUST still be
+// cleared by `deleteApiKeyCommand`. Previously the empty-pool branch
+// only showed a toast and left the legacy secret in place, so legacy
+// users running the command with the new code path would never
+// actually lose their key.
+test('deleteApiKeyCommand: empty pool falls back to clearing the legacy single-key slot', async () => {
+	const context = newContext();
+	await context.secrets.store('minimax-vscode.apiKey', 'sk-legacy');
+	assert.equal(await context.secrets.get('minimax-vscode.apiKey'), 'sk-legacy');
+	const result = await deleteApiKeyCommand();
+	assert.equal(result, 'cancelled');
+	assert.equal(await context.secrets.get('minimax-vscode.apiKey'), undefined);
+});
+
 test('manageApiKeysCommand: executes the picked action command', async () => {
 	const executedCommands: string[] = [];
 	const original = vscode.commands.executeCommand;
@@ -236,6 +256,38 @@ test('manageApiKeysCommand: executes the picked action command', async () => {
 		assert.deepEqual(executedCommands, ['minimax.addApiKey']);
 	} finally {
 		vscode.commands.executeCommand = original;
+	}
+});
+
+test('manageApiKeysCommand: lists the Re-probe action', async () => {
+	const executedCommands: string[] = [];
+	const original = vscode.commands.executeCommand;
+	vscode.commands.executeCommand = (cmd: string, ..._args: unknown[]) => {
+		executedCommands.push(cmd);
+		return Promise.resolve(undefined);
+	};
+	// Capture the QuickPick items so we can assert the new entry is
+	// present and labelled with the i18n-respected icon prefix.
+	let pickedItems: ReadonlyArray<{ label: string; command: string }> = [];
+	const originalShowQuickPick = vscode.window.showQuickPick;
+	vscode.window.showQuickPick = ((items: ReadonlyArray<{ label: string; command: string }>) => {
+		pickedItems = items;
+		// Simulate the user picking the Re-probe entry.
+		return Promise.resolve(
+			items.find((it) => it.command === 'minimax.reprobeApiKey') as never,
+		);
+	}) as never;
+	try {
+		await manageApiKeysCommand();
+		assert.deepEqual(executedCommands, ['minimax.reprobeApiKey']);
+		// The label is resolved through `t()` so it carries the icon
+		// prefix and either English or Chinese text — assert the
+		// command id is wired up regardless of locale.
+		const reprobe = pickedItems.find((it) => it.command === 'minimax.reprobeApiKey');
+		assert.ok(reprobe, 'reprobeApiKey entry should be in the QuickPick');
+	} finally {
+		vscode.commands.executeCommand = original;
+		vscode.window.showQuickPick = originalShowQuickPick;
 	}
 });
 

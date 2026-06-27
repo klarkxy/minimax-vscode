@@ -43,7 +43,13 @@ export interface DashboardMessages {
 	fieldWeeklyReset: string;
 	fieldWeekly: string;
 	fieldExpiry: string;
-	fieldExpiryDays: (days: number) => string;
+	/** Day-count labels for the expiry card. Three branches so the
+	 *  bundle never has to call a function across the JSON boundary
+	 *  (functions are stripped by `JSON.stringify`). All three
+	 *  templates use `{days}` as the number slot. */
+	fieldExpiryDaysFuture: string;
+	fieldExpiryDaysToday: string;
+	fieldExpiryDaysPast: string;
 	/** Em-dash placeholder for quota numbers the platform did not report. */
 	fieldUnlisted: string;
 	fieldStarted: string;
@@ -169,11 +175,9 @@ const en: DashboardMessages = {
 	fieldWeekly: 'Weekly',
 	fieldExpiry: 'Subscription expires',
 	fieldUnlisted: '—',
-	fieldExpiryDays: (days) => {
-		if (days < 0) return `expired ${Math.abs(days)}d ago`;
-		if (days === 0) return 'expires today';
-		return `${days} day${days === 1 ? '' : 's'} remaining`;
-	},
+	fieldExpiryDaysFuture: '{days} day(s) remaining',
+	fieldExpiryDaysToday: 'expires today',
+	fieldExpiryDaysPast: 'expired {days}d ago',
 	fieldStarted: 'Tracking since',
 	fieldUpdated: 'Updated',
 	windowToday: 'Today',
@@ -300,11 +304,9 @@ const zh: DashboardMessages = {
 	fieldWeekly: '周额度',
 	fieldExpiry: '套餐到期',
 	fieldUnlisted: '—',
-	fieldExpiryDays: (days) => {
-		if (days < 0) return `已过期 ${Math.abs(days)} 天`;
-		if (days === 0) return '今天到期';
-		return `还剩 ${days} 天`;
-	},
+	fieldExpiryDaysFuture: '还剩 {days} 天',
+	fieldExpiryDaysToday: '今天到期',
+	fieldExpiryDaysPast: '已过期 {days} 天',
 	fieldStarted: '开始追踪',
 	fieldUpdated: '更新时间',
 	windowToday: '今日',

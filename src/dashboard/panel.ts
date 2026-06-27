@@ -77,6 +77,7 @@ export interface DashboardPanelDeps {
 }
 
 const VIEW_TYPE = 'minimax.dashboard';
+const LOG_PREFIX = '[MiniMax Dashboard]';
 
 interface DashboardPanelState {
 	locale: DashboardLocale;
@@ -94,6 +95,9 @@ export class DashboardPanel {
 	private readonly claudeCodeSubscription: vscode.Disposable | undefined;
 	private state: DashboardPanelState = { locale: 'en' };
 	private inFlight = false;
+	private pendingRefresh = false;
+	private pendingRefreshForce = false;
+	private refreshSeq = 0;
 	private readonly messageListener = (raw: vscode.WebviewMessage) => this.handleMessage(raw);
 
 	private constructor(
@@ -150,10 +154,12 @@ export class DashboardPanel {
 
 	static show(deps: DashboardPanelDeps): DashboardPanel {
 		if (DashboardPanel.current) {
+			logger.info(`${LOG_PREFIX} reveal existing panel`);
 			DashboardPanel.current.panel.reveal(vscode.ViewColumn.Beside);
 			void DashboardPanel.current.refresh();
 			return DashboardPanel.current;
 		}
+		logger.info(`${LOG_PREFIX} create panel`);
 		const panel = vscode.window.createWebviewPanel(
 			VIEW_TYPE,
 			'MiniMax Dashboard',
@@ -192,10 +198,32 @@ export class DashboardPanel {
 	 * subscription, etc.) don't.
 	 */
 	async refresh(options?: { force?: boolean }): Promise<void> {
+		let force = options?.force === true;
 		if (this.inFlight) {
+			this.pendingRefresh = true;
+			this.pendingRefreshForce = this.pendingRefreshForce || force;
+			logger.info(`${LOG_PREFIX} refresh queued force=${force} pendingForce=${this.pendingRefreshForce}`);
 			return;
 		}
 		this.inFlight = true;
+		logger.info(`${LOG_PREFIX} refresh loop start force=${force}`);
+		try {
+			do {
+				force = force || this.pendingRefreshForce;
+				this.pendingRefresh = false;
+				this.pendingRefreshForce = false;
+				await this.refreshOnce({ force });
+				force = false;
+			} while (this.pendingRefresh);
+		} finally {
+			this.inFlight = false;
+			logger.info(`${LOG_PREFIX} refresh loop end`);
+		}
+	}
+
+	private async refreshOnce(options?: { force?: boolean }): Promise<void> {
+		const seq = ++this.refreshSeq;
+		const startedAt = Date.now();
 		try {
 			const apiKey = await this.authForRefresh();
 			const platform = apiKey
@@ -204,6 +232,9 @@ export class DashboardPanel {
 					host: this.deps.getHost?.() ?? null,
 				}
 				: null;
+			logger.info(
+				`${LOG_PREFIX} #${seq} start force=${options?.force === true} hasKey=${!!apiKey} host=${platform?.host ?? 'none'}`,
+			);
 			const planSnapshot = platform ? this.deps.planCache.read(platform) : undefined;
 			const mmxCliSnapshot = this.deps.mmxCliCache.read();
 			// MCP host/apiKey are stable for the duration of a refresh —
@@ -224,7 +255,10 @@ export class DashboardPanel {
 				mcp,
 				claudeCodeIngest: this.deps.claudeCodeIngest,
 			});
-			await this.postData(cachedView);
+			logger.info(
+				`${LOG_PREFIX} #${seq} cached view plan=${cachedView.sources.plan} snapshot=${!!planSnapshot}`,
+			);
+			await this.postData(cachedView, `${seq}:cached`);
 
 			// Refresh the plan cache in the background. We kick this off
 			// before awaiting `buildDashboardView` so the aggregator can
@@ -237,12 +271,18 @@ export class DashboardPanel {
 			// dashboard's explicit Refresh button (see the `case 'refresh'`
 			// handler below) passes `force: true` for guaranteed-fresh.
 			const force = options?.force === true;
+			let planRefreshError: string | undefined;
 			let planRefreshPromise: Promise<unknown> = Promise.resolve();
 			if (platform) {
+				logger.info(`${LOG_PREFIX} #${seq} plan refresh start force=${force}`);
 				planRefreshPromise = this.deps.planCache.refresh(
 					platform,
 					{ force },
-				);
+				).catch((error) => {
+					planRefreshError = error instanceof Error ? error.message : String(error);
+					logger.warn('plan cache refresh failed', error);
+					return null;
+				});
 			}
 			// Refresh the mmx-cli detection in the background. The
 			// cached view above already shows the last-known state, so
@@ -254,27 +294,38 @@ export class DashboardPanel {
 				return null;
 			});
 			await planRefreshPromise;
+			logger.info(`${LOG_PREFIX} #${seq} plan refresh end error=${planRefreshError ? 'yes' : 'no'}`);
 			// Read the cache again post-refresh so the final view
 			// reflects whatever the background fetch landed.
 			const refreshedPlanSnapshot = platform ? this.deps.planCache.read(platform) : undefined;
 			const refreshedMmxCliSnapshot = this.deps.mmxCliCache.read();
-			const view = await buildDashboardView({
-				store: this.deps.usageStore,
-				platform,
-				// Hand the aggregator the snapshot we already have so it
-				// does NOT re-fetch on its own.
-				planSnapshot: refreshedPlanSnapshot,
-				mmxCliStatus: refreshedMmxCliSnapshot?.status,
-				mcp,
-				claudeCodeIngest: this.deps.claudeCodeIngest,
-			});
-			await this.postData(view);
+			const view = planRefreshError && !refreshedPlanSnapshot
+				? await buildCachedDashboardView({
+					store: this.deps.usageStore,
+					planSource: 'error',
+					planError: planRefreshError,
+					mmxCli: refreshedMmxCliSnapshot?.status,
+					mcp,
+					claudeCodeIngest: this.deps.claudeCodeIngest,
+				})
+				: await buildDashboardView({
+					store: this.deps.usageStore,
+					platform,
+					// Hand the aggregator the snapshot we already have so it
+					// does NOT re-fetch on its own.
+					planSnapshot: refreshedPlanSnapshot,
+					mmxCliStatus: refreshedMmxCliSnapshot?.status,
+					mcp,
+					claudeCodeIngest: this.deps.claudeCodeIngest,
+				});
+			logger.info(
+				`${LOG_PREFIX} #${seq} final view plan=${view.sources.plan} elapsedMs=${Date.now() - startedAt}`,
+			);
+			await this.postData(view, `${seq}:final`);
 			await mmxPromise;
 		} catch (error) {
-			logger.warn('Dashboard refresh failed', error);
+			logger.warn(`${LOG_PREFIX} #${seq} refresh failed`, error);
 			await this.postError(error);
-		} finally {
-			this.inFlight = false;
 		}
 	}
 
@@ -318,11 +369,13 @@ export class DashboardPanel {
 		return buildMcpStatus({ apiBaseUrl, hasApiKey, providerRegistered, reason });
 	}
 
-	private async postData(view: DashboardView): Promise<void> {
-		await this.panel.webview.postMessage({
+	private async postData(view: DashboardView, traceId: string): Promise<void> {
+		const ok = await this.panel.webview.postMessage({
 			type: 'data',
+			traceId,
 			payload: view,
 		});
+		logger.info(`${LOG_PREFIX} post data trace=${traceId} ok=${ok} plan=${view.sources.plan}`);
 	}
 
 	private async postError(error: unknown): Promise<void> {
@@ -335,10 +388,25 @@ export class DashboardPanel {
 
 	private async handleMessage(raw: vscode.WebviewMessage): Promise<void> {
 		const message = raw as { type?: string; payload?: unknown };
+		logger.info(`${LOG_PREFIX} webview message type=${message.type ?? 'unknown'}`);
 		switch (message.type) {
 			case 'ready':
 				await this.refresh();
 				return;
+			case 'renderAck': {
+				const payload = message.payload as { traceId?: unknown; plan?: unknown; elapsedMs?: unknown } | undefined;
+				logger.info(
+					`${LOG_PREFIX} render ack trace=${String(payload?.traceId ?? '?')} plan=${String(payload?.plan ?? '?')} elapsedMs=${String(payload?.elapsedMs ?? '?')}`,
+				);
+				return;
+			}
+			case 'renderError': {
+				const payload = message.payload as { traceId?: unknown; message?: unknown } | undefined;
+				logger.warn(
+					`${LOG_PREFIX} render error trace=${String(payload?.traceId ?? '?')} message=${String(payload?.message ?? '?')}`,
+				);
+				return;
+			}
 			case 'refresh':
 				// The dashboard's Refresh button is the user's explicit
 				// "I want a fresh snapshot" gesture. Pass `force: true`

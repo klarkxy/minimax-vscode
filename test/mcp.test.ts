@@ -330,6 +330,59 @@ describe('registerMiniMaxMcpProvider', () => {
 		assert.deepEqual(defs, []);
 	});
 
+	// Regression: the auto provider used to read `minimax.apiBaseUrl`
+	// directly, which split-brained the MCP spawn env from the chat
+	// request host when the active key was on a different endpoint
+	// than the deprecated setting. Production now passes the active
+	// key's `getActiveApiBaseUrl()` resolver; this test pins the
+	// contract by feeding a custom resolver and asserting it wins
+	// over both the seeded setting AND a freshly-added named pool
+	// entry that disagrees with the setting.
+	it('uses the injected active-key resolver (not the deprecated apiBaseUrl setting)', async () => {
+		const ctx = makeContext({ 'minimax-vscode.apiKey': 'sk-test' });
+		// Seed the deprecated setting to the China endpoint, but the
+		// resolver says the active key points at the international
+		// host. The MCP definition MUST follow the resolver.
+		setApiBaseUrl('https://api.minimaxi.com/anthropic');
+		const auth = makeAuth(ctx);
+		const handle = registerMiniMaxMcpProvider(ctx as never, auth, {
+			getApiBaseUrl: async () => 'https://api.minimax.io/anthropic',
+		});
+		ctx.subscriptions.push(handle);
+		const recorded = getRecordedMcpProviders();
+		const defs = (await recorded[0].provider.provideMcpServerDefinitions(
+			{},
+		)) as Array<{ host: string; env: Record<string, string> }>;
+		assert.equal(defs.length, 1);
+		assert.equal(defs[0]!.host, 'https://api.minimax.io');
+		assert.equal(defs[0]!.env['MINIMAX_API_HOST'], 'https://api.minimax.io');
+		handle.dispose();
+	});
+
+	// Regression: even when the deprecated setting disagrees, a
+	// named pool entry pointing at a third-party proxy wins via
+	// the resolver. This is the custom-proxy contract — the MCP
+	// spawn env must not silently swap to the China default just
+	// because the deprecated setting still points there.
+	it('honors the resolver on a third-party proxy (custom-proxy contract)', async () => {
+		const ctx = makeContext({ 'minimax-vscode.apiKey': 'sk-test' });
+		setApiBaseUrl('https://api.minimaxi.com/anthropic');
+		const auth = makeAuth(ctx);
+		const handle = registerMiniMaxMcpProvider(ctx as never, auth, {
+			getApiBaseUrl: async () => 'https://my-proxy.example.com/v1',
+		});
+		ctx.subscriptions.push(handle);
+		const recorded = getRecordedMcpProviders();
+		const defs = (await recorded[0].provider.provideMcpServerDefinitions(
+			{},
+		)) as Array<{ host: string }>;
+		// Proxy host doesn't map to a recognised platform — the
+		// provider must refuse to publish a definition (rather than
+		// publishing one that leaks the key to the China default).
+		assert.deepEqual(defs, []);
+		handle.dispose();
+	});
+
 	it('handle.refreshDefinitions() fires onDidChangeMcpServerDefinitions', () => {
 		// The manual "Refresh MCP" command and the dashboard's Refresh
 		// button rely on this: VS Code re-resolves the provider on the

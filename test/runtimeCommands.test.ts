@@ -56,6 +56,9 @@ function newContext() {
 }
 
 beforeEach(() => {
+	for (const panel of mockState.webviewPanels.slice()) {
+		panel.dispose();
+	}
 	mockState.reset();
 	mockConfig['minimax.apiBaseUrl'] = 'https://api.minimaxi.com/anthropic';
 });
@@ -84,38 +87,19 @@ test('registerCommands wires the command context and creates the plan status bar
 	);
 });
 
-test('registered switchToGlobal command updates apiBaseUrl to the global endpoint', async () => {
+test('registered reprobeApiKey command runs against the active key (no-op when no key)', async () => {
 	const context = newContext();
 	registerCommands(context);
 
-	const command = getRegisteredCommand('minimax.switchToGlobal');
-	assert.ok(command);
+	const command = getRegisteredCommand('minimax.reprobeApiKey');
+	assert.ok(command, 'reprobeApiKey command should be registered');
+	// No active key → the no-active toast. No apiBaseUrl write.
+	const before = mockConfig['minimax.apiBaseUrl'];
 	await command();
-	assert.equal(
-		mockConfig['minimax.apiBaseUrl'],
-		'https://api.minimax.io/anthropic',
-	);
-	// The confirmation toast was shown.
+	assert.equal(mockConfig['minimax.apiBaseUrl'], before, 'reprobe must not write apiBaseUrl');
 	assert.ok(
-		mockState.informationMessages.some((m) => /global endpoint/i.test(m)),
-		'expected the global-endpoint confirmation toast',
-	);
-});
-
-test('registered switchToChina command updates apiBaseUrl to the China endpoint', async () => {
-	const context = newContext();
-	registerCommands(context);
-
-	const command = getRegisteredCommand('minimax.switchToChina');
-	assert.ok(command);
-	await command();
-	assert.equal(
-		mockConfig['minimax.apiBaseUrl'],
-		'https://api.minimaxi.com/anthropic',
-	);
-	assert.ok(
-		mockState.informationMessages.some((m) => /china endpoint/i.test(m)),
-		'expected the china-endpoint confirmation toast',
+		mockState.informationMessages.some((m) => /no active api key/i.test(m)),
+		'expected the no-active-key toast',
 	);
 });
 
@@ -154,4 +138,6 @@ test('registered openDashboard command creates a webview panel through the VS Co
 		),
 		'dashboard refresh should post at least one data payload to the webview',
 	);
+	panel.dispose();
+	await new Promise((resolve) => setImmediate(resolve));
 });

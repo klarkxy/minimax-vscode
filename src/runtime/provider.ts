@@ -8,8 +8,21 @@ export async function registerProvider(
 	const provider = new MiniMaxChatProvider(context);
 
 	context.subscriptions.push(
-		vscode.commands.registerCommand('minimax.setApiKey', () => provider.configureApiKey()),
-		vscode.commands.registerCommand('minimax.clearApiKey', () => provider.clearApiKey()),
+		// `setApiKey` / `clearApiKey` are historical command ids kept
+		// alive as runtime aliases of `addApiKey` / `deleteApiKey`.
+		// `package.json#contributes.commands.aliases` makes the
+		// command palette surface only the new ids, but `executeCommand`
+		// calls (deep-link actions, keybindings, walkthrough completion
+		// events, the `minimax:///` URI handler in `actions.ts`) still
+		// dispatch by the old id. We register them as one-line
+		// forwards so every call site keeps working without a separate
+		// routing table.
+		vscode.commands.registerCommand('minimax.setApiKey', () =>
+			vscode.commands.executeCommand('minimax.addApiKey'),
+		),
+		vscode.commands.registerCommand('minimax.clearApiKey', () =>
+			vscode.commands.executeCommand('minimax.deleteApiKey'),
+		),
 		vscode.lm.registerLanguageModelChatProvider('minimax', provider),
 		// The provider holds the chat-turn notifier and the internal
 		// `disposed` flag. Pushing it here lets VS Code call

@@ -106,7 +106,9 @@ test('hasApiKey: returns false when no key is set anywhere', async () => {
 test('hasApiKey: returns true after the legacy single-key slot is populated', async () => {
 	const { context } = newContext();
 	const provider = new MiniMaxChatProvider(context as never);
-	await provider.clearApiKey(); // ensure clean state
+	// Clear any state seeded by another test's beforeEach so this
+	// test owns the secret slot it asserts against.
+	await context.secrets.delete('minimax-vscode.apiKey');
 	await context.secrets.store('minimax-vscode.apiKey', 'sk-test-1234');
 	assert.equal(await provider.hasApiKey(), true);
 });
@@ -171,15 +173,4 @@ test('provideLanguageModelChatInformation: honours visibleModels setting (drops 
 		{} as never,
 	);
 	assert.ok(infos.every((i) => i.id === 'MiniMax-M3'));
-});
-
-// ---- clearApiKey -----------------------------------------------------
-
-test('clearApiKey: with an empty pool, falls back to clearing the legacy single-key slot', async () => {
-	const { context } = newContext();
-	const provider = new MiniMaxChatProvider(context as never);
-	await context.secrets.store('minimax-vscode.apiKey', 'sk-legacy');
-	assert.equal(await context.secrets.get('minimax-vscode.apiKey'), 'sk-legacy');
-	await provider.clearApiKey();
-	assert.equal(await context.secrets.get('minimax-vscode.apiKey'), undefined);
 });

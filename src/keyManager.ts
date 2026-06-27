@@ -38,6 +38,19 @@ export type KeyRegionProbeResult =
 	| { kind: 'both' }
 	| { kind: 'unsupported' };
 
+/** Result of a one-time migration of the legacy single-key slot
+ *  into the named pool. `already-migrated` is the multi-window
+ *  safe no-op (the metadata was created by another window).
+ *  `no-legacy-secret` means the legacy slot was empty — nothing
+ *  to do. `pool-already-active` means a non-legacy key is already
+ *  active; we deliberately don't migrate in that case to avoid
+ *  silently replacing the user's active choice. */
+export type KeyMigrationResult =
+	| { result: 'migrated'; id: string }
+	| { result: 'already-migrated' }
+	| { result: 'no-legacy-secret' }
+	| { result: 'pool-already-active'; activeKeyId: string };
+
 /** Surface-only view of a key returned to the dashboard. The raw
  *  secret is NEVER included — only metadata + the fingerprint. */
 export interface KeySummary {
@@ -101,15 +114,22 @@ export class KeyManager {
 	}
 
 	/** Resolve which `apiBaseUrl` should be used for the current
-	 *  active key. Falls back to the user's configured
-	 *  `minimax.apiBaseUrl` (or the China default) when no active
-	 *  key is set, so request-time code can stay simple. */
+	 *  active key. The pool's active entry is the source of truth.
+	 *  An empty / whitespace `entry.apiBaseUrl` (e.g. a freshly
+	 *  migrated legacy entry whose region probe has not finished
+	 *  yet) falls through to the configured `minimax.apiBaseUrl` so
+	 *  the very first chat request after `activate()` still works
+	 *  against the user's previous endpoint. When the pool has no
+	 *  active entry, falls back to the same configured setting. */
 	async getActiveApiBaseUrl(): Promise<string> {
 		const meta = this.readMetadata();
 		if (meta.activeKeyId) {
 			const entry = meta.keys.find((k) => k.id === meta.activeKeyId);
 			if (entry) {
-				return entry.apiBaseUrl;
+				const trimmed = entry.apiBaseUrl?.trim();
+				if (trimmed) {
+					return trimmed;
+				}
 			}
 		}
 		return this.readConfiguredApiBaseUrl();
@@ -159,7 +179,15 @@ export class KeyManager {
 	 *  When `probe` is `true` (default) the manager runs the official
 	 *  China/Global host probe and uses the narrowest result to fill
 	 *  in `region` / `apiBaseUrl`. The caller can override either
-	 *  field after the call returns if the probe was ambiguous. */
+	 *  field after the call returns if the probe was ambiguous.
+	 *
+	 *  When the probe returns `unsupported`, the entry is saved with
+	 *  `region: 'custom'` and the entry's `apiBaseUrl` falls through
+	 *  to the user's configured `minimax.apiBaseUrl` (preserving
+	 *  custom-proxy users). The fallback is the `if (!apiBaseUrl)`
+	 *  branch below — `resolveApiBaseUrlFromProbe('unsupported')`
+	 *  intentionally returns `''` so this branch is the one that
+	 *  binds the URL, not the probe resolver. */
 	async addApiKey(input: {
 		name: string;
 		apiKey: string;
@@ -187,6 +215,10 @@ export class KeyManager {
 			region = input.region ?? this.resolveRegionFromProbe(result);
 			apiBaseUrl = input.apiBaseUrl ?? this.resolveApiBaseUrlFromProbe(result);
 		}
+		// Empty string is the contract for "the probe couldn't pick a
+		// host" — fall back to the user's configured URL so a
+		// third-party-proxy user isn't silently rebinding to the China
+		// default. Same pattern in `reprobeActiveKey()`.
 		if (!apiBaseUrl) {
 			apiBaseUrl = this.readConfiguredApiBaseUrl();
 		}
@@ -230,12 +262,133 @@ export class KeyManager {
 		return entry;
 	}
 
-	/** Public wrapper around `switchApiKey` that ALSO mirrors the
-	 *  selected key's `apiBaseUrl` into `minimax.apiBaseUrl`. This is
-	 *  the entry point commands use so the request path, the quota
-	 *  host, and the usage scope all stay in sync. Returns the new
-	 *  active metadata and the previous active id (or `undefined`
-	 *  if there was no previous active key). */
+	/** One-time upgrade of the legacy single-key slot (`minimax-vscode.apiKey`)
+	 *  into the named pool. The legacy secret is copied into a `LEGACY_KEY_ID`
+	 *  entry with `region: 'custom'` and an empty `apiBaseUrl` — the host is
+	 *  filled in by a subsequent `reprobeActiveKey()` call so the user doesn't
+	 *  have to re-enter their key.
+	 *
+	 *  Idempotent: if the entry already exists in this window's metadata,
+	 *  returns `'already-migrated'` without touching SecretStorage. If a
+	 *  non-legacy key is already active, returns `'pool-already-active'` so
+	 *  we don't silently replace the user's active choice.
+	 *
+	 *  The legacy SecretStorage slot is NOT deleted here. `getActiveApiKey()`
+	 *  still falls back to it via `readLegacyApiKey()` until the async
+	 *  probe finishes and `reprobeActiveKey()` confirms a working host. */
+	async migrateLegacySecret(): Promise<KeyMigrationResult> {
+		const meta = this.readMetadata();
+		if (meta.keys.some((k) => k.id === LEGACY_KEY_ID)) {
+			return { result: 'already-migrated' };
+		}
+		if (meta.activeKeyId && meta.activeKeyId !== LEGACY_KEY_ID) {
+			return { result: 'pool-already-active', activeKeyId: meta.activeKeyId };
+		}
+
+		const legacySecret = (await this.context.secrets.get(API_KEY_SECRET))?.trim();
+		if (!legacySecret) {
+			return { result: 'no-legacy-secret' };
+		}
+
+		const now = new Date().toISOString();
+		const entry: KeyMetadata = {
+			id: LEGACY_KEY_ID,
+			name: t('keys.legacyName'),
+			// `custom` + empty apiBaseUrl signals "not yet probed" to the
+			// dashboard and to `reprobeActiveKey()`. The region is
+			// upgraded to `'china'` / `'global'` (and the URL filled in)
+			// by the async probe the lifecycle fires after migration.
+			region: 'custom',
+			apiBaseUrl: '',
+			fingerprint: this.fingerprintOf(legacySecret),
+			createdAt: now,
+			updatedAt: now,
+		};
+		meta.keys.push(entry);
+		meta.activeKeyId = LEGACY_KEY_ID;
+		// Copy the legacy secret into the per-key slot so
+		// `reprobeActiveKey()` (which reads via `secretKeyFor(id)`) can
+		// pick it up uniformly. The legacy `API_KEY_SECRET` slot is
+		// kept around as a fallback until the probe confirms a host,
+		// at which point `reprobeActiveKey()` deletes it.
+		await this.context.secrets.store(this.secretKeyFor(LEGACY_KEY_ID), legacySecret);
+		await this.persistMetadata(meta);
+		this.fireChange();
+		return { result: 'migrated', id: LEGACY_KEY_ID };
+	}
+
+	/** Re-run the official China/Global probe against the active key's
+	 *  secret and update the entry's `region` / `apiBaseUrl` in place.
+	 *
+	 *  Returns the updated entry, or `undefined` if there is no active
+	 *  key, or the active key has no usable secret. The fast path
+	 *  (already probed, non-custom region + non-empty URL) is a no-op
+	 *  — `addApiKey` always probes, so named keys in the pool never
+	 *  hit this branch unless the user invokes the command explicitly.
+	 *
+	 *  When the probe result is `'unsupported'`, the entry keeps
+	 *  `region: 'custom'` and falls back to `readConfiguredApiBaseUrl()`
+	 *  for the URL — preserves custom-proxy users. This is handled
+	 *  by the same empty-string contract on `resolveApiBaseUrlFromProbe`
+	 *  that `addApiKey()` uses, so the two call sites agree.
+	 *
+	 *  When the active entry is `LEGACY_KEY_ID` and the probe succeeds
+	 *  (region is now `'china'` or `'global'`), the now-redundant
+	 *  legacy SecretStorage slot is deleted so the secret lives in
+	 *  one place only. */
+	async reprobeActiveKey(): Promise<KeyMetadata | undefined> {
+		const meta = this.readMetadata();
+		if (!meta.activeKeyId) {
+			return undefined;
+		}
+		const entry = meta.keys.find((k) => k.id === meta.activeKeyId);
+		if (!entry) {
+			return undefined;
+		}
+		if (entry.region !== 'custom' && entry.apiBaseUrl.trim().length > 0) {
+			return entry;
+		}
+
+		const secret = (await this.context.secrets.get(this.secretKeyFor(entry.id)))?.trim();
+		if (!secret) {
+			return undefined;
+		}
+
+		const probe = await this.probeRegion(secret);
+		// `resolveApiBaseUrlFromProbe` returns '' for `'unsupported'`,
+		// so we fall through to the user's configured URL — preserves
+		// the custom-proxy contract that `addApiKey()` follows.
+		entry.region = this.resolveRegionFromProbe(probe);
+		entry.apiBaseUrl = this.resolveApiBaseUrlFromProbe(probe) || this.readConfiguredApiBaseUrl();
+		entry.updatedAt = new Date().toISOString();
+		await this.persistMetadata(meta);
+
+		// Once the legacy entry has a confirmed host, the SecretStorage
+		// fallback slot is no longer needed and is removed so the secret
+		// lives in exactly one place. Failure of the delete is non-fatal
+		// — the legacy reader simply continues to no-op.
+		if (entry.id === LEGACY_KEY_ID && entry.region !== 'custom') {
+			try {
+				await this.context.secrets.delete(API_KEY_SECRET);
+			} catch {
+				// Ignore — the legacy slot being absent is the desired
+				// end state but not a hard requirement.
+			}
+		}
+
+		this.fireChange();
+		return entry;
+	}
+
+	/** Public wrapper around `switchApiKey` that switches the active
+	 *  key. Returns the new active metadata and the previous active id
+	 *  (or `undefined` if there was no previous active key).
+	 *
+	 *  Does NOT touch the `minimax.apiBaseUrl` setting — the active key's
+	 *  `apiBaseUrl` is the source of truth and is read on every request
+	 *  via `getActiveApiBaseUrl()`. The setting is only consulted as a
+	 *  fallback when the pool has no active key (legacy migration in
+	 *  flight). */
 	async setActiveKey(id: string): Promise<{ entry: KeyMetadata; previousId?: string }> {
 		const meta = this.readMetadata();
 		// `previousId` describes the key that was active immediately
@@ -246,18 +399,7 @@ export class KeyManager {
 		// and for the plan-cache invalidation side effect.
 		const previousId = meta.activeKeyId === id ? undefined : meta.activeKeyId;
 		const entry = await this.switchApiKey(id);
-		await this.updateApiBaseUrl(entry.apiBaseUrl);
 		return { entry, previousId };
-	}
-
-	/** Mirror a base URL into `minimax.apiBaseUrl`. The legacy
-	 *  single-key slot does not own an endpoint, so this is a no-op
-	 *  for `LEGACY_KEY_ID`. */
-	async updateApiBaseUrl(apiBaseUrl: string): Promise<void> {
-		const config = vscode.workspace.getConfiguration('minimax');
-		const current = config.get<string>('apiBaseUrl');
-		if (current === apiBaseUrl) return;
-		await config.update('apiBaseUrl', apiBaseUrl, vscode.ConfigurationTarget.Global);
 	}
 
 	/** Rename a key. Throws if another key already has the new name. */
@@ -283,11 +425,9 @@ export class KeyManager {
 
 	/** Delete a key's metadata + secret. If the deleted key was
 	 *  active, picks the next available key (or clears the active
-	 *  pointer) AND mirrors the replacement key's `apiBaseUrl` into
-	 *  `minimax.apiBaseUrl`. Without that mirror, the request path
-	 *  would keep hitting the OLD host with the NEW secret after
-	 *  deleting the active key — see `setActiveKey()` for the
-	 *  matching sync used by the switch flow. */
+	 *  pointer). The replacement key's `apiBaseUrl` is NOT mirrored
+	 *  anywhere — the pool is the source of truth, and the request
+	 *  path reads `getActiveApiBaseUrl()` on every call. */
 	async deleteApiKey(id: string): Promise<void> {
 		const meta = this.readMetadata();
 		const idx = meta.keys.findIndex((k) => k.id === id);
@@ -296,18 +436,11 @@ export class KeyManager {
 		}
 		meta.keys.splice(idx, 1);
 		const wasActive = meta.activeKeyId === id;
-		let replacement: KeyMetadata | undefined;
 		if (wasActive) {
 			meta.activeKeyId = meta.keys[0]?.id;
-			if (meta.activeKeyId) {
-				replacement = meta.keys.find((k) => k.id === meta.activeKeyId);
-			}
 		}
 		await this.context.secrets.delete(this.secretKeyFor(id));
 		await this.persistMetadata(meta);
-		if (wasActive && replacement) {
-			await this.updateApiBaseUrl(replacement.apiBaseUrl);
-		}
 		this.fireChange();
 	}
 
@@ -343,8 +476,11 @@ export class KeyManager {
 	/** Convert a probe result into the default `apiBaseUrl` for the
 	 *  user. `both` falls back to the China host to match the
 	 *  existing endpoint auto-select behaviour. `unsupported`
-	 *  returns the China default as well so the user can still
-	 *  manually pick a custom endpoint via the manager. */
+	 *  returns an empty string so the caller's post-probe fallback
+	 *  (`readConfiguredApiBaseUrl()`) is what binds the key — the
+	 *  pool must NOT silently swap a custom-proxy user's URL to the
+	 *  China default just because the official host rejected the
+	 *  key. */
 	resolveApiBaseUrlFromProbe(result: KeyRegionProbeResult): string {
 		switch (result.kind) {
 			case 'china':
@@ -352,8 +488,9 @@ export class KeyManager {
 			case 'global':
 				return DEFAULT_BASE_URL_GLOBAL;
 			case 'both':
-			case 'unsupported':
 				return DEFAULT_BASE_URL_CHINA;
+			case 'unsupported':
+				return '';
 		}
 	}
 
