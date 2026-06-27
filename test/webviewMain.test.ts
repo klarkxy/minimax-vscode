@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 
 import {
 	applyActiveTab,
+	applyRefreshState,
 	card,
 	chartSection,
 	claudeCodeSection,
@@ -149,6 +150,7 @@ interface StubElement {
 	closest(sel: string): StubElement | null;
 	getAttribute(name: string): string | null;
 	setAttribute(name: string, value: string): void;
+	removeAttribute(name: string): void;
 	addEventListener(event: string, listener: (e: unknown) => void): void;
 	dispatchEvent(event: { type: string; target?: unknown }): void;
 	appendChild(child: StubElement): void;
@@ -197,6 +199,7 @@ function makeElement(tagName: string): StubElement {
 		},
 		getAttribute(name) { return this.attributes.get(name) ?? null; },
 		setAttribute(name, value) { this.attributes.set(name, value); },
+		removeAttribute(name) { this.attributes.delete(name); },
 		addEventListener(event, listener) {
 			const list = this.listeners.get(event) ?? [];
 			list.push(listener);
@@ -327,9 +330,19 @@ function makeFakeWin(w: FakeWindow) {
 }
 
 function makeFakeDoc(_w: FakeWindow) {
+	// `document` also needs `querySelector` so the
+	// `applyRefreshState` helper can find the header refresh
+	// button (which is a sibling of `#root`, not a descendant —
+	// see the regression note on issue #5). The default
+	// implementation returns nothing; tests that need a
+	// discoverable refresh button swap this out (or call
+	// `applyRefreshState` directly with a `doc` that resolves).
 	return {
 		addEventListener(_event: string, listener: (event: unknown) => void) {
 			docClickHandlers.push(listener);
+		},
+		querySelector(_sel: string): Element | null {
+			return null;
 		},
 	};
 }
@@ -799,6 +812,82 @@ test('start: invalid messages are ignored', () => {
 	}
 });
 
+// Regression for issue #5: refreshState messages are the only path
+// for in-flight indicators, and they must NEVER touch `#root.innerHTML`.
+// The previous two-frame model posted a 'loading' data frame on
+// every refresh and the webview's render() rewrote `#root` — the
+// user observed a dashboard permanently stuck on "刷新…". The
+// new contract splits the responsibilities: `data` is the only
+// message that may rewrite the main content; `refreshState` only
+// mutates the header / spinner.
+test('start: refreshState message mutates the refresh button but NEVER #root.innerHTML', () => {
+	const w = setupFakeWindow();
+	try {
+		const messages: Array<{ type: string; payload?: unknown }> = [];
+		const vscode = {
+			postMessage: (m: unknown) => { messages.push(m as { type: string; payload?: unknown }); },
+			getState: () => null,
+			setState: () => {},
+		};
+
+		// The refresh button is a SIBLING of #root (it lives in
+		// the static <header>), so we register it on the fake
+		// `doc` directly. `applyRefreshState` queries the `doc`
+		// for the button by selector, so the fake `doc.querySelector`
+		// must resolve it.
+		const refreshBtn = makeElement('button');
+		refreshBtn.attributes.set('data-action', 'refresh');
+		const fakeDoc = {
+			addEventListener(_event: string, listener: (event: unknown) => void) {
+				docClickHandlers.push(listener);
+			},
+			querySelector(sel: string): Element | null {
+				return sel === 'button[data-action="refresh"]' ? (refreshBtn as unknown as Element) : null;
+			},
+		};
+
+		start({ vscode, root: w.root, updatedStamp: w.stamp, i18n: i18n(), win: makeFakeWin(w), doc: fakeDoc });
+
+		// Seed a real dashboard frame so we have something in
+		// `#root.innerHTML` to protect against overwrite.
+		w.messageHandlers[0]({ data: { type: 'data', payload: makeView() } });
+		const before = w.root.innerHTML;
+		assert.match(before, /Total/, 'sanity: data frame rendered dashboard content');
+
+		// Now flip refreshState on. The button must receive the
+		// `refreshing` class + `disabled` attribute; `#root` must
+		// remain untouched.
+		w.messageHandlers[0]({ data: { type: 'refreshState', payload: { refreshing: true, traceId: 't1' } } });
+		assert.equal(refreshBtn.classList.contains('refreshing'), true, 'refreshing class should be set');
+		assert.equal(refreshBtn.attributes.get('disabled'), 'true', 'button should be disabled while refreshing');
+		assert.equal(w.root.innerHTML, before, '#root.innerHTML must NOT change on refreshState');
+
+		// Flip it back off — class clears, disabled removed,
+		// `#root` still untouched. The stub's `removeAttribute`
+		// returns `undefined`, while the real DOM contract is
+		// `getAttribute('disabled')` returning `null` once the
+		// attribute is removed — both are acceptable signals that
+		// the attribute is gone, so accept either.
+		w.messageHandlers[0]({ data: { type: 'refreshState', payload: { refreshing: false, traceId: 't2' } } });
+		assert.equal(refreshBtn.classList.contains('refreshing'), false, 'refreshing class should clear');
+		const disabled = refreshBtn.attributes.get('disabled');
+		assert.ok(
+			disabled === null || disabled === undefined,
+			`button should re-enable (disabled attribute removed). got '${disabled}'`,
+		);
+		assert.equal(w.root.innerHTML, before, '#root.innerHTML must STILL be untouched after refreshState=false');
+
+		// The webview must echo a refreshStateAck so the host's
+		// diagnostic channel can stitch the traceId.
+		const acks = messages.filter((m) => m.type === 'refreshStateAck');
+		assert.equal(acks.length, 2, 'host should receive one refreshStateAck per refreshState message');
+		assert.deepEqual(acks[0]?.payload, { refreshing: true, traceId: 't1' });
+		assert.deepEqual(acks[1]?.payload, { refreshing: false, traceId: 't2' });
+	} finally {
+
+	}
+});
+
 test('applyActiveTab: sets aria-selected on tab buttons', () => {
 	const root = makeElement('div');
 	const pane = makeElement('div');
@@ -821,6 +910,44 @@ test('applyActiveTab: sets aria-selected on tab buttons', () => {
 	applyActiveTab(root, 'total');
 	assert.equal(btn1.attributes.get('aria-selected'), 'true');
 	assert.equal(btn2.attributes.get('aria-selected'), 'false');
+});
+
+// applyRefreshState is the in-flight indicator. It toggles a
+// `refreshing` class + `disabled` attribute on the refresh button
+// and is the ONLY way the host signals progress without rewriting
+// `#root.innerHTML` (the load-bearing split for issue #5).
+test('applyRefreshState: toggles refreshing class + disabled attribute on the refresh button', () => {
+	const root = makeElement('div');
+	const refreshBtn = makeElement('button');
+	refreshBtn.attributes.set('data-action', 'refresh');
+	const fakeDoc = {
+		querySelector(sel: string): Element | null {
+			return sel === 'button[data-action="refresh"]' ? (refreshBtn as unknown as Element) : null;
+		},
+	};
+	applyRefreshState(true, { doc: fakeDoc, root });
+	assert.equal(refreshBtn.classList.contains('refreshing'), true);
+	assert.equal(refreshBtn.attributes.get('disabled'), 'true');
+
+	applyRefreshState(false, { doc: fakeDoc, root });
+	assert.equal(refreshBtn.classList.contains('refreshing'), false);
+	const disabled = refreshBtn.attributes.get('disabled');
+	assert.ok(
+		disabled === null || disabled === undefined,
+		`disabled attribute should be removed after refreshing=false. got '${disabled}'`,
+	);
+});
+
+test('applyRefreshState: no-op when the refresh button is absent (no throw, no mutation)', () => {
+	const root = makeElement('div');
+	const fakeDoc = {
+		querySelector(_sel: string): Element | null { return null; },
+	};
+	// Should not throw.
+	applyRefreshState(true, { doc: fakeDoc, root });
+	applyRefreshState(false, { doc: fakeDoc, root });
+	// root is untouched.
+	assert.equal(root.innerHTML, '');
 });
 
 // ---- localCard edge cases -------------------------------------------

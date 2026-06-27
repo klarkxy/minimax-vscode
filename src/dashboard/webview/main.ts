@@ -258,6 +258,49 @@ export function applyActiveTab(root: HTMLElement, activeTab: TabId): void {
 	});
 }
 
+/**
+ * Apply a refresh-state indicator to the dashboard WITHOUT touching
+ * `#root.innerHTML`. The only mutation is a `refreshing` class on
+ * the Refresh button (which the static `<style>` block turns into a
+ * spinner + disabled state) and an updated footer stamp. This is
+ * the load-bearing split for issue #5: a refresh in flight no longer
+ * overwrites the previously-rendered dashboard with a "loading"
+ * placeholder.
+ *
+ * The Refresh button lives in the static `<header>` (a SIBLING of
+ * `#root`), so the helper accepts the `document` (or any element
+ * with a `querySelector` that resolves to the page's full tree)
+ * and looks the button up by selector. The webview is responsible
+ * for passing the right scope at the message handler.
+ */
+export function applyRefreshState(refreshing: boolean, opts?: { doc?: DocumentLike | { querySelector(sel: string): Element | null }; root?: HTMLElement }): void {
+	const scope = opts?.doc ?? ((opts?.root?.ownerDocument ?? null) as unknown as DocumentLike | null);
+	const queryScope = (scope as { querySelector?: (sel: string) => Element | null } | null)
+		?? opts?.root
+		?? null;
+	const button = queryScope && typeof (queryScope as { querySelector?: (sel: string) => Element | null }).querySelector === 'function'
+		? (queryScope as { querySelector(sel: string): Element | null }).querySelector('button[data-action="refresh"]')
+		: null;
+	if (!button) return;
+	const classList = (button as { classList?: { toggle(c: string, force?: boolean): void; contains(c: string): boolean; add(c: string): void; remove(c: string): void } }).classList;
+	if (classList) {
+		if (typeof classList.toggle === 'function') {
+			classList.toggle('refreshing', refreshing);
+		} else if (refreshing) {
+			classList.add?.('refreshing');
+		} else {
+			classList.remove?.('refreshing');
+		}
+	}
+	const setAttribute = (button as { setAttribute?: (n: string, v: string) => void }).setAttribute;
+	const removeAttribute = (button as { removeAttribute?: (n: string) => void }).removeAttribute;
+	if (refreshing) {
+		setAttribute?.call(button, 'disabled', 'true');
+	} else {
+		removeAttribute?.call(button, 'disabled');
+	}
+}
+
 export function fmtNumber(n: unknown): string {
 	if (typeof n !== 'number' || !isFinite(n)) return '0';
 	const abs = Math.abs(n);
@@ -799,7 +842,7 @@ export function start(opts: {
 	const target: WindowLike | undefined = win ?? ((globalThis as unknown) as WindowLike);
 	target?.addEventListener?.('message', (event) => {
 		try {
-			const message = (event as { data?: unknown }).data as { type?: string; payload?: unknown } | null;
+			const message = (event as { data?: unknown }).data as { type?: string; payload?: unknown; traceId?: unknown } | null;
 			if (!message || typeof message !== 'object') return;
 			if (message.type === 'data') {
 				const startedAt = Date.now();
@@ -808,7 +851,7 @@ export function start(opts: {
 				vscode.postMessage({
 					type: 'renderAck',
 					payload: {
-						traceId: (message as { traceId?: unknown }).traceId,
+						traceId: message.traceId,
 						plan: view?.sources?.plan,
 						elapsedMs: Date.now() - startedAt,
 					},
@@ -817,6 +860,23 @@ export function start(opts: {
 				const payload = message.payload as { message?: unknown } | undefined;
 				const text = payload && typeof payload.message === 'string' ? payload.message : 'error';
 				root.innerHTML = '<div class="banner">' + escapeHtml(text) + '</div>';
+			} else if (message.type === 'refreshState') {
+				// Refresh-state indicator: mutates ONLY the header
+				// refresh button (spinner + disabled) and the
+				// `data-stamp="updated"` footer. Does NOT touch
+				// `root.innerHTML`, so an in-flight refresh no longer
+				// overwrites a previously-rendered dashboard with a
+				// loading placeholder. The data frame is the ONLY
+				// message that may rewrite the main content; this
+				// split is the load-bearing fix for the
+				// "stuck-on-刷新…" regression.
+				const payload = message.payload as { refreshing?: unknown; traceId?: unknown } | undefined;
+				const refreshing = payload?.refreshing === true;
+				applyRefreshState(refreshing, { doc: clickTarget, root });
+				vscode.postMessage({
+					type: 'refreshStateAck',
+					payload: { refreshing, traceId: payload?.traceId ?? message.traceId },
+				});
 			}
 		} catch (err) {
 			// Defensive: a render-path throw must NEVER freeze the

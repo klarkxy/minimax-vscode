@@ -88,16 +88,43 @@ export class DashboardPanel {
 
 	private readonly panel: vscode.WebviewPanel;
 	private readonly disposables: vscode.Disposable[] = [];
-	private readonly storeSubscription: vscode.Disposable;
 	private readonly authChangeSubscription: vscode.Disposable;
-	private readonly planCacheSubscription: vscode.Disposable;
-	private readonly mmxCliCacheSubscription: vscode.Disposable;
 	private readonly claudeCodeSubscription: vscode.Disposable | undefined;
 	private state: DashboardPanelState = { locale: 'en' };
 	private inFlight = false;
 	private pendingRefresh = false;
 	private pendingRefreshForce = false;
 	private refreshSeq = 0;
+	/**
+	 * Whether a `data` frame has EVER been delivered to this webview.
+	 * Drives the first-paint behaviour: the very first refresh posts
+	 * an "initial loading" data frame (so the user sees something
+	 * better than the static `<div class="empty">刷新…</div>`
+	 * placeholder); subsequent refreshes never re-post that loading
+	 * frame even when they have to await a plan fetch — they keep
+	 * showing the previous data and only swap it once the new view is
+	 * built. This is the load-bearing flag that closes the
+	 * "cached-loading overwrites final-ok" bug from issue #5.
+	 */
+	private hasPostedInitialData = false;
+	/**
+	 * Trailing-edge debounce timer for `scheduleRefresh`. Non-zero
+	 * when a refresh was scheduled but not yet started — the timer
+	 * fires after `SCHEDULE_DEBOUNCE_MS` and runs the actual
+	 * `refresh()`. The leading-edge behaviour is intentional: the
+	 * FIRST schedule call starts the refresh immediately so the user
+	 * does not wait `SCHEDULE_DEBOUNCE_MS` for the first paint, and
+	 * subsequent schedule calls within the window coalesce into the
+	 * single pending refresh that already exists.
+	 */
+	private scheduleTimer: NodeJS.Timeout | undefined;
+	/**
+	 * The highest-priority `force` flag among coalesced schedule
+	 * calls. Stored so that if a user-driven `force=true` schedule
+	 * arrives while a non-force refresh is in flight, the pending
+	 * follow-up runs with `force=true`.
+	 */
+	private scheduleForce = false;
 	/**
 	 * Lifecycle gate set by `dispose()`. `refreshOnce` checks this
 	 * after every `await` and `safePostMessage` short-circuits when
@@ -116,9 +143,42 @@ export class DashboardPanel {
 	) {
 		this.panel = panel;
 		this.state.locale = pickDashboardLocale(vscode.env.language);
-		this.storeSubscription = deps.usageStore.subscribe(() => {
-			void this.refresh();
-		});
+		// NOTE — the dashboard is intentionally a ONE-WAY, EXPLICITLY
+		// DRIVEN view. The previous design subscribed to
+		// `usageStore`, `planCache`, AND `mmxCliCache` and
+		// re-rendered the whole panel on every notification. That
+		// produced a self-reinforcing refresh loop in which:
+		//   1. `planCache.refresh()` (called from inside the
+		//      panel's own `refreshOnce`) fired `notify()` on
+		//      success.
+		//   2. The panel's `planCache.subscribe` listener
+		//      scheduled another `refresh()`, which called
+		//      `planCache.refresh()` again, which fired `notify()`
+		//      again, ad infinitum.
+		//   3. `mmxCliCache.refresh()` had the same shape — a
+		//      second self-reinforcing loop, harder to spot
+		//      because the user's `mmxRecheck` button ALSO calls
+		//      `panel.refresh()`, so the listener was not
+		//      obviously redundant.
+		// Compounding the loop, every SSE `usage` event also
+		// fired `usageStore.subscribe` and kicked off a full
+		// re-render. Combined with the cached-view + final-view
+		// "two-frame" pattern (where the first frame carries
+		// `planSource='loading'` and the second carries the real
+		// data), the webview `render()` rewrote `#root.innerHTML`
+		// over and over — the user observed a dashboard that was
+		// permanently stuck on "刷新…".
+		//
+		// The new model: explicit triggers only. Every refresh now
+		// requires a deliberate call to `refresh()` or
+		// `scheduleRefresh()`. Caches that change state simply
+		// update their in-memory snapshot; the next time the
+		// panel is asked to refresh (by the user, by a config
+		// change, by an explicit ingester signal) it consults the
+		// cache and ships one final view. The only remaining
+		// subscriber is `claudeCodeIngest`, whose `notify()` is
+		// fired from its OWN poll loop (never from inside the
+		// panel's `refreshOnce`), so it is not self-reinforcing.
 		this.authChangeSubscription = deps.auth.onDidChangeApiKey(() => {
 			// An API-key change is a credential-boundary event: even
 			// if the new key is on the same host, the cached snapshot
@@ -131,19 +191,18 @@ export class DashboardPanel {
 			deps.planCache.invalidate();
 			void this.refresh();
 		});
-		// The shared plan cache fires on every successful fetch — keep the
-		// dashboard in sync so we don't have to schedule our own timer.
-		this.planCacheSubscription = deps.planCache.subscribe(() => {
-			void this.refresh();
-		});
-		// Same pattern for the mmx-cli status cache: when an explicit
-		// re-check produces a new snapshot, push it to the dashboard.
-		this.mmxCliCacheSubscription = deps.mmxCliCache.subscribe(() => {
-			void this.refresh();
-		});
-		// The Claude Code ingester emits no-arg events on every poll that
-		// lands new data; re-rendering on every event keeps the "last
-		// sync" timestamp and per-model table fresh.
+		// The Claude Code ingester emits no-arg events on every poll
+		// that lands new data. Polls are bounded by the 30s default
+		// interval (clamped to `[5_000, 600_000]`), so a single
+		// refresh per event is well within acceptable cost — and the
+		// value is the per-model table freshness the user actually
+		// cares about. The ingester's `notify()` is fired from its
+		// OWN poll loop, never from inside the panel's
+		// `refreshOnce`, so this listener is not self-reinforcing
+		// (unlike the removed `planCache` and `mmxCliCache`
+		// subscriptions — both of those called `notify()` from
+		// inside `panel.refresh()`, which is exactly the bug this
+		// commit fixes).
 		this.claudeCodeSubscription = deps.claudeCodeIngest?.subscribe(() => {
 			void this.refresh();
 		});
@@ -193,18 +252,25 @@ export class DashboardPanel {
 		//    torn-down webview and trip VS Code's "Webview is disposed"
 		//    error.
 		//  - `pendingRefresh` is cleared so a late notification
-		//    (auth.onDidChangeApiKey, planCache.subscribe, etc.) does
+		//    (auth.onDidChangeApiKey, mmxCliCache.subscribe, etc.) does
 		//    NOT schedule a follow-up refresh against a panel whose
 		//    listeners have already been disposed below.
+		//  - `scheduleTimer` is cleared so a debounced refresh never
+		//    fires after the panel has been torn down — the timer's
+		//    callback would otherwise queue a refresh that immediately
+		//    short-circuits at the entry checkpoint, which is harmless
+		//    but pollutes the diagnostic channel.
 		// Set this BEFORE disposing the subscriptions so any callback
 		// they fire during teardown observes the new state.
 		this.disposed = true;
 		this.pendingRefresh = false;
 		this.pendingRefreshForce = false;
-		this.storeSubscription.dispose();
+		if (this.scheduleTimer !== undefined) {
+			clearTimeout(this.scheduleTimer);
+			this.scheduleTimer = undefined;
+		}
+		this.scheduleForce = false;
 		this.authChangeSubscription.dispose();
-		this.planCacheSubscription.dispose();
-		this.mmxCliCacheSubscription.dispose();
 		this.claudeCodeSubscription?.dispose();
 		for (const disposable of this.disposables) {
 			disposable.dispose();
@@ -241,12 +307,106 @@ export class DashboardPanel {
 	}
 
 	/**
+	 * Trailing-edge debounce window for `scheduleRefresh`. The first
+	 * call lands IMMEDIATELY (leading-edge); subsequent calls within
+	 * the window collapse into the same in-flight refresh. The window
+	 * is short (500 ms) — long enough to coalesce a burst of `usage
+	 * recorded` notifications or a config-change + mmx-poll arriving
+	 * in the same tick, short enough that the user never perceives
+	 * latency on a deliberate action.
+	 */
+	private static readonly SCHEDULE_DEBOUNCE_MS = 500;
+
+	/**
+	 * Schedule a refresh, coalescing bursts of calls into a single
+	 * actual `refresh()`. Leading-edge: the FIRST call starts the
+	 * refresh right away; subsequent calls within the debounce window
+	 * either coalesce into an in-flight refresh (if one is already
+	 * running) or piggyback on the timer-scheduled one (if the
+	 * leading refresh already finished before the next call arrived).
+	 *
+	 * `reason` is logged with the refresh operation so the
+	 * diagnostic channel can attribute a refresh to the trigger that
+	 * caused it (e.g. `'chat_turn_end'`, `'config_change'`,
+	 * `'mmx_recheck'`). The list of reasons is intentionally free-form;
+	 * anything that helps a future maintainer reconstruct the call
+	 * graph is welcome.
+	 *
+	 * `options.force === true` lifts the plan-cache TTL — pass it
+	 * only for user-driven actions (Refresh button, key swap). For
+	 * auto-pulse / poll-driven triggers, leave it false so the TTL
+	 * continues to rate-limit the platform round-trip.
+	 */
+	scheduleRefresh(reason: string, options?: { force?: boolean }): void {
+		if (this.disposed) return;
+		const force = options?.force === true;
+		if (this.inFlight) {
+			// Coalesce into the pending refresh that's already
+			// queued by the in-flight loop. `pendingRefreshForce` is
+			// a sticky OR: if the user hit Refresh while a
+			// non-forced refresh was running, the follow-up will run
+			// with `force=true`.
+			this.pendingRefresh = true;
+			this.pendingRefreshForce = this.pendingRefreshForce || force;
+			logger.debug('dashboard.refresh.coalesced', {
+				component: 'dashboard',
+				reason,
+				force,
+				pendingForce: this.pendingRefreshForce,
+			});
+			return;
+		}
+		if (this.scheduleTimer !== undefined) {
+			// A debounced refresh is already pending; piggyback on it.
+			this.scheduleForce = this.scheduleForce || force;
+			logger.debug('dashboard.refresh.debounced', {
+				component: 'dashboard',
+				reason,
+				force,
+				pendingForce: this.scheduleForce,
+			});
+			return;
+		}
+		// Leading edge: run the refresh right away, then arm a
+		// trailing timer in case more triggers land while the
+		// refresh is running.
+		logger.debug('dashboard.refresh.scheduled', {
+			component: 'dashboard',
+			reason,
+			force,
+			leading: true,
+		});
+		void this.refresh({ force }).finally(() => {
+			if (this.disposed) return;
+			if (this.scheduleTimer !== undefined) return;
+			const pendingForce = this.scheduleForce;
+			this.scheduleForce = false;
+			this.scheduleTimer = setTimeout(() => {
+				this.scheduleTimer = undefined;
+				if (this.disposed) return;
+				void this.refresh({ force: pendingForce });
+			}, DashboardPanel.SCHEDULE_DEBOUNCE_MS);
+		});
+	}
+
+	/**
 	 * Re-render. The plan-cache refresh honours the 5-minute TTL
 	 * unless `force: true` is passed — the dashboard's Refresh
-	 * button does so; the auto-pulse paths (chat turn end, store
-	 * subscription, etc.) don't.
+	 * button does so; the auto-pulse paths (chat turn end, etc.)
+	 * don't.
+	 *
+	 * The do/while loop coalesces bursts: while a `refreshOnce` is
+	 * running, any further `refresh()` call sets `pendingRefresh`
+	 * instead of spawning a parallel run. When the current
+	 * `refreshOnce` returns, the loop checks `pendingRefresh` and
+	 * runs at most ONE follow-up. After issue #5's root-cause fix
+	 * the reverse subscriptions on `planCache` and `usageStore`
+	 * are gone, so the only remaining source of coalesced bursts is
+	 * user-driven actions (Refresh + mmxRecheck arriving close
+	 * together) and the mmx / claude-code explicit subscribers.
 	 */
 	async refresh(options?: { force?: boolean }): Promise<void> {
+		if (this.disposed) return;
 		let force = options?.force === true;
 		if (this.inFlight) {
 			this.pendingRefresh = true;
@@ -283,18 +443,8 @@ export class DashboardPanel {
 		// back on `renderAck` / `renderError`, so a single identifier
 		// stitches the host-side refresh and the front-end render into
 		// one traceable operation. `dashboard.refresh#<seq>` is
-		// guaranteed unique per panel instance and is the value the
-		// `handleMessage` logger entry already uses.
+		// guaranteed unique per panel instance.
 		const traceId = `dashboard.refresh#${seq}`;
-		// `logger.operation` gives every line in this refresh a
-		// matching `traceId` + `spanId` for the diagnostic export.
-		// The webview's `renderAck` echoes `traceId`, so the front
-		// end can be cross-referenced with the host log without
-		// adding any new fields. Every entry path — including
-		// disposal short-circuits — calls `op.end(...)` with a
-		// `status: 'skipped'` payload so the span closes exactly
-		// once. Open spans in the export would otherwise look
-		// identical to a genuinely stuck refresh.
 		const op = logger.operation('dashboard.refresh', {
 			component: 'dashboard',
 			traceId,
@@ -308,7 +458,30 @@ export class DashboardPanel {
 			op.end({ status: 'skipped', reason: 'disposed_before_start' });
 			return;
 		}
+		// ONE FRAME PER REFRESH. The previous design posted a
+		// `cachedView` with `planSource='loading'` first and then a
+		// `finalView` with the real data. That second-frame
+		// overwrite was the root cause of the issue #5 "stuck on
+		// 刷新…" symptom: while the cached-loading frame was on
+		// screen, the plan-cache fetch returned and a *coalesced
+		// follow-up refresh* kicked in, which re-posted the cached
+		// loading frame before the second frame could land.
+		//
+		// The new contract: at most one `data` message per refresh.
+		// On the very first refresh (`hasPostedInitialData === false`)
+		// we post a single loading frame so the user sees a clear
+		// "loading" state instead of the static HTML placeholder;
+		// on every subsequent refresh we wait for the plan fetch to
+		// finish and post one final frame. The plan-status
+		// indicator (refresh-state spinner / stamp) is updated via
+		// `postRefreshState(true|false)` instead, which the webview
+		// applies locally without touching `#root.innerHTML`.
 		try {
+			await this.postRefreshState(true, traceId);
+			if (this.isTornDown()) {
+				op.end({ status: 'skipped', reason: 'disposed_after_state' });
+				return;
+			}
 			const apiKey = await this.authForRefresh();
 			if (this.isTornDown()) {
 				op.end({ status: 'skipped', reason: 'disposed_after_auth' });
@@ -324,64 +497,43 @@ export class DashboardPanel {
 				hasKey: !!apiKey,
 				host: platform?.host ?? 'none',
 			});
-			const planSnapshot = platform ? this.deps.planCache.read(platform) : undefined;
-			const mmxCliSnapshot = this.deps.mmxCliCache.read();
-			// MCP host/apiKey are stable for the duration of a refresh —
-			// `getBaseUrl()` and `authForRefresh()` have already produced
-			// their final values above. Compute the MCP card once instead
-			// of running the same host picker + provider-registered probe
-			// for both the cached and the refreshed view.
-			const mcp = await this.computeMcpStatus(apiKey);
-			if (this.isTornDown()) {
-				op.end({ status: 'skipped', reason: 'disposed_after_mcp' });
-				return;
-			}
-			const cachedView = await buildCachedDashboardView({
-				store: this.deps.usageStore,
-				planSnapshot,
-				planSource: planSnapshot
-					? 'ok'
-					: apiKey
-						? 'loading'
-						: 'unconfigured',
-				mmxCli: mmxCliSnapshot?.status,
-				mcp,
-				claudeCodeIngest: this.deps.claudeCodeIngest,
-			});
-			op.info('cached.build', {
-				plan: cachedView.sources.plan,
-				hasSnapshot: !!planSnapshot,
-			});
-			if (this.isTornDown()) {
-				op.end({ status: 'skipped', reason: 'disposed_before_cached_post' });
-				return;
-			}
-			const cachedPosted = await this.postData(cachedView, traceId);
-			if (!cachedPosted) {
-				// `safePostMessage` returned `false` because the
-				// webview was torn down between the `isTornDown`
-				// check above and the actual `postMessage` call.
-				// That race is exactly the bug Phase 0 fixed for
-				// the channel layer; here we propagate it so the
-				// refresh operation reports a `cached.post.skip`
-				// line instead of a misleading `cached.post` and
-				// `end` pair that the diagnostic-export would
-				// read as "post succeeded, refresh completed".
-				op.end({ status: 'skipped', reason: 'cached_post_failed' });
-				return;
-			}
-			op.info('cached.post', { plan: cachedView.sources.plan });
 
-			// Refresh the plan cache in the background. We kick this off
-			// before awaiting `buildDashboardView` so the aggregator can
-			// reuse the snapshot we already have on cache hit, instead of
-			// issuing a second `fetchPlanUsage` round-trip.
+			// First refresh on this panel: ship the loading frame
+			// BEFORE we await the plan fetch so the user sees a
+			// "loading" placeholder instead of the static HTML.
+			// Subsequent refreshes skip this — they keep showing the
+			// previous frame until the new one is ready, which is
+			// the whole point of the single-frame contract.
+			if (!this.hasPostedInitialData) {
+				const loadingView = await buildCachedDashboardView({
+					store: this.deps.usageStore,
+					planSource: apiKey ? 'loading' : 'unconfigured',
+					claudeCodeIngest: this.deps.claudeCodeIngest,
+				});
+				if (this.isTornDown()) {
+					op.end({ status: 'skipped', reason: 'disposed_before_initial_post' });
+					return;
+				}
+				const initialPosted = await this.postData(loadingView, traceId);
+				if (!initialPosted) {
+					op.end({ status: 'skipped', reason: 'initial_post_failed' });
+					return;
+				}
+				this.hasPostedInitialData = true;
+				op.info('initial.post', { plan: loadingView.sources.plan });
+			}
+
+			// Refresh the plan cache in the background. We kick this
+			// off before awaiting `buildDashboardView` so the
+			// aggregator can reuse the snapshot we already have on
+			// cache hit, instead of issuing a second `fetchPlanUsage`
+			// round-trip.
 			//
-			// `force: true` is intentionally NOT set here — this is the
-			// auto-pulse path (chat turn end, store subscription, etc.),
-			// and the 5-minute TTL is the desired rate-limit. The
-			// dashboard's explicit Refresh button (see the `case 'refresh'`
-			// handler below) passes `force: true` for guaranteed-fresh.
+			// `force: true` is intentionally reserved for the user
+			// pressing the dashboard's Refresh button. All
+			// auto-pulse paths (chat turn end, config change, etc.)
+			// honour the TTL — the platform's own UI auto-syncs the
+			// Token Plan card on the same cadence.
 			const force = options?.force === true;
 			let planRefreshError: string | undefined;
 			let planRefreshPromise: Promise<unknown> = Promise.resolve();
@@ -397,10 +549,10 @@ export class DashboardPanel {
 				});
 			}
 			// Refresh the mmx-cli detection in the background. The
-			// cached view above already shows the last-known state, so
+			// previous frame already shows the last-known state, so
 			// the user does not see an "unknown → green" flicker on
-			// dashboard open. Failure here does NOT clear the cache —
-			// the previous snapshot is preserved.
+			// refresh. Failure here does NOT clear the cache — the
+			// previous snapshot is preserved.
 			const mmxPromise = this.deps.mmxCliCache.refresh().catch((error) => {
 				op.warn('mmx.refresh.fail', undefined, error);
 				return null;
@@ -417,6 +569,10 @@ export class DashboardPanel {
 			// reflects whatever the background fetch landed.
 			const refreshedPlanSnapshot = platform ? this.deps.planCache.read(platform) : undefined;
 			const refreshedMmxCliSnapshot = this.deps.mmxCliCache.read();
+			// The MCP status depends on `getBaseUrl()` and
+			// `getMcpProviderRegistered`; both are stable across a
+			// single refresh, so compute once.
+			const mcp = await this.computeMcpStatus(apiKey);
 			const view = planRefreshError && !refreshedPlanSnapshot
 				? await buildCachedDashboardView({
 					store: this.deps.usageStore,
@@ -446,17 +602,13 @@ export class DashboardPanel {
 			}
 			const finalPosted = await this.postData(view, traceId);
 			if (!finalPosted) {
-				// Same race-handling as `cached_post_failed` above:
-				// the webview was torn down between the
-				// `isTornDown` check and the actual `postMessage`
-				// call. Logging `final.post` here would tell the
-				// diagnostic export the user saw a fresh
-				// dashboard, when in fact they did not.
 				op.end({ status: 'skipped', reason: 'final_post_failed' });
 				return;
 			}
 			op.info('final.post', { plan: view.sources.plan });
+			this.hasPostedInitialData = true;
 			await mmxPromise;
+			await this.postRefreshState(false, traceId);
 			op.end({ plan: view.sources.plan });
 		} catch (error) {
 			// Lifecycle event, not a business failure. VS Code throws
@@ -600,6 +752,29 @@ export class DashboardPanel {
 			{ type: 'error', payload: { message, traceId } },
 			traceId,
 		);
+	}
+
+	/**
+	 * Push a refresh-state indicator to the webview WITHOUT touching
+	 * the data frame. The webview applies this to the header's
+	 * spinner / refresh button / stamp and leaves `#root.innerHTML`
+	 * alone, so a refresh in flight no longer overwrites the
+	 * previously-rendered dashboard with a loading placeholder. The
+	 * webview echoes `traceId` back on its `refreshStateAck` message
+	 * for diagnostic stitching (same traceId discipline as `data`).
+	 */
+	private async postRefreshState(refreshing: boolean, traceId: string): Promise<boolean> {
+		const ok = await this.safePostMessage(
+			{ type: 'refreshState', payload: { refreshing, traceId } },
+			traceId,
+		);
+		logger.debug('dashboard.refresh.state', {
+			component: 'dashboard',
+			traceId,
+			refreshing,
+			ok,
+		});
+		return ok;
 	}
 
 	private async handleMessage(raw: vscode.WebviewMessage): Promise<void> {
@@ -778,6 +953,33 @@ button:hover { background: var(--vscode-button-secondaryHoverBackground); }
 button.primary {
 	background: var(--vscode-button-background);
 	color: var(--vscode-button-foreground);
+}
+/* Refresh-button spinner. Activated by applyRefreshState on a
+ * refreshState message (NEVER on a data message -- the split is
+ * what keeps the dashboard visible during in-flight refreshes).
+ * Pure CSS animation, no extra markup needed: the :before
+ * pseudo-element hosts the rotating bar. */
+button[data-action="refresh"].refreshing {
+	opacity: 0.6;
+	cursor: progress;
+	position: relative;
+	color: transparent;
+}
+button[data-action="refresh"].refreshing::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	margin: auto;
+	width: 12px;
+	height: 12px;
+	border: 2px solid currentColor;
+	border-top-color: transparent;
+	border-radius: 50%;
+	color: var(--vscode-button-foreground);
+	animation: dashboard-spin 0.8s linear infinite;
+}
+@keyframes dashboard-spin {
+	to { transform: rotate(360deg); }
 }
 section {
 	background: var(--bg-elev);
