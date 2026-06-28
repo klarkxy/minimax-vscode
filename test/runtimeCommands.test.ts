@@ -132,6 +132,13 @@ test('registered openDashboard command creates a webview panel through the VS Co
 	assert.equal(panel.viewType, 'minimax.dashboard');
 	assert.equal(panel.title, 'MiniMax Dashboard');
 	assert.match(panel.webview.html, /MiniMax Usage Dashboard/);
+	assert.match(panel.webview.html, /script-src 'nonce-[^']+' vscode-resource:/);
+	assert.doesNotMatch(
+		panel.webview.html,
+		/Content-Security-Policy[^"]*dashboard-webview\.js/,
+		'CSP should allow the webview resource origin, not a concrete script URI',
+	);
+	assert.match(panel.webview.html, /<script nonce="[^"]+" src="[^"]+"><\/script>/);
 	assert.ok(
 		panel.webview.postedMessages.some(
 			(message) => !!message && typeof message === 'object' && (message as { type?: string }).type === 'data',

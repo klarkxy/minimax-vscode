@@ -892,11 +892,12 @@ export class DashboardPanel {
 		// Use a CSPRNG for the CSP nonce. `Math.random()` is predictable
 		// and would weaken the CSP's defense-in-depth value. 16 random
 		// bytes (128 bits) is the conservative default. The nonce is
-		// only attached to the inline `<script id="i18n">` payload —
-		// the main webview JS is loaded as a separately-built file
-		// (`out/dashboard-webview.js`) through `asWebviewUri`, which
-		// is implicitly trusted by the webview host and does not
-		// need a nonce.
+		// attached to the inline `<script id="i18n">` payload and the
+		// separately-built webview JS. The main script is still loaded
+		// through `asWebviewUri`, but the CSP must allow the webview
+		// resource origin (`cspSource`) rather than a concrete URI:
+		// VS Code may serve `file+` URLs while the URI string encodes
+		// that authority as `file%2B`, which does not match in CSP.
 		const nonce = randomBytes(16).toString('base64');
 		const i18nJson = escapeJsonForScript(messages);
 		const webviewScriptUri = this.panel.webview.asWebviewUri(
@@ -907,7 +908,7 @@ export class DashboardPanel {
 <html lang="${htmlLangFor(this.state.locale)}">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${cspSource}; script-src 'nonce-${nonce}' ${webviewScriptUri};">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${cspSource}; script-src 'nonce-${nonce}' ${cspSource};">
 <style>
 :root {
 	--bg: var(--vscode-editor-background);
@@ -1321,7 +1322,7 @@ footer {
 </div>
 
 <script id="i18n" type="application/json" nonce="${nonce}">${i18nJson}</script>
-<script src="${webviewScriptUri}"></script>
+<script nonce="${nonce}" src="${webviewScriptUri}"></script>
 </body>
 </html>`;
 	}
