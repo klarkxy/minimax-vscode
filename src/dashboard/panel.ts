@@ -29,6 +29,7 @@ import { getBaseUrl } from '../config';
 import { pickMcpApiHost } from '../runtime/mcp';
 import type { MmxCliCache } from './mmxCliCache';
 import type { ClaudeCodeIngestHandle } from './claudeCodeIngest';
+import type { TokenPlanPollerHandle } from './tokenPlanPoller';
 import type { DashboardView } from './types';
 import { escapeHtml, escapeJsonForScript, htmlLangFor } from './template';
 
@@ -48,6 +49,12 @@ export interface DashboardPanelDeps {
 	 *  ingester's `activate()` call), the section is rendered as a
 	 *  thin "disabled" placeholder. */
 	claudeCodeIngest?: ClaudeCodeIngestHandle;
+	/** Optional Token Plan poller. When present, the dashboard's
+	 *  Refresh button triggers `poller.refresh({ force: true })`
+	 *  which refreshes all named keys in one batch. Without the
+	 *  poller the panel falls back to `planCache.refresh(platform)`
+	 *  for the active key only (backward-compatible). */
+	tokenPlanPoller?: TokenPlanPollerHandle;
 	/**
 	 * Resolver for the live platform host. Evaluated at every
 	 * refresh / install-prompt dispatch, NOT captured at construction
@@ -135,6 +142,13 @@ export class DashboardPanel {
 	 * the last line of defence; preventing the call is the first.
 	 */
 	private disposed = false;
+	/**
+	 * Last `DashboardView` posted to the webview. Stored so the
+	 * `planSelectKey` handler can re-post with an updated
+	 * `selectedTokenPlanKeyId` without re-running the full refresh
+	 * pipeline.
+	 */
+	private lastView: DashboardView | undefined;
 	private readonly messageListener = (raw: vscode.WebviewMessage) => this.handleMessage(raw);
 
 	private constructor(
@@ -263,6 +277,7 @@ export class DashboardPanel {
 		// Set this BEFORE disposing the subscriptions so any callback
 		// they fire during teardown observes the new state.
 		this.disposed = true;
+		this.lastView = undefined;
 		this.pendingRefresh = false;
 		this.pendingRefreshForce = false;
 		if (this.scheduleTimer !== undefined) {
@@ -523,11 +538,12 @@ export class DashboardPanel {
 				op.info('initial.post', { plan: loadingView.sources.plan });
 			}
 
-			// Refresh the plan cache in the background. We kick this
-			// off before awaiting `buildDashboardView` so the
-			// aggregator can reuse the snapshot we already have on
-			// cache hit, instead of issuing a second `fetchPlanUsage`
-			// round-trip.
+			// Refresh the plan cache in the background. When the
+			// multi-key poller is available and this is a force
+			// refresh, we trigger the poller which refreshes ALL
+			// named keys in one batch — the dashboard will soon need
+			// the full key pool. Without the poller, or for non-force
+			// auto-pulse refreshes, we only refresh the active key.
 			//
 			// `force: true` is intentionally reserved for the user
 			// pressing the dashboard's Refresh button. All
@@ -539,14 +555,31 @@ export class DashboardPanel {
 			let planRefreshPromise: Promise<unknown> = Promise.resolve();
 			if (platform) {
 				op.info('plan.refresh.start', { force });
-				planRefreshPromise = this.deps.planCache.refresh(
-					platform,
-					{ force },
-				).catch((error) => {
-					planRefreshError = error instanceof Error ? error.message : String(error);
-					op.warn('plan.refresh.fail', { host: platform.host }, error);
-					return null;
-				});
+				if (force && this.deps.tokenPlanPoller) {
+					// Force-refresh ALL keys via the poller. The
+					// poller resolves secrets and refreshes
+					// everything, so we just await its completion.
+					planRefreshPromise = this.deps.tokenPlanPoller
+						.refresh({ force: true })
+						.catch((error) => {
+							planRefreshError =
+								error instanceof Error ? error.message : String(error);
+							op.warn('plan.refresh.poller.fail', undefined, error);
+							return null;
+						});
+				} else {
+					// Non-force: only refresh the active key (TTL
+					// will likely short-circuit this). The poller's
+					// background cycle covers all keys on its own.
+					planRefreshPromise = this.deps.planCache
+						.refresh(platform, { force })
+						.catch((error) => {
+							planRefreshError =
+								error instanceof Error ? error.message : String(error);
+							op.warn('plan.refresh.fail', { host: platform.host }, error);
+							return null;
+						});
+				}
 			}
 			// Refresh the mmx-cli detection in the background. The
 			// previous frame already shows the last-known state, so
@@ -569,6 +602,11 @@ export class DashboardPanel {
 			// reflects whatever the background fetch landed.
 			const refreshedPlanSnapshot = platform ? this.deps.planCache.read(platform) : undefined;
 			const refreshedMmxCliSnapshot = this.deps.mmxCliCache.read();
+			// Build the multi-key plan snapshot map for the Token
+			// Plan card's key selector. Reads all cached plan
+			// snapshots from the shared PlanCache and pairs them
+			// with key pool metadata (name, region, active status).
+			const allKeyPlans = this.buildAllKeyPlans();
 			// The MCP status depends on `getBaseUrl()` and
 			// `getMcpProviderRegistered`; both are stable across a
 			// single refresh, so compute once.
@@ -581,6 +619,7 @@ export class DashboardPanel {
 					mmxCli: refreshedMmxCliSnapshot?.status,
 					mcp,
 					claudeCodeIngest: this.deps.claudeCodeIngest,
+					allKeyPlans,
 				})
 				: await buildDashboardView({
 					store: this.deps.usageStore,
@@ -591,6 +630,7 @@ export class DashboardPanel {
 					mmxCliStatus: refreshedMmxCliSnapshot?.status,
 					mcp,
 					claudeCodeIngest: this.deps.claudeCodeIngest,
+					allKeyPlans,
 				});
 			op.info('final.build', {
 				plan: view.sources.plan,
@@ -644,6 +684,44 @@ export class DashboardPanel {
 	 * later swap in a faster path (e.g. cached from secrets.onDidChange)
 	 * without touching the rest of `refresh`.
 	 */
+	/**
+	 * Build the multi-key plan snapshot map for the Token Plan card's
+	 * key selector. Reads all cached plan snapshots from the shared
+	 * PlanCache and pairs them with key pool metadata (name, region,
+	 * active status). Returns `undefined` when the cache is empty.
+	 */
+	private buildAllKeyPlans(): Record<string, import('./types').KeyPlanSnapshot> | undefined {
+		// Guard: planCache may lack the multi-key API in tests or
+		// when the extension is loaded with an older cache shape.
+		if (typeof this.deps.planCache.readAll !== 'function') return undefined;
+		const allSnap = this.deps.planCache.readAll();
+		if (!allSnap || allSnap.size === 0) return undefined;
+		let pool: { keys: Array<{ id: string; name: string; region: string; missingSecret: boolean }>; activeKeyId?: string } | undefined;
+		try {
+			pool = this.deps.auth.keyManagerInstance?.snapshot();
+		} catch {
+			// KeyManager not available (e.g. unit tests without a full
+			// runtime). Fall through: labels will be the raw keyId.
+		}
+		const activeId = pool?.activeKeyId;
+		const result: Record<string, import('./types').KeyPlanSnapshot> = {};
+		for (const [keyId, snap] of allSnap) {
+			const entry = pool?.keys.find((k) => k.id === keyId);
+			const label = entry?.name ?? keyId;
+			const isActive = keyId === activeId;
+			const region = entry?.region ?? 'custom';
+			result[keyId] = {
+				keyId,
+				label,
+				isActive,
+				source: 'ok',
+				usage: snap.usage,
+				region,
+			};
+		}
+		return result;
+	}
+
 	private async authForRefresh(): Promise<string | undefined> {
 		return this.deps.auth.getApiKey();
 	}
@@ -733,6 +811,7 @@ export class DashboardPanel {
 	 * dashboard when they did not.
 	 */
 	private async postData(view: DashboardView, traceId: string): Promise<boolean> {
+		this.lastView = view;
 		const ok = await this.safePostMessage(
 			{ type: 'data', traceId, payload: view },
 			traceId,
@@ -806,7 +885,32 @@ export class DashboardPanel {
 				});
 				return;
 			}
-			case 'refresh':
+			case 'planSelectKey': {
+					// The user clicked a key selector pill in the Token Plan
+					// card. Re-post the current view with the updated
+					// `selectedTokenPlanKeyId` so the webview can re-render
+					// the plan card in-place. The webview already applied
+					// the selection locally; this echo ensures the host's
+					// diagnostic state stays in sync and the next refresh
+					// carries the correct selection.
+					const keyId = typeof (message.payload as { keyId?: unknown })?.keyId === 'string'
+						? (message.payload as { keyId: string }).keyId
+						: 'active';
+					logger.debug('dashboard.webview.planSelectKey', {
+						component: 'dashboard',
+						keyId,
+					});
+					if (this.lastView) {
+						const updated: DashboardView = {
+							...this.lastView,
+							selectedTokenPlanKeyId: keyId,
+						};
+						this.lastView = updated;
+						void this.postData(updated, `planSelectKey:${keyId}`);
+					}
+					return;
+				}
+				case 'refresh':
 				// The dashboard's Refresh button is the user's explicit
 				// "I want a fresh snapshot" gesture. Pass `force: true`
 				// through so the plan cache skips its 5-minute TTL and
@@ -1295,6 +1399,33 @@ footer {
 	border-bottom-color: var(--accent);
 }
 [data-tab-pane].hidden { display: none; }
+
+/* ---- Token Plan key selector ---- */
+.plan-key-selector {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+	margin-bottom: 12px;
+}
+.plan-key-pill {
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	border: 1px solid var(--border);
+	padding: 3px 10px;
+	border-radius: 999px;
+	cursor: pointer;
+	font-size: 11px;
+	font-weight: 500;
+	transition: background 0.15s, border-color 0.15s;
+}
+.plan-key-pill:hover {
+	background: var(--vscode-button-secondaryHoverBackground);
+}
+.plan-key-pill.active {
+	background: var(--vscode-textLink-foreground);
+	color: var(--vscode-editor-background);
+	border-color: var(--vscode-textLink-foreground);
+}
 </style>
 </head>
 <body class="${bodyClass}">

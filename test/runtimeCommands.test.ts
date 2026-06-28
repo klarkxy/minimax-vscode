@@ -1,4 +1,4 @@
-import { test, beforeEach } from 'node:test';
+import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as vscode from 'vscode';
 import {
@@ -7,7 +7,7 @@ import {
 	mockConfig,
 	mockState,
 } from './helpers/vscodeMock.js';
-import { registerCommands } from '../src/runtime/commands.js';
+import { registerCommands, disposeTokenPlanPoller } from '../src/runtime/commands.js';
 
 class FakeSecrets {
 	private readonly map = new Map<string, string>();
@@ -56,11 +56,20 @@ function newContext() {
 }
 
 beforeEach(() => {
+	// Dispose the Token Plan poller so its setInterval timer does not
+	// keep the Node event loop alive after the test runner tears down.
+	disposeTokenPlanPoller();
 	for (const panel of mockState.webviewPanels.slice()) {
 		panel.dispose();
 	}
 	mockState.reset();
 	mockConfig['minimax.apiBaseUrl'] = 'https://api.minimaxi.com/anthropic';
+});
+
+afterEach(() => {
+	// Clean up the poller created during the test so its setInterval
+	// timer does not keep the Node event loop alive.
+	disposeTokenPlanPoller();
 });
 
 test('registerCommands wires the command context and creates the plan status bar', () => {

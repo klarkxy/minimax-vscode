@@ -117,6 +117,11 @@ export interface DashboardMessages {
 	tabsTotal: string;
 	tabsCopilot: string;
 	tabsClaude: string;
+	// ---- Token Plan key selector ----
+	planKeyActive: string;
+	planKeyRegion: (region: string) => string;
+	planSourceUnsupported: string;
+	planSourceNoData: string;
 	// ---- API Keys (named key pool) ----
 	apiKeysSectionTitle: string;
 	apiKeysSubtitle: string;
@@ -245,6 +250,11 @@ const en: DashboardMessages = {
 	tabsCopilot: 'copilot',
 	tabsClaude: 'claude',
 
+	// Token Plan key selector
+	planKeyActive: 'Current',
+	planKeyRegion: (region) => 'region: ' + region,
+	planSourceUnsupported: 'Not available',
+	planSourceNoData: 'No data',
 	// API Keys
 	apiKeysSectionTitle: 'API Keys',
 	apiKeysSubtitle:
@@ -374,6 +384,11 @@ const zh: DashboardMessages = {
 	tabsCopilot: 'copilot',
 	tabsClaude: 'claude',
 
+	// Token Plan key selector
+	planKeyActive: '当前',
+	planKeyRegion: (region) => '区域: ' + region,
+	planSourceUnsupported: '不可用',
+	planSourceNoData: '暂无数据',
 	// API Keys
 	apiKeysSectionTitle: 'API Key 池',
 	apiKeysSubtitle:

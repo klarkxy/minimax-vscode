@@ -104,6 +104,11 @@ export interface I18nBundle {
 	mcpKeyMissing: string;
 	mcpHostUnrecognised: string;
 	mcpRefreshBtn: string;
+	// ---- Token Plan key selector ----
+	planKeyActive: string;
+	planKeyRegion: (region: string) => string;
+	planSourceUnsupported: string;
+	planSourceNoData: string;
 }
 
 export interface UsageBreakdown {
@@ -145,6 +150,24 @@ export interface PlanSection {
 	weeklyUsed: number;
 	expiryDate?: string;
 	expiryDays?: number;
+}
+
+/** Snapshot of a single key's Token Plan data, keyed by keyId in
+ *  `allKeyPlans`. The `source` field mirrors `DashboardView.sources.plan`
+ *  so the UI can render per-key loading / unsupported / error states. */
+export interface KeyPlanSnapshot {
+	/** The key's display label. */
+	label: string;
+	/** `true` when this key is currently active. */
+	isActive: boolean;
+	/** Source status for this key's plan data. */
+	source: 'ok' | 'loading' | 'unconfigured' | 'unsupported' | 'error';
+	/** The plan usage data, or undefined when the source is not `ok`. */
+	usage?: PlanSection;
+	/** Error message when `source` is `error`. */
+	error?: string;
+	/** Region display hint (e.g. 'china', 'global', 'custom'). */
+	region?: string;
 }
 
 export interface ClaudeCodeStatus {
@@ -199,6 +222,15 @@ export interface DashboardView {
 	plan?: PlanSection;
 	mmxCli?: MmxCliView;
 	mcp?: McpView;
+	/** Multi-key plan snapshots, keyed by keyId. Populated when the
+	 *  Token Plan poller is running. The webview picks the active key's
+	 *  entry by default; the user can flip to a different key via the
+	 *  key selector in the Token Plan card. */
+	allKeyPlans?: Record<string, KeyPlanSnapshot>;
+	/** Which key's plan is currently selected in the Token Plan card.
+	 *  `'active'` means "show the active key's plan" (default).
+	 *  A specific keyId means "show this named key's plan". */
+	selectedTokenPlanKeyId?: 'active' | string;
 }
 
 // ---- Tab state ---------------------------------------------------------
@@ -214,6 +246,9 @@ export interface Tab {
 
 export interface PersistedState {
 	activeTab?: string;
+	/** Which key's plan is selected in the Token Plan card.
+	 *  `'active'` means the active key (default). */
+	tokenPlanKey?: string;
 }
 
 // ---- Pure helpers (exported for testing) -------------------------------
@@ -403,6 +438,161 @@ export function localCard(i18n: I18nBundle, title: string, usage: UsageBreakdown
 	);
 }
 
+export function tokenPlanSection(
+	i18n: I18nBundle,
+	plan: PlanSection | undefined,
+	allKeyPlans: Record<string, KeyPlanSnapshot> | undefined,
+	selectedKeyId: string | undefined,
+): string {
+	const planBar = (pct: number) => {
+		const clamped = Math.max(0, Math.min(100, pct || 0));
+		const cls = progressClass(clamped);
+		return (
+			'<div class="progress ' + cls + '"><div class="fill" style="width: ' + clamped + '%"></div></div>' +
+			'<div class="kv" style="margin-top: 6px;"><span class="dim">' + clamped + '%</span></div>'
+		);
+	};
+	const cardWithReset = (title: string, pct: number, resetText: string) =>
+		'<div class="card"><h3>' +
+		'<span>' + escapeHtml(title) + '</span>' +
+		'<span class="reset-pill">' + escapeHtml(resetText) + '</span>' +
+		'</h3>' + planBar(pct) + '</div>';
+
+	function renderPlanCards(p: PlanSection): string {
+		const currentCard = cardWithReset(p.modelName + ' · 5h', p.currentPercentage, p.currentResetText);
+		const weeklyCard = p.weeklyUnlimited
+			? '<div class="card"><h3><span>' + escapeHtml(i18n.fieldWeekly) + '</span>' +
+				'<span class="reset-pill">∞</span></h3>' + planBar(0) + '</div>'
+			: cardWithReset(i18n.fieldWeekly, p.weeklyPercentage, p.weeklyResetText);
+		const expiryCard = p.expiryDate
+			? (() => {
+				const days = p.expiryDays ?? 0;
+				const template =
+					days < 0 ? i18n.fieldExpiryDaysPast :
+					days === 0 ? i18n.fieldExpiryDaysToday :
+					i18n.fieldExpiryDaysFuture;
+				const text = template.replace('{days}', String(Math.abs(days)));
+				return card(i18n.fieldExpiry, [[p.expiryDate, text]]);
+			})()
+			: '';
+		return (
+			'<div class="grid grid-2">' +
+			currentCard +
+			weeklyCard +
+			'</div>' +
+			expiryCard
+		);
+	}
+
+	// Build the key selector row: a set of small pill buttons.
+	// If there's only one key (or no allKeyPlans), skip the selector.
+	const keys = allKeyPlans ? Object.entries(allKeyPlans) : [];
+	let selectorHtml = '';
+	if (keys.length > 1) {
+		const options: Array<{ id: string; label: string }> = [
+			{ id: 'active', label: i18n.planKeyActive },
+		];
+		for (const [keyId, snap] of keys) {
+			options.push({ id: keyId, label: snap.label });
+		}
+		const selected = selectedKeyId ?? 'active';
+		selectorHtml = (
+			'<div class="plan-key-selector">' +
+			options.map((opt) => {
+				const active = opt.id === selected;
+				return (
+					'<button class="plan-key-pill' + (active ? ' active' : '') + '"' +
+					' data-action="plan-select-key" data-key-id="' + escapeHtml(opt.id) + '"' +
+					(active ? ' aria-current="true"' : '') +
+					'>' + escapeHtml(opt.label) + '</button>'
+				);
+			}).join('') +
+			'</div>'
+		);
+	}
+
+	// Resolve the plan data for the selected key.
+	if (allKeyPlans && keys.length > 0) {
+		const sel = selectedKeyId ?? 'active';
+		let snapshot: KeyPlanSnapshot | undefined;
+		if (sel === 'active') {
+			// Find the active key's snapshot
+			for (const snap of Object.values(allKeyPlans)) {
+				if (snap.isActive) { snapshot = snap; break; }
+			}
+		} else {
+			snapshot = allKeyPlans[sel];
+		}
+		if (!snapshot && sel === 'active' && plan) {
+			// Fallback: no multi-key snapshot yet, but we have legacy plan data
+			return (
+				'<section id="token-plan-section"><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
+				selectorHtml +
+				renderPlanCards(plan) +
+				'</section>'
+			);
+		}
+		if (snapshot && snapshot.source === 'ok' && snapshot.usage) {
+			return (
+				'<section id="token-plan-section"><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
+				selectorHtml +
+				renderPlanCards(snapshot.usage) +
+				'</section>'
+			);
+		}
+		if (snapshot && snapshot.source === 'loading') {
+			return (
+				'<section id="token-plan-section"><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
+				selectorHtml +
+				'<div class="banner">' + escapeHtml(i18n.platformLoading) + '</div>' +
+				'</section>'
+			);
+		}
+		if (snapshot && snapshot.source === 'unsupported') {
+			return (
+				'<section id="token-plan-section"><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
+				selectorHtml +
+				'<div class="banner">' + escapeHtml(i18n.planSourceUnsupported) + '</div>' +
+				'</section>'
+			);
+		}
+		if (snapshot && snapshot.source === 'error') {
+			const detail = snapshot.error ? ' — ' + escapeHtml(snapshot.error) : '';
+			return (
+				'<section id="token-plan-section"><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
+				selectorHtml +
+				'<div class="banner">' + escapeHtml(i18n.platformUnavailable) + detail + '</div>' +
+				'</section>'
+			);
+		}
+		if (snapshot && snapshot.source === 'unconfigured') {
+			return (
+				'<section id="token-plan-section"><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
+				selectorHtml +
+				'<div class="banner">' + escapeHtml(i18n.platformUnconfigured) + '</div>' +
+				'</section>'
+			);
+		}
+		// Key exists in allKeyPlans but has no usage data yet
+		return (
+			'<section id="token-plan-section"><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
+			selectorHtml +
+			'<div class="banner">' + escapeHtml(i18n.planSourceNoData) + '</div>' +
+			'</section>'
+		);
+	}
+
+	// No allKeyPlans: fall back to legacy single-plan rendering.
+	if (!plan) return platformBanner(i18n, { plan: 'loading', copilot: 'ok', claudeCode: 'ok' });
+	return (
+		'<section id="token-plan-section"><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
+		renderPlanCards(plan) +
+		'</section>'
+	);
+}
+
+/** @deprecated Use `tokenPlanSection` for multi-key support. Kept
+ *  for backward compatibility with the `platformBanner` flow. */
 export function platformSection(i18n: I18nBundle, plan: PlanSection | undefined): string {
 	if (!plan) return '';
 	const planBar = (pct: number) => {
@@ -427,9 +617,6 @@ export function platformSection(i18n: I18nBundle, plan: PlanSection | undefined)
 
 	const expiryCard = plan.expiryDate
 		? (() => {
-			// Pick the right template for the day count, then substitute
-			// the absolute day number. `Math.abs` keeps the past-tense
-			// label readable ("已过期 5 天" not "已过期 -5 天").
 			const days = plan.expiryDays ?? 0;
 			const template =
 				days < 0 ? i18n.fieldExpiryDaysPast :
@@ -760,8 +947,14 @@ export function start(opts: {
 	let activeTab: TabId = KNOWN_TAB_IDS.indexOf(persisted.activeTab as TabId) !== -1
 		? (persisted.activeTab as TabId)
 		: 'total';
+	let activePlanKey = persisted.tokenPlanKey ?? 'active';
+	/** Last view received from the host. Stored so the click handler
+	 *  for `plan-select-key` can re-render immediately without waiting
+	 *  for the host to echo back a data frame. */
+	let lastView: DashboardView | undefined;
 
 	function render(view: DashboardView): void {
+		lastView = view;
 		const tabs = computeVisibleTabs(i18n, view);
 		let activeId: TabId = activeTab;
 		if (!tabs.some((t) => t.id === activeId)) {
@@ -769,14 +962,24 @@ export function start(opts: {
 		}
 		activeTab = activeId;
 
-		const banner = platformBanner(i18n, view.sources);
+		// Token Plan card: rendered BEFORE the tab bar so it stays
+		// visible regardless of which tab is selected. The key selector
+		// lets the user flip between keys without switching tabs.
+		// Use the user's local selection (activePlanKey) which is
+		// persisted across re-renders and data frames.
+		const planHtml = tokenPlanSection(
+			i18n,
+			view.plan,
+			view.allKeyPlans,
+			activePlanKey,
+		);
+
 		const tabBar = tabs.length > 1
 			? '<nav class="tabs" role="tablist">' + renderTabsHtml(tabs, activeTab) + '</nav>'
 			: '';
 
 		const totalPane =
 			'<div data-tab-pane="total">' +
-			(view.plan ? platformSection(i18n, view.plan) : '') +
 			sourceSection(i18n, i18n.totalSectionTitle, view.total) +
 			mcpSection(i18n, view.mcp) +
 			mmxSection(i18n, view.mmxCli) +
@@ -791,7 +994,7 @@ export function start(opts: {
 				'</div>'
 			: '';
 
-		root.innerHTML = banner + tabBar + totalPane + claudePane + copilotPane;
+		root.innerHTML = planHtml + tabBar + totalPane + claudePane + copilotPane;
 		applyActiveTab(root, activeTab);
 		updatedStamp.textContent = i18n.fieldUpdated + ': ' + new Date().toLocaleTimeString();
 	}
@@ -818,6 +1021,19 @@ export function start(opts: {
 		const target = targetEl.closest('[data-action]');
 		if (!target) return;
 		const action = target.getAttribute('data-action');
+		// Key selector pills carry a `data-key-id` payload that the
+		// host needs to update its diagnostic state. Handle before the
+		// generic map so we can attach the payload.
+		if (action === 'plan-select-key') {
+			const keyId = target.getAttribute('data-key-id') ?? 'active';
+			activePlanKey = keyId;
+			vscode.setState({ activeTab, tokenPlanKey: keyId });
+			// Re-render immediately with the current data so the user
+			// sees the switch without waiting for the host echo.
+			if (lastView) render(lastView);
+			vscode.postMessage({ type: 'planSelectKey', payload: { keyId } });
+			return;
+		}
 		const map: Record<string, string> = {
 			'refresh': 'refresh',
 			'close': 'close',

@@ -20,41 +20,77 @@ test('buildPoolTooltip: empty pool returns empty string', () => {
 	assert.equal(buildPoolTooltip([], undefined), '');
 });
 
-test('buildPoolTooltip: single key without activeName shows just the bullet line', () => {
+test('buildPoolTooltip: active key shows with ★ prefix and region', () => {
 	const out = buildPoolTooltip(
-		[{ name: 'copilot-1', region: 'global', fingerprint: 'fp1', isActive: true }],
+		[{ id: 'k1', name: 'copilot-1', region: 'global', fingerprint: 'fp1', isActive: true }],
 		undefined,
 	);
-	assert.match(out, /^• copilot-1/);
-	assert.ok(!out.includes('Active key'));
-	assert.ok(!out.includes('当前 Key'));
+	// Active key is shown with ★ prefix (not •)
+	assert.match(out, /^★ copilot-1  global/);
+	// No fingerprint in output
+	assert.ok(!out.includes('fp1'));
 });
 
-test('buildPoolTooltip: active marker appears next to the active key only', () => {
+test('buildPoolTooltip: active key with plan data shows inline stats', () => {
+	const snaps = new Map([
+		['k1', { usage: { currentPercentage: 54, weeklyPercentage: 23, currentResetText: '2h 30m' } as any }],
+	]);
+	const out = buildPoolTooltip(
+		[{ id: 'k1', name: 'copilot-1', region: 'china', fingerprint: 'fp1', isActive: true }],
+		undefined,
+		snaps,
+	);
+	// Shows region
+	assert.ok(out.includes('china'));
+	// Shows 5h percentage
+	assert.ok(out.includes('5h 54%'));
+	// Shows weekly percentage
+	assert.ok(out.includes('23%'));
+	// Shows reset text
+	assert.ok(out.includes('2h 30m'));
+});
+
+test('buildPoolTooltip: other keys shown in compact format', () => {
+	const snaps = new Map([
+		['k1', { usage: { currentPercentage: 80, weeklyPercentage: 50 } as any }],
+		['k2', { usage: { currentPercentage: 10, weeklyPercentage: 5 } as any }],
+	]);
 	const out = buildPoolTooltip(
 		[
-			{ name: 'a', region: 'china', fingerprint: 'fpA', isActive: false },
-			{ name: 'b', region: 'global', fingerprint: 'fpB', isActive: true },
+			{ id: 'k1', name: 'backup', region: 'global', fingerprint: 'fp1', isActive: false },
+			{ id: 'k2', name: 'main', region: 'china', fingerprint: 'fp2', isActive: true },
+		],
+		undefined,
+		snaps,
+	);
+	const lines = out.split('\n');
+	// Active key is first with ★
+	assert.match(lines[0], /^★ main  china/);
+	// Other key uses compact format with its own percentages (k1=backup: 80%/50%)
+	const compactLine = lines.find((l) => l.includes('backup')) ?? '';
+	assert.ok(compactLine.includes('5h 80%'), `expected "5h 80%" in: ${compactLine}`);
+	assert.ok(compactLine.includes('50%'), `expected "50%" in: ${compactLine}`);
+	// No fingerprints
+	assert.ok(!out.includes('fp1'));
+	assert.ok(!out.includes('fp2'));
+});
+
+test('buildPoolTooltip: when activeName is given, it is used as label', () => {
+	const out = buildPoolTooltip(
+		[{ id: 'k1', name: 'copilot-1', region: 'china', fingerprint: 'fp1', isActive: true }],
+		'copilot-1',
+	);
+	assert.ok(out.includes('★ copilot-1'));
+});
+
+test('buildPoolTooltip: other key without snap shows ? for percentages', () => {
+	const out = buildPoolTooltip(
+		[
+			{ id: 'k1', name: 'a', region: 'china', fingerprint: 'fp1', isActive: true },
+			{ id: 'k2', name: 'b', region: 'global', fingerprint: 'fp2', isActive: false },
 		],
 		undefined,
 	);
-	// The active marker for the current locale is appended to the
-	// active row only. We don't pin the exact translated form —
-	// only that the active row carries the marker and the inactive
-	// row does not.
-	const activeMarker = t('statusBar.plan.activeMarker');
-	const activeLine = out.split('\n').find((l) => l.includes('b')) ?? '';
-	const inactiveLine = out.split('\n').find((l) => l.includes('a')) ?? '';
-	assert.ok(activeLine.includes(activeMarker), `expected "${activeMarker}" on active line, got: ${activeLine}`);
-	assert.ok(!inactiveLine.includes(activeMarker), `inactive line should not carry marker, got: ${inactiveLine}`);
-});
-
-test('buildPoolTooltip: when activeName is given, header is prepended', () => {
-	const out = buildPoolTooltip(
-		[{ name: 'copilot-1', region: 'china', fingerprint: 'fpA', isActive: true }],
-		'copilot-1',
-	);
-	const header = t('statusBar.plan.activeKey', 'copilot-1');
-	assert.ok(out.startsWith(header), `expected header to lead, got: ${out}`);
-	assert.ok(out.includes('• copilot-1'));
+	const compactLine = out.split('\n').find((l) => l.includes(' b ')) ?? '';
+	assert.ok(compactLine.includes('?'));
 });

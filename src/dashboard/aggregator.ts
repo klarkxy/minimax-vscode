@@ -52,6 +52,14 @@ export interface AggregatorOptions {
 	 *  default is `all`; the dashboard lets the user flip to a
 	 *  per-key scope from the API Keys section. */
 	usageScope?: UsageScope;
+	/**
+	 * Optional pre-computed multi-key plan snapshots. Built by the
+	 *  panel from `PlanCache.readAll()` + the key pool snapshot so
+	 *  the dashboard's Token Plan card can render the key selector
+	 *  and per-key quota data. When omitted, the legacy `plan` field
+	 *  is still populated for backward compat.
+	 */
+	allKeyPlans?: Record<string, import('./types').KeyPlanSnapshot>;
 }
 
 // ---- Shared plan cache (Dashboard + status bar) --------------------------
@@ -67,6 +75,24 @@ export interface AggregatorOptions {
 export interface PlanSnapshot {
 	usage: PlanUsage;
 	fetchedAt: number;
+	/** The keyId this snapshot belongs to. Populated when the snapshot
+	 *  was written through the multi-key API (`refreshKey` /
+	 *  `refreshAll`). Legacy snapshots (written through the
+	 *  single-key `refresh(platform)`) may leave this `undefined`. */
+	keyId?: string;
+}
+
+/**
+ * A single key that the poller / dashboard refresh loop should
+ * refresh. Bundles the (apiKey, host) pair the underlying
+ * `fetchPlanUsage` needs, plus the `keyId` so the cache can store
+ * the snapshot under the right key.
+ */
+export interface PlanRefreshTarget {
+	keyId: string;
+	apiKey: string;
+	host: 'china' | 'global' | null;
+	fingerprint: string;
 }
 
 export interface PlanCache {
@@ -81,8 +107,32 @@ export interface PlanCache {
 	 * `force: true` bypasses the TTL window — used by the dashboard's
 	 * Refresh button and any caller that needs a guaranteed-fresh
 	 * round-trip.
+	 *
+	 * When `options.keyId` is provided, the resulting snapshot is
+	 * stored under that keyId so it can be retrieved via `readForKey`.
+	 * Without a `keyId` the snapshot is only stored under its
+	 * fingerprint (legacy behaviour preserved for callers that don't
+	 * know about the multi-key layer yet).
 	 */
-	refresh(platform: PlanApiOptions, options?: { force?: boolean }): Promise<PlanApiResult>;
+	refresh(platform: PlanApiOptions, options?: { force?: boolean; keyId?: string }): Promise<PlanApiResult>;
+	/** Read the snapshot for one specific keyId, if any. */
+	readForKey(keyId: string): PlanSnapshot | undefined;
+	/** Read every non-expired snapshot keyed by keyId. Used by the
+	 *  dashboard to render the Token Plan card and by the status bar
+	 *  to compose the all-keys tooltip. Expired snapshots are
+	 *  filtered out — callers that want TTL-bypass should pass
+	 *  `force: true` to `refreshKey` / `refreshAll`. */
+	readAll(): Map<string, PlanSnapshot>;
+	/** Refresh a single key. Honours the TTL window unless `force:
+	 *  true` is passed. Returns the same result shape as
+	 *  `fetchPlanUsage` (callers can decide whether to surface
+	 *  errors). */
+	refreshKey(target: PlanRefreshTarget, options?: { force?: boolean; fetchImpl?: typeof fetch }): Promise<PlanApiResult>;
+	/** Refresh every supplied target. The 5-minute TTL is honoured
+	 *  unless `force: true` is passed. In-flight dedup is keyed by
+	 *  fingerprint so a parallel `refresh(platform)` for the same
+	 *  identity still rides the same promise. */
+	refreshAll(targets: PlanRefreshTarget[], options?: { force?: boolean; fetchImpl?: typeof fetch }): Promise<PlanApiResult[]>;
 	/** Subscribe to cache-changed events. Returns a Disposable. */
 	subscribe(listener: () => void): { dispose(): void };
 	/**
@@ -93,6 +143,13 @@ export interface PlanCache {
 	 * intact, if any).
 	 */
 	invalidate(fingerprint?: string): void;
+	/**
+	 * Drop the snapshot + in-flight slot for one keyId. Mirrors
+	 * `invalidate(fingerprint)` but keyed by keyId — used by the
+	 * TokenPlanPoller when a key is deleted from the pool so the
+	 * dead entry doesn't linger in the dashboard's `readAll()` map.
+	 */
+	invalidateKey(keyId: string): void;
 }
 
 /**
@@ -114,13 +171,19 @@ export function planCacheFingerprint(platform: PlanApiOptions): string {
 /** Create a fresh PlanCache — one per extension host. */
 export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
 	const ttlMs = options?.ttlMs ?? DEFAULT_PLAN_CACHE_TTL_MS;
-	// Snapshots and in-flight promises are keyed by fingerprint, so a
-	// switch from key A to key B (or from China to a third-party
-	// proxy) doesn't serve the old identity's data. Codex's
-	// adversarial review Finding 2 closed this; the previous single-
-	// snapshot implementation returned the old account's quota
-	// under the new identity for up to 5 minutes.
+	// Snapshots are keyed by keyId (primary) and fingerprint (legacy
+	// reverse index). `read(platform)` continues to use the
+	// fingerprint-based reverse lookup so existing callers see no
+	// change. `readForKey` / `readAll` / `refreshKey` / `refreshAll`
+	// all use the primary keyId index.
 	const snapshots = new Map<string, PlanSnapshot>();
+	/** fingerprint → keyId reverse index. Populated by `refresh` when
+	 *  `platform.keyId` is provided. Used by `read(platform)` and
+	 *  `readAll` to bridge the single-key and multi-key APIs. */
+	const fingerprintToKeyId = new Map<string, string>();
+	// In-flight dedup is keyed by fingerprint so a parallel
+	// `refresh(platform)` and `refreshAll` for the same identity
+	// still share the same HTTP promise.
 	const inFlight = new Map<string, Promise<PlanApiResult>>();
 	const listeners = new Set<() => void>();
 
@@ -137,7 +200,9 @@ export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
 	return {
 		read(platform) {
 			if (platform) {
-				return snapshots.get(planCacheFingerprint(platform));
+				const fp = planCacheFingerprint(platform);
+				const kid = fingerprintToKeyId.get(fp);
+				return snapshots.get(kid ?? fp);
 			}
 			// Return the most recently written snapshot. The cache is
 			// designed for one primary identity (the current key +
@@ -160,7 +225,9 @@ export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
 			// `force: true` bypasses the TTL (used by the dashboard's
 			// Refresh button).
 			const fp = planCacheFingerprint(platform);
-			const cached = snapshots.get(fp);
+			const kid = options?.keyId;
+			const storeKey = kid ?? fp;
+			const cached = snapshots.get(storeKey);
 			const force = options?.force === true;
 			if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
 				return { ok: true, usage: cached.usage };
@@ -181,10 +248,14 @@ export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
 			const promise = fetchPlanUsage(platform)
 				.then((result) => {
 					if (result.ok) {
-						snapshots.set(fp, {
+						snapshots.set(storeKey, {
 							usage: result.usage,
 							fetchedAt: Date.now(),
+							keyId: kid,
 						});
+						if (kid) {
+							fingerprintToKeyId.set(fp, kid);
+						}
 						notify();
 					}
 					return result;
@@ -195,6 +266,69 @@ export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
 			inFlight.set(fp, promise);
 			return promise;
 		},
+
+		// ---- Multi-key API ----
+
+		readForKey(keyId) {
+			return snapshots.get(keyId);
+		},
+		readAll() {
+			const result = new Map<string, PlanSnapshot>();
+			const now = Date.now();
+			for (const [keyId, snap] of snapshots) {
+				// Skip fingerprint-only (legacy, non-keyId) entries
+				// and expired snapshots.
+				if (!snap.keyId) continue;
+				if (now - snap.fetchedAt >= ttlMs) continue;
+				result.set(keyId, snap);
+			}
+			return result;
+		},
+		async refreshKey(target, options) {
+			const force = options?.force === true;
+			const cached = snapshots.get(target.keyId);
+			if (!force && cached && Date.now() - cached.fetchedAt < ttlMs) {
+				return { ok: true, usage: cached.usage };
+			}
+			const fp = target.fingerprint;
+			const pending = inFlight.get(fp);
+			if (pending) {
+				return pending;
+			}
+			const apiOptions: PlanApiOptions = {
+				apiKey: target.apiKey,
+				host: target.host,
+				fetchImpl: options?.fetchImpl,
+			};
+			const promise = fetchPlanUsage(apiOptions)
+				.then((result) => {
+					if (result.ok) {
+						snapshots.set(target.keyId, {
+							usage: result.usage,
+							fetchedAt: Date.now(),
+							keyId: target.keyId,
+						});
+						fingerprintToKeyId.set(fp, target.keyId);
+						notify();
+					}
+					return result;
+				})
+				.finally(() => {
+					inFlight.delete(fp);
+				});
+			inFlight.set(fp, promise);
+			return promise;
+		},
+		async refreshAll(targets, options) {
+			const force = options?.force === true;
+			const results: PlanApiResult[] = [];
+			for (const target of targets) {
+				const result = await this.refreshKey(target, { force, fetchImpl: options?.fetchImpl });
+				results.push(result);
+			}
+			return results;
+		},
+
 		subscribe(listener) {
 			listeners.add(listener);
 			return {
@@ -207,9 +341,34 @@ export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
 			if (fingerprint === undefined) {
 				snapshots.clear();
 				inFlight.clear();
+				fingerprintToKeyId.clear();
 			} else {
-				snapshots.delete(fingerprint);
+				// Support both legacy (snapshot stored under
+				// fingerprint directly, no keyId) and new (snapshot
+				// stored under keyId, fingerprint in reverse map)
+				// entries. Without this, `invalidate(fp)` on a
+				// legacy snapshot is a no-op.
+				const kid = fingerprintToKeyId.get(fingerprint);
+				if (kid) {
+					snapshots.delete(kid);
+					fingerprintToKeyId.delete(fingerprint);
+				} else {
+					snapshots.delete(fingerprint);
+				}
 				inFlight.delete(fingerprint);
+			}
+			notify();
+		},
+		invalidateKey(keyId) {
+			snapshots.delete(keyId);
+			// Also remove the fingerprint → keyId reverse mapping
+			// for this key so a subsequent `read(platform)` doesn't
+			// resolve to a deleted keyId.
+			for (const [fp, kid] of fingerprintToKeyId) {
+				if (kid === keyId) {
+					fingerprintToKeyId.delete(fp);
+					inFlight.delete(fp);
+				}
 			}
 			notify();
 		},
@@ -480,6 +639,14 @@ export async function buildCachedDashboardView(options: {
 	 *  default is `all`; the dashboard lets the user flip to a
 	 *  per-key scope from the API Keys section. */
 	usageScope?: UsageScope;
+	/**
+	 * Optional pre-computed multi-key plan snapshots. Built by the
+	 *  panel from `PlanCache.readAll()` + the key pool snapshot so
+	 *  the dashboard's Token Plan card can render the key selector
+	 *  and per-key quota data. When omitted, the legacy `plan` field
+	 *  is still populated for backward compat.
+	 */
+	allKeyPlans?: Record<string, import('./types').KeyPlanSnapshot>;
 }): Promise<DashboardView> {
 	const usageScope: UsageScope = options.usageScope ?? { kind: 'all' };
 	const copilotView = resolveCopilotView(options.store, usageScope);
@@ -501,6 +668,7 @@ export async function buildCachedDashboardView(options: {
 		copilot: copilotView,
 		claudeCode,
 		plan: options.planSnapshot?.usage,
+		allKeyPlans: undefined,
 		mmxCli: options.mmxCli ?? {
 			install: 'unknown',
 			version: null,
@@ -662,6 +830,7 @@ export async function buildDashboardView(
 		copilot: copilotView,
 		claudeCode,
 		mmxCli: options.mmxCliStatus ?? mmxStatus,
+		allKeyPlans: options.allKeyPlans,
 		mcp: options.mcp ?? {
 			ready: false,
 			providerRegistered: false,

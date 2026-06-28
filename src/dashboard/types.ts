@@ -130,6 +130,30 @@ export interface McpStatus {
 	reason: string;
 }
 
+/**
+ * Snapshot of a single key's plan status for the multi-key
+ * Token Plan card. The dashboard renders one of these per
+ * named key and lets the user switch between them.
+ */
+export interface KeyPlanSnapshot {
+	/** The key's id (matches `ApiKeySummary.id`). */
+	keyId: string;
+	/** User-visible label (key name). */
+	label: string;
+	/** Whether this key is currently active. */
+	isActive: boolean;
+	/** Fetch status for this key. */
+	source: 'ok' | 'loading' | 'unconfigured' | 'unsupported' | 'error';
+	/** Present when `source === 'ok'`. */
+	usage?: PlanUsage;
+	/** Present when `source === 'error'`. */
+	error?: string;
+	/** Unix-ms timestamp of the last successful fetch. */
+	updatedAt?: number;
+	/** Region display hint (e.g. 'china', 'global', 'custom'). */
+	region?: string;
+}
+
 /** Aggregated dashboard view-model. */
 export interface DashboardView {
 	/** Best-effort status of each upstream source. */
@@ -177,6 +201,18 @@ export interface DashboardView {
 	 *  `usageStore.readAllKeys()`. Always present so the
 	 *  dropdown can flip without a re-fetch. */
 	allKeysCopilot?: SourceView;
+	/** Per-key Token Plan snapshots for the multi-key Token Plan
+	 *  card. Each entry represents one named key's plan status.
+	 *  The dashboard defaults to showing the active key; the user
+	 *  can switch to any other key from the card's selector. When
+	 *  absent (e.g. the data-layer commit without the UI), the
+	 *  dashboard falls back to the single `plan` field above. */
+	allKeyPlans?: Record<string, KeyPlanSnapshot>;
+	/** KeyId of the selected plan in the Token Plan card.
+	 *  `'active'` means "show the active key's plan" (the
+	 *  default). The dashboard webview tracks this in its local
+	 *  state and sends it back on `setTokenPlanSelection`. */
+	selectedTokenPlanKeyId?: 'active' | string;
 }
 
 /** Selects which slice of Copilot usage the dashboard renders. */

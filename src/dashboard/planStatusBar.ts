@@ -26,7 +26,7 @@ export interface PlanStatusBarDeps {
 	/** Optional notifier for the full key pool summary. The status
 	 *  bar formats each entry in the tooltip; the quota numbers
 	 *  themselves still come from the shared `cache`. */
-	getKeyPool?: () => Array<{ name: string; region: string; fingerprint: string; isActive: boolean }> | undefined;
+	getKeyPool?: () => Array<{ id: string; name: string; region: string; fingerprint: string; isActive: boolean }> | undefined;
 }
 
 export interface PlanStatusBar {
@@ -96,18 +96,45 @@ function remainingPctOf(plan: PlanUsage, key: 'current' | 'weekly'): number | nu
 }
 
 export function buildPoolTooltip(
-	pool: Array<{ name: string; region: string; fingerprint: string; isActive: boolean }> | undefined,
+	pool: Array<{ id: string; name: string; region: string; fingerprint: string; isActive: boolean }> | undefined,
 	activeName: string | undefined,
+	allSnaps?: Map<string, { usage?: PlanUsage }> | null,
 ): string {
 	if (!pool || pool.length === 0) return '';
-	const activeMarker = t('statusBar.plan.activeMarker');
-	const lines = pool.map((entry) => {
-		const marker = entry.isActive ? activeMarker : '';
-		return `• ${entry.name}${marker}  ${entry.region}  ${entry.fingerprint}`;
-	});
-	if (activeName) {
-		return t('statusBar.plan.activeKey', activeName) + '\n' + lines.join('\n');
+
+	const activeEntry = pool.find((e) => e.isActive);
+	const otherEntries = pool.filter((e) => !e.isActive);
+	const lines: string[] = [];
+
+	// Active key: detailed view with full plan data and region
+	if (activeEntry) {
+		const label = activeName ?? activeEntry.name;
+		const snap = allSnaps?.get(activeEntry.id);
+		lines.push(`★ ${label}  ${activeEntry.region}`);
+		if (snap?.usage) {
+			const u = snap.usage;
+			const fiveH = u.currentPercentage != null ? `${u.currentPercentage}%` : '?';
+			const wk = u.weeklyPercentage != null ? `${u.weeklyPercentage}%` : '∞';
+			const reset = u.currentResetText ? `  ${t('statusBar.plan.resetsIn')} ${u.currentResetText}` : '';
+			lines.push(`  5h ${fiveH}  ${t('statusBar.plan.weekly')} ${wk}${reset}`);
+		} else {
+			lines.push(`  loading`);
+		}
 	}
+
+	// Other keys: compact one-line each (name + 5h% + week%)
+	for (const entry of otherEntries) {
+		const snap = allSnaps?.get(entry.id);
+		if (snap?.usage) {
+			const u = snap.usage;
+			const fiveH = u.currentPercentage != null ? String(u.currentPercentage) : '?';
+			const wk = u.weeklyPercentage != null ? String(u.weeklyPercentage) : '?';
+			lines.push(t('statusBar.plan.otherKeyCompact', entry.name, fiveH, wk));
+		} else {
+			lines.push(t('statusBar.plan.otherKeyCompact', entry.name, '?', '?'));
+		}
+	}
+
 	return lines.join('\n');
 }
 
@@ -184,7 +211,7 @@ export function createPlanStatusBar(deps: PlanStatusBarDeps): PlanStatusBar {
 	let lastKey: KeyState = 'unknown';
 
 	function poolTooltip(): string {
-		return buildPoolTooltip(deps.getKeyPool?.(), deps.getActiveKeyLabel?.());
+		return buildPoolTooltip(deps.getKeyPool?.(), deps.getActiveKeyLabel?.(), deps.cache.readAll());
 	}
 
 	function activeLabel(): string | undefined {

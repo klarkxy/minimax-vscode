@@ -191,6 +191,7 @@ const zh: Translations = {
 	'statusBar.plan.resetsIn': '重置',
 	'statusBar.plan.activeKey': '当前 Key: {0}',
 	'statusBar.plan.activeMarker': ' ●当前',
+	'statusBar.plan.otherKeyCompact': '  {0}  5h {1}%  周 {2}%',
 	'statusBar.plan.openDashboard': '点击打开 Dashboard 查看详情',
 
 	// mmx-cli — the extension only copies the official install
@@ -412,6 +413,7 @@ const en: Translations = {
 	'statusBar.plan.resetsIn': 'Resets in',
 	'statusBar.plan.activeKey': 'Active key: {0}',
 	'statusBar.plan.activeMarker': ' ● active',
+	'statusBar.plan.otherKeyCompact': '  {0}  5h {1}%  Wk {2}%',
 	'statusBar.plan.openDashboard': 'Click to open the dashboard for details',
 
 	// mmx-cli — the extension only copies the official install

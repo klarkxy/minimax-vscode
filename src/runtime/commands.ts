@@ -17,10 +17,9 @@ import { createPlanCache, type PlanCache } from '../dashboard/aggregator';
 import { createMmxCliCache, type MmxCliCache } from '../dashboard/mmxCliCache';
 import { copyMmxInstallPrompt } from '../dashboard/mmxCli';
 import type { ChatTurnNotifier } from '../dashboard/chatTurnNotifier';
-import {
-	createClaudeCodeIngest,
-	type ClaudeCodeIngestHandle,
-} from '../dashboard/claudeCodeIngest';
+import { createClaudeCodeIngest, type ClaudeCodeIngestHandle } from '../dashboard/claudeCodeIngest';
+import { createTokenPlanPoller, type TokenPlanPollerHandle } from '../dashboard/tokenPlanPoller';
+import { API_KEY_SECRET_PREFIX } from '../consts';
 import { KeyManager } from '../keyManager';
 import {
 	addApiKeyCommand,
@@ -39,6 +38,7 @@ let cachedMmxCliCache: MmxCliCache | undefined;
 let cachedPlanStatusBar: PlanStatusBar | undefined;
 let cachedClaudeCodeIngest: ClaudeCodeIngestHandle | undefined;
 let cachedMcpProvider: MiniMaxMcpHandle | undefined;
+let cachedTokenPlanPoller: TokenPlanPollerHandle | undefined;
 let turnNotifierDisposable: vscode.Disposable | undefined;
 
 /** Read the shared `KeyManager` instance. Created lazily on first
@@ -99,8 +99,40 @@ export function setCommandContext(context: vscode.ExtensionContext): void {
 	cachedAuth = new AuthManager(context, cachedKeyManager);
 	cachedUsage = createUsageStore(context.globalState, { keyManager: cachedKeyManager });
 	if (!cachedPlanStatusBar) {
-		cachedPlanStatusBar = createPlanStatusBar({ cache: getPlanCache() });
+		cachedPlanStatusBar = createPlanStatusBar({
+			cache: getPlanCache(),
+			getActiveKeyLabel: () => {
+				try {
+					const km = getKeyManager();
+					const snap = km.snapshot();
+					if (!snap.activeKeyId) return undefined;
+					return snap.keys.find((k) => k.id === snap.activeKeyId)?.name;
+				} catch {
+					return undefined;
+				}
+			},
+			getKeyPool: () => {
+				try {
+					const km = getKeyManager();
+					const snap = km.snapshot();
+					return snap.keys.map((k) => ({
+						id: k.id,
+						name: k.name,
+						region: k.region,
+						fingerprint: k.fingerprint,
+						isActive: k.id === snap.activeKeyId,
+					}));
+				} catch {
+					return undefined;
+				}
+			},
+		});
 		context.subscriptions.push(cachedPlanStatusBar);
+		// Re-render the active-key label and pool summary whenever
+		// the key pool changes (add / rename / switch / delete).
+		context.subscriptions.push(getKeyManager().onDidChange(() => {
+			cachedPlanStatusBar?.refreshKeyLabel();
+		}));
 		// Kick the initial key-state read so the placeholder shows the
 		// right thing before the user has interacted with the extension.
 		void refreshPlanKeyState().catch((error) => {
@@ -122,7 +154,37 @@ export function setCommandContext(context: vscode.ExtensionContext): void {
 				void pulsePlanCache();
 			}
 		}));
+		// Config changes to apiBaseUrl can affect every key's host
+		// resolution; trigger a non-force refresh so the poller picks
+		// up the new host on the next cycle.
+		context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
+			if (e.affectsConfiguration('minimax.apiBaseUrl')) {
+				void cachedTokenPlanPoller?.refresh();
+			}
+		}));
 	}
+	// Start (or re-start) the background Token Plan poller. This
+	// runs OUTSIDE the status-bar guard so that each call to
+	// `setCommandContext` (e.g. from a second test or a multi-window
+	// scenario) disposes the previous poller and creates a fresh one.
+	// Without this, the first test's poller timer would keep the Node
+	// event loop alive after the test runner tears down, causing a
+	// 30-second hang at file-level cleanup.
+	cachedTokenPlanPoller?.dispose();
+	cachedTokenPlanPoller = createTokenPlanPoller({
+		planCache: getPlanCache(),
+		keyManager: cachedKeyManager,
+		fetchSecret: (keyId) =>
+			Promise.resolve(
+				context.secrets.get(`${API_KEY_SECRET_PREFIX}${keyId}`),
+			).catch(() => undefined),
+	});
+	context.subscriptions.push({
+		dispose: () => {
+			cachedTokenPlanPoller?.dispose();
+			cachedTokenPlanPoller = undefined;
+		},
+	});
 }
 
 /**
@@ -164,9 +226,32 @@ export function setClaudeCodeIngest(context: vscode.ExtensionContext): void {
 	);
 }
 
-/** Return the cached Claude Code ingester handle, if one is running. */
+/** Return the cached MCP provider handle, if one is running. */
 export function getClaudeCodeIngest(): ClaudeCodeIngestHandle | undefined {
 	return cachedClaudeCodeIngest;
+}
+
+/**
+ * Read the shared TokenPlanPoller handle. Created lazily on the first
+ * call to `setCommandContext` so that callers (dashboard panel,
+ * `pulsePlanCache`) can force a multi-key refresh even before the
+ * periodic timer fires. Returns `undefined` only if
+ * `setCommandContext` has not yet run.
+ */
+export function getTokenPlanPoller(): TokenPlanPollerHandle | undefined {
+	return cachedTokenPlanPoller;
+}
+
+/**
+ * Dispose the cached Token Plan poller and clear the module-level
+ * reference. Exported so test teardown can kill the `setInterval`
+ * timer that would otherwise keep the Node event loop alive after
+ * the test runner tears down. Idempotent — safe to call when no
+ * poller exists.
+ */
+export function disposeTokenPlanPoller(): void {
+	cachedTokenPlanPoller?.dispose();
+	cachedTokenPlanPoller = undefined;
 }
 
 /**
@@ -204,9 +289,15 @@ export function bindChatTurnNotifier(notifier: ChatTurnNotifier): void {
 	});
 }
 
-/** Fire-and-forget plan refresh — dedup'd by the 8s TTL. */
+/**
+ * Fire-and-forget plan refresh. With the multi-key poller in
+ * place this now refreshes EVERY named key (TTL-respecting)
+ * rather than just the active key. The single-key
+ * `refreshPlanKeyState` still exists for the dashboard's
+ * active-key rendering path.
+ */
 function pulsePlanCache(): void {
-	void refreshPlanKeyState().catch((error) => {
+	void cachedTokenPlanPoller?.refresh().catch((error) => {
 		logger.warn('Plan cache pulse failed', error);
 	});
 }
@@ -217,37 +308,36 @@ function pulsePlanCache(): void {
  *  [high] finding from Codex's second adversarial review). */
 let lastPulsedHost: 'china' | 'global' | null | undefined = undefined;
 
-/** Mirror the current auth state into the plan status bar. */
+/**
+ * Mirror the current auth state into the plan status bar. Still
+ * needed for the status bar's key-state indicator (`set`/`unset`).
+ * The actual quota fetch is now driven by the Token Plan poller
+ * (`pulsePlanCache`), so this function only invalidates the cache
+ * on host changes (credential-leak guard) and does NOT issue a
+ * fresh fetch — the poller handles that.
+ */
 async function refreshPlanKeyState(): Promise<void> {
 	if (!cachedAuth || !cachedPlanStatusBar) return;
 	const key = await cachedAuth.getApiKey();
 	cachedPlanStatusBar.setKeyState(key ? 'set' : 'unset');
-	if (key) {
-		// Best-effort warm-up; the dashboard will reuse the same snapshot.
-		// The host-classifier and PlanCache short-circuits already
-		// guard the credential-leak paths for proxy users and malformed
-		// URLs. The remaining concern is the cross-config-event race:
-		// the user changes `minimax.apiBaseUrl` from a third-party
-		// proxy to `api.minimaxi.com` (or vice versa); the apiBaseUrl
-		// change fires before the user has had a chance to swap the
-		// API key, so a `refresh({ apiKey: oldKey, host: newHost })`
-		// would forward the old proxy key to the new official host.
-		// We close that path by refusing to auto-warm when the host
-		// has changed since the last pulse — the cache is invalidated
-		// instead, and the next explicit user action (key change,
-		// dashboard open, or the chat-turn-end notifier firing
-		// against a stable host) is what kicks off the next fetch.
-		const host = detectHost();
-		if (host === null || host !== lastPulsedHost) {
-			lastPulsedHost = host;
-			getPlanCache().invalidate();
-		} else {
-			void getPlanCache().refresh({ apiKey: key, host });
-		}
-	} else {
+	if (!key) {
 		lastPulsedHost = undefined;
 		getPlanCache().invalidate();
+		return;
 	}
+	const host = detectHost();
+	// Host-change guard: when the user switches apiBaseUrl from a
+	// proxy to an official host (or vice versa), invalidate the
+	// cache so the old identity's snapshot is not served under the
+	// new host. The poller's next cycle will fetch fresh data for
+	// all keys.
+	if (host === null || host !== lastPulsedHost) {
+		lastPulsedHost = host;
+		getPlanCache().invalidate();
+	}
+	// No direct fetch here — the poller's 5-minute cycle handles
+	// warm-up. For the dashboard's force-refresh case, the panel
+	// calls `poller.refresh({ force })` directly.
 }
 
 export function registerCommands(context: vscode.ExtensionContext): void {
@@ -288,6 +378,7 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 				planCache: getPlanCache(),
 				mmxCliCache: getMmxCliCache(),
 				claudeCodeIngest: cachedClaudeCodeIngest,
+				tokenPlanPoller: cachedTokenPlanPoller,
 				// Pass the live resolver rather than a one-shot value
 				// so the panel reflects the user's `minimax.apiBaseUrl`
 				// changes on the next refresh — see `DashboardPanelDeps.
