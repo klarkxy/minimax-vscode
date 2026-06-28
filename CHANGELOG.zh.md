@@ -2,6 +2,13 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.5.1 — 2026-06-28
+
+### 修复
+
+- **Marketplace README 截图改为从 GitHub 读取。** v2.5.0 已经把 dashboard 和状态栏截图加进源码 README，但 Marketplace 页面需要稳定的 HTTPS 图片地址。现在截图指向 `raw.githubusercontent.com`，同时 `.vscodeignore` 排除 `image/**`，所以 VSIX 不打包这两张截图，Marketplace 仍能正常显示。
+- **中文 README 同步保留截图区。** `README.zh.md` 现在也包含 dashboard 与状态栏截图，方便直接在 GitHub 中文文档里查看。
+
 ## 2.5.0 — 2026-06-27
 
 ### 新增 — 命名 API Key 池

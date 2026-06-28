@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.5.1 — 2026-06-28
+
+### Fixed
+
+- **Marketplace README screenshots now load from GitHub.** The v2.5.0 release added the dashboard and status-bar screenshots to the source README, but the Marketplace readme needed stable HTTPS image URLs. The screenshots now point at `raw.githubusercontent.com`, and `image/**` is excluded from the VSIX so the package stays small while the Marketplace page can still render the images.
+- **Chinese README now carries the same screenshot section.** `README.zh.md` mirrors the dashboard and status-bar screenshots for users browsing the repository directly.
+
 ## 2.5.0 — 2026-06-27
 
 ### Added — Named API key pool
