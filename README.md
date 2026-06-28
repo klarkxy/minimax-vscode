@@ -36,9 +36,9 @@
 
 ## Screenshots
 
-![MiniMax usage dashboard](image/dashboard.png)
+![MiniMax usage dashboard](https://raw.githubusercontent.com/klarkxy/minimax-vscode/main/image/dashboard.png)
 
-![MiniMax quota status bar](image/状态栏.png)
+![MiniMax quota status bar](https://raw.githubusercontent.com/klarkxy/minimax-vscode/main/image/%E7%8A%B6%E6%80%81%E6%A0%8F.png)
 
 ## Getting Started
 

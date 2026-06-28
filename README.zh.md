@@ -24,9 +24,9 @@
 
 ## 截图
 
-![MiniMax 用量面板](image/dashboard.png)
+![MiniMax 用量面板](https://raw.githubusercontent.com/klarkxy/minimax-vscode/main/image/dashboard.png)
 
-![MiniMax 配额状态栏](image/状态栏.png)
+![MiniMax 配额状态栏](https://raw.githubusercontent.com/klarkxy/minimax-vscode/main/image/%E7%8A%B6%E6%80%81%E6%A0%8F.png)
 
 ## 快速开始
 
