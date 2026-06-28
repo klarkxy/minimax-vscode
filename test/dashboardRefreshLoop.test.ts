@@ -82,8 +82,37 @@ function makeDeps(overrides?: {
 function makeControllablePlanCache() {
 	const listeners = new Set<() => void>();
 	let refreshCalls = 0;
+	let snapshot:
+		| {
+			usage: {
+				modelName: string;
+				currentUsed: number;
+				currentTotal: number;
+				currentPercentage: number;
+				currentResetText: string;
+				weeklyUsed: number;
+				weeklyTotal: number;
+				weeklyPercentage: number;
+				weeklyResetText: string;
+				weeklyUnlimited: boolean;
+			};
+			fetchedAt: number;
+		}
+		| undefined;
+	const usage = {
+		modelName: 'MiniMax-M3',
+		currentUsed: 1,
+		currentTotal: 10,
+		currentPercentage: 10,
+		currentResetText: '1h 0m',
+		weeklyUsed: 1,
+		weeklyTotal: 10,
+		weeklyPercentage: 10,
+		weeklyResetText: '1d 0h',
+		weeklyUnlimited: false,
+	};
 	const cache = {
-		read: () => undefined,
+		read: () => snapshot,
 		refresh: () => {
 			refreshCalls += 1;
 			// Resolve on a microtask so the panel's `await
@@ -92,7 +121,8 @@ function makeControllablePlanCache() {
 			// used to bite. Returning the same shape `PlanCache`
 			// returns in production keeps the test's flow
 			// indistinguishable from the real path.
-			return Promise.resolve({ ok: true, usage: { model_remains: [] } });
+			snapshot = { usage, fetchedAt: Date.now() };
+			return Promise.resolve({ ok: true, usage });
 		},
 		subscribe: (listener: () => void) => {
 			listeners.add(listener);
@@ -185,6 +215,15 @@ function countRefreshStatePosts(messages: ReadonlyArray<unknown>, refreshing?: b
 		const payload = (m as { payload?: { refreshing?: unknown } }).payload;
 		return payload?.refreshing === refreshing;
 	}).length;
+}
+
+async function waitForPanelIdle(timeoutMs = 2_000): Promise<boolean> {
+	return waitFor(() => {
+		const panel = (DashboardPanel as unknown as {
+			current?: { inFlight?: boolean; pendingRefresh?: boolean; scheduleTimer?: unknown };
+		}).current;
+		return !!panel && panel.inFlight !== true && panel.pendingRefresh !== true && panel.scheduleTimer === undefined;
+	}, timeoutMs, 10);
 }
 
 // ---------------------------------------------------------------------------
@@ -355,14 +394,14 @@ test('DashboardPanel: a single refresh posts at most one data frame, and the sec
 
 	// Wait for the initial refresh to complete (initial loading
 	// frame + final frame = 2 data posts on the very first
-	// refresh).
+	// refresh). The webview `ready` message may queue a follow-up
+	// refresh while the first one is in flight, so take the
+	// baseline only after the panel is actually idle.
 	await waitFor(() => captureChannelLog().some((line) => line.includes('dashboard.refresh.loop.end')));
+	await waitForPanelIdle();
 	const webviewPanel = mockState.webviewPanels[0]!;
 	const dataPostsAfterInit = countDataPosts(webviewPanel.webview.postedMessages);
-	assert.ok(
-		dataPostsAfterInit >= 1 && dataPostsAfterInit <= 2,
-		`initial refresh should post 1-2 data frames (loading + final). got ${dataPostsAfterInit}`,
-	);
+	assert.ok(dataPostsAfterInit >= 1, `initial refresh should post at least one data frame. got ${dataPostsAfterInit}`);
 
 	// Now trigger a SECOND refresh via the explicit API.
 	const panel = (DashboardPanel as unknown as { current?: { refresh(): Promise<void> } }).current;
@@ -376,6 +415,7 @@ test('DashboardPanel: a single refresh posts at most one data frame, and the sec
 		// loop ends after one iteration.
 		return starts >= 2 && log.filter((l) => l.includes('dashboard.refresh.loop.end')).length >= 2;
 	});
+	await waitForPanelIdle();
 
 	const dataPostsAfterSecond = countDataPosts(webviewPanel.webview.postedMessages);
 	// Second refresh adds EXACTLY ONE data frame (the final one).
@@ -434,8 +474,12 @@ test('DashboardPanel: user Refresh posts refreshState true/false, never a loadin
 	});
 
 	// Wait for the initial refresh to complete so the panel has
-	// settled into "data on screen, no in-flight work".
+	// settled into "data on screen, no in-flight work". The webview
+	// `ready` message is allowed to queue one follow-up refresh while
+	// the first one is in flight, so wait until the log has gone idle
+	// before taking the "before user clicked Refresh" counters.
 	await waitFor(() => captureChannelLog().some((line) => line.includes('dashboard.refresh.loop.end')));
+	await waitForPanelIdle();
 	const webviewPanel = mockState.webviewPanels[0]!;
 	const dataCountBefore = countDataPosts(webviewPanel.webview.postedMessages);
 	const refreshStateOnBefore = countRefreshStatePosts(webviewPanel.webview.postedMessages, true);
@@ -553,10 +597,11 @@ test('DashboardPanel: first open ships an initial loading frame, then a final vi
 		.filter(
 			(m) => !!m && typeof m === 'object' && (m as { type?: string }).type === 'data',
 		) as Array<{ payload?: { sources?: { plan?: string } } }>;
+	const planSequence = dataMessages.map((m) => m.payload?.sources?.plan ?? '?');
 
 	assert.ok(
 		dataMessages.length >= 1 && dataMessages.length <= 2,
-		`first open should post 1-2 data frames (loading + final), got ${dataMessages.length}`,
+		`first open should post 1-2 data frames (loading + final), got ${dataMessages.length}; sequence=${planSequence.join(' -> ')}`,
 	);
 	// If there are two frames, the FIRST must be the loading
 	// frame (so the user sees something during the plan fetch)
@@ -568,13 +613,13 @@ test('DashboardPanel: first open ships an initial loading frame, then a final vi
 		assert.equal(
 			dataMessages[0]!.payload?.sources?.plan,
 			'loading',
-			`on first open, the first data frame must carry planSource='loading'. got '${dataMessages[0]!.payload?.sources?.plan}'`,
+			`on first open, the first data frame must carry planSource='loading'. got '${dataMessages[0]!.payload?.sources?.plan}'; sequence=${planSequence.join(' -> ')}`,
 		);
 	}
 	const last = dataMessages[dataMessages.length - 1]!;
 	assert.notEqual(
 		last.payload?.sources?.plan,
 		'loading',
-		`the LAST data frame on first open must NOT be a loading frame. got '${last.payload?.sources?.plan}'`,
+		`the LAST data frame on first open must NOT be a loading frame. got '${last.payload?.sources?.plan}'; sequence=${planSequence.join(' -> ')}; log=${captureChannelLog().slice(-12).join(' | ')}`,
 	);
 });

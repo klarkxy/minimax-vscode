@@ -17,6 +17,7 @@ import { createUsageStore } from '../src/usage.js';
 import { dashboardMessages, pickDashboardLocale } from '../src/dashboard/messages.js';
 import { DashboardPanel } from '../src/dashboard/panel.js';
 import { mockState } from './helpers/vscodeMock.js';
+import type { MmxCliStatus } from '../src/dashboard/mmxCli.js';
 
 class FakeMemento {
 	private store = new Map<string, unknown>();
@@ -27,6 +28,19 @@ class FakeMemento {
 		this.store.set(key, value);
 		return Promise.resolve();
 	}
+}
+
+const testMmxStatus: MmxCliStatus = {
+	install: 'missing',
+	version: null,
+	binPath: null,
+	auth: 'notInstalled',
+	skill: 'missing',
+	agentReady: false,
+};
+
+function dashboardOptions(options: Parameters<typeof buildDashboardView>[0]): Parameters<typeof buildDashboardView>[0] {
+	return { mmxCliStatus: testMmxStatus, ...options };
 }
 
 // --- pickDashboardLocale --------------------------------------------------
@@ -308,7 +322,7 @@ test('fetchPlanUsage: Referer header matches the host (China vs global)', async 
 
 test('buildDashboardView: empty store shows copilot=empty, no plan', async () => {
 	const store = createUsageStore(new FakeMemento());
-	const view = await buildDashboardView({ store, platform: null });
+	const view = await buildDashboardView(dashboardOptions({ store, platform: null }));
 	assert.equal(view.sources.copilot, 'empty');
 	assert.equal(view.sources.plan, 'unconfigured');
 	assert.equal(view.copilot.today.requests, 0);
@@ -341,7 +355,7 @@ test('buildDashboardView: populates per-model and daily buckets', async () => {
 	await store.record('MiniMax-M3', { inputTokens: 50, outputTokens: 25, cacheWriteTokens: 5 });
 	await store.record('MiniMax-M2.7', { inputTokens: 30, outputTokens: 15 });
 
-	const view = await buildDashboardView({ store, platform: null });
+	const view = await buildDashboardView(dashboardOptions({ store, platform: null }));
 	assert.equal(view.sources.copilot, 'ok');
 	assert.equal(view.copilot.today.requests, 3);
 	assert.equal(view.copilot.today.inputTokens, 180);
@@ -364,13 +378,13 @@ test('buildDashboardView: populates per-model and daily buckets', async () => {
 test('buildDashboardView: includes plan when platform call succeeds', async () => {
 	const store = createUsageStore(new FakeMemento());
 	await store.record('MiniMax-M3', { inputTokens: 100, outputTokens: 40 });
-	const view = await buildDashboardView({
+	const view = await buildDashboardView(dashboardOptions({
 		store,
 		platform: {
 			apiKey: 'k',
 			fetchImpl: () => Promise.resolve(jsonResponse(validPayload)),
 		},
-	});
+	}));
 	assert.equal(view.sources.plan, 'ok');
 	assert.ok(view.plan);
 	assert.equal(view.plan!.modelName, 'MiniMax-M3');
@@ -379,13 +393,13 @@ test('buildDashboardView: includes plan when platform call succeeds', async () =
 
 test('buildDashboardView: marks plan=error and sets planError on failure', async () => {
 	const store = createUsageStore(new FakeMemento());
-	const view = await buildDashboardView({
+	const view = await buildDashboardView(dashboardOptions({
 		store,
 		platform: {
 			apiKey: 'k',
 			fetchImpl: () => Promise.resolve(jsonResponse({}, 500)),
 		},
-	});
+	}));
 	assert.equal(view.sources.plan, 'error');
 	assert.equal(view.plan, undefined);
 	assert.match(view.sources.planError ?? '', /HTTP 500/);
@@ -394,7 +408,7 @@ test('buildDashboardView: marks plan=error and sets planError on failure', async
 test('buildDashboardView: includePlatform=false skips platform call', async () => {
 	const store = createUsageStore(new FakeMemento());
 	let called = 0;
-	const view = await buildDashboardView({
+	const view = await buildDashboardView(dashboardOptions({
 		store,
 		platform: {
 			apiKey: 'k',
@@ -404,7 +418,7 @@ test('buildDashboardView: includePlatform=false skips platform call', async () =
 			},
 		},
 		includePlatform: false,
-	});
+	}));
 	assert.equal(called, 0);
 	assert.equal(view.sources.plan, 'unsupported');
 	assert.equal(view.plan, undefined);
@@ -434,7 +448,7 @@ test('buildDashboardView: planSnapshot short-circuits fetchPlanUsage', async () 
 		},
 		fetchedAt: Date.now(),
 	};
-	const view = await buildDashboardView({
+	const view = await buildDashboardView(dashboardOptions({
 		store,
 		platform: {
 			apiKey: 'k',
@@ -444,7 +458,7 @@ test('buildDashboardView: planSnapshot short-circuits fetchPlanUsage', async () 
 			},
 		},
 		planSnapshot: snapshot,
-	});
+	}));
 	assert.equal(fetchCalls, 0, 'snapshot was reused, no fresh fetch');
 	assert.equal(view.sources.plan, 'ok');
 	assert.equal(view.plan?.modelName, 'MiniMax-M3');
@@ -552,11 +566,11 @@ test('buildDashboardView: total = element-wise sum of copilot + claudeCode', asy
 		// two distinct entries after aggregation.
 		await store.record('MiniMax-M3', { inputTokens: 100, outputTokens: 40, cacheReadTokens: 5 });
 
-		const view = await buildDashboardView({
+		const view = await buildDashboardView(dashboardOptions({
 			store,
 			platform: null,
 			claudeCodeIngest: claudeIngest,
-		});
+		}));
 
 		// Per-source assertions first.
 		assert.equal(view.copilot.today.requests, 1);
@@ -1005,11 +1019,11 @@ test('buildDashboardView: surfaces the named key pool via getKeyPool', async () 
 		],
 		activeKeyId: 'k1',
 	};
-	const view = await buildDashboardView({
+	const view = await buildDashboardView(dashboardOptions({
 		store,
 		platform: null,
 		getKeyPool: () => pool,
-	});
+	}));
 	assert.equal(view.apiKeys.length, 2);
 	assert.equal(view.apiKeys[0]?.name, 'copilot-1');
 	assert.equal(view.activeKeyId, 'k1');
@@ -1017,7 +1031,7 @@ test('buildDashboardView: surfaces the named key pool via getKeyPool', async () 
 
 test('buildDashboardView: defaults apiKeys to an empty array when getKeyPool is absent', async () => {
 	const store = createUsageStore(new FakeMemento());
-	const view = await buildDashboardView({ store, platform: null });
+	const view = await buildDashboardView(dashboardOptions({ store, platform: null }));
 	assert.deepEqual(view.apiKeys, []);
 	assert.equal(view.activeKeyId, undefined);
 });
@@ -1025,7 +1039,7 @@ test('buildDashboardView: defaults apiKeys to an empty array when getKeyPool is 
 test('buildDashboardView: live getKeyPool resolver is invoked on every build', async () => {
 	const store = createUsageStore(new FakeMemento());
 	const state: { activeId: string | undefined } = { activeId: 'first' };
-	const view = await buildDashboardView({
+	const view = await buildDashboardView(dashboardOptions({
 		store,
 		platform: null,
 		getKeyPool: () => ({
@@ -1034,17 +1048,17 @@ test('buildDashboardView: live getKeyPool resolver is invoked on every build', a
 			],
 			activeKeyId: state.activeId,
 		}),
-	});
+	}));
 	assert.equal(view.activeKeyId, 'first');
 	state.activeId = undefined;
-	const view2 = await buildDashboardView({
+	const view2 = await buildDashboardView(dashboardOptions({
 		store,
 		platform: null,
 		getKeyPool: () => ({
 			keys: [],
 			activeKeyId: state.activeId,
 		}),
-	});
+	}));
 	assert.equal(view2.apiKeys.length, 0);
 	assert.equal(view2.activeKeyId, undefined);
 });
@@ -1052,11 +1066,11 @@ test('buildDashboardView: live getKeyPool resolver is invoked on every build', a
 test('buildDashboardView: usageScope=all renders the all-keys aggregate as `copilot`', async () => {
 	const store = createUsageStore(new FakeMemento());
 	await store.record('MiniMax-M3', { inputTokens: 100, outputTokens: 50 });
-	const view = await buildDashboardView({
+	const view = await buildDashboardView(dashboardOptions({
 		store,
 		platform: null,
 		usageScope: { kind: 'all' },
-	});
+	}));
 	assert.deepEqual(view.usageScope, { kind: 'all' });
 	// The "总" tab view must include this store's numbers in BOTH
 	// the copilot slot and the allKeysCopilot fallback.
@@ -1069,17 +1083,17 @@ test('buildDashboardView: usageScope=all renders the all-keys aggregate as `copi
 test('buildDashboardView: usageScope=key returns empty for unknown keyId (per-key helper uses default stats)', async () => {
 	const store = createUsageStore(new FakeMemento());
 	await store.record('MiniMax-M3', { inputTokens: 300, outputTokens: 100 });
-	const aggregate = await buildDashboardView({
+	const aggregate = await buildDashboardView(dashboardOptions({
 		store,
 		platform: null,
 		usageScope: { kind: 'all' },
-	});
+	}));
 	assert.equal(aggregate.copilot.today.inputTokens, 300);
-	const perKey = await buildDashboardView({
+	const perKey = await buildDashboardView(dashboardOptions({
 		store,
 		platform: null,
 		usageScope: { kind: 'key', keyId: 'some-unknown-id' },
-	});
+	}));
 	// Unknown keyId: `buildCopilotViewForKeyId` returns a fresh
 	// `defaultStats()` (empty), so the per-key view is empty while
 	// the all-keys aggregate is unchanged. The dashboard's
@@ -1094,11 +1108,11 @@ test('buildDashboardView: async getKeyPool resolver is awaited', async () => {
 	const store = createUsageStore(new FakeMemento());
 	let resolvePool!: (value: { keys: []; activeKeyId?: string }) => void;
 	const poolPromise = new Promise<{ keys: []; activeKeyId?: string }>((r) => { resolvePool = r; });
-	const viewP = buildDashboardView({
+	const viewP = buildDashboardView(dashboardOptions({
 		store,
 		platform: null,
 		getKeyPool: () => poolPromise,
-	});
+	}));
 	await new Promise((r) => setImmediate(r));
 	resolvePool({ keys: [], activeKeyId: 'async-id' });
 	const view = await viewP;

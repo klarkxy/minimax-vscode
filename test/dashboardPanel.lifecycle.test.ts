@@ -125,6 +125,25 @@ function hasSkipLine(log: string[], seq: number): boolean {
 	);
 }
 
+async function waitForClosedRefreshSpans(timeoutMs = 5_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const current = captureChannelLog();
+		const starts = current
+			.filter((line) => line.startsWith('[dashboard.refresh.start]'))
+			.map((line) => line.match(/traceId=(dashboard\.refresh#\d+)/)?.[1])
+			.filter((t): t is string => typeof t === 'string');
+		const ends = new Set(current
+			.filter((line) => line.startsWith('[dashboard.refresh.end]'))
+			.map((line) => line.match(/traceId=(dashboard\.refresh#\d+)/)?.[1])
+			.filter((t): t is string => typeof t === 'string'));
+		if (starts.length > 0 && starts.every((traceId) => ends.has(traceId))) {
+			return;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Test 1 — `dispose()` makes `postData`/`postError` a silent no-op
 // ---------------------------------------------------------------------------
@@ -429,14 +448,12 @@ test('DashboardPanel: happy-path refresh emits a start→end span with matching 
 	while (webviewPanel.webview.postedMessages.length === 0 && Date.now() < initialDeadline) {
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
-	// Drain until the loop's `loop.end` shows up.
-	const loopEndDeadline = Date.now() + 2_000;
-	while (Date.now() < loopEndDeadline) {
-		if (captureChannelLog().some((line) => line.includes('dashboard.refresh.loop.end'))) {
-			break;
-		}
-		await new Promise((resolve) => setTimeout(resolve, 10));
-	}
+	// Drain until every observed start has a matching end. The
+	// webview `ready` message may queue a follow-up refresh while
+	// the first one is in flight, so a single `loop.end` line is
+	// too early: a second start can already be logged while its end
+	// is still pending.
+	await waitForClosedRefreshSpans();
 	const log = captureChannelLog();
 	// Every `dashboard.refresh.start` line must have a matching
 	// `dashboard.refresh.end` line carrying the same traceId.

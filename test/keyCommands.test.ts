@@ -5,7 +5,7 @@
 // has stub implementations of these that capture calls — we
 // program the responses to simulate the user's choices.
 
-import { test, beforeEach } from 'node:test';
+import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as vscode from 'vscode';
 
@@ -16,7 +16,7 @@ import {
 	deleteApiKeyCommand,
 	manageApiKeysCommand,
 } from '../src/runtime/keyCommands.js';
-import { registerCommands } from '../src/runtime/commands.js';
+import { disposeTokenPlanPoller, registerCommands } from '../src/runtime/commands.js';
 import { KeyManager } from '../src/keyManager.js';
 import {
 	getOpenExternalCalls,
@@ -101,6 +101,10 @@ beforeEach(() => {
 	secrets.reset();
 	memento.reset();
 	registerCommands(context);
+});
+
+afterEach(() => {
+	disposeTokenPlanPoller();
 });
 
 test('addApiKeyCommand: cancels when the user dismisses the name prompt', async () => {

@@ -728,18 +728,20 @@ export async function buildDashboardView(
 	let planSource: DashboardView['sources']['plan'] = 'unsupported';
 	let planError: string | undefined;
 
-	const mmxPromise = readMmxCliStatus().catch((): MmxCliStatus => ({
-		install: 'unknown',
-		version: null,
-		binPath: null,
-		auth: 'unknown',
-		skill: 'unknown',
-		agentReady: false,
-	}));
+	const mmxPromise = options.mmxCliStatus
+		? Promise.resolve(options.mmxCliStatus)
+		: readMmxCliStatus().catch((): MmxCliStatus => ({
+			install: 'unknown',
+			version: null,
+			binPath: null,
+			auth: 'unknown',
+			skill: 'unknown',
+			agentReady: false,
+		}));
 
 	if (options.includePlatform === false) {
 		planSource = 'unsupported';
-		const mmxStatus: MmxCliStatus = options.mmxCliStatus ?? (await mmxPromise);
+		const mmxStatus: MmxCliStatus = await mmxPromise;
 		const keyPool = await resolveKeyPool(options.getKeyPool);
 		return {
 			sources: {
@@ -829,7 +831,7 @@ export async function buildDashboardView(
 		total,
 		copilot: copilotView,
 		claudeCode,
-		mmxCli: options.mmxCliStatus ?? mmxStatus,
+		mmxCli: mmxStatus,
 		allKeyPlans: options.allKeyPlans,
 		mcp: options.mcp ?? {
 			ready: false,
