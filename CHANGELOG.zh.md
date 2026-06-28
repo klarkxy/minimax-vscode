@@ -2,14 +2,14 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
-## Unreleased
+## 2.5.0 — 2026-06-27
 
 ### 新增 — 命名 API Key 池
 
-- **多把命名 API Key。** 跑 **MiniMax: 添加 API Key** 给 Key 起个名字，扩展会自动探测 China / Global 官方 `coding_plan/remains` 端点，选对区域，把密钥存到 VS Code SecretStorage，设为当前，并把它的端点同步到 `minimax.apiBaseUrl`。想加多少把都行。
+- **多把命名 API Key。** 跑 **MiniMax: 添加 API Key** 给 Key 起个名字，扩展会自动探测 China / Global 官方 `coding_plan/remains` 端点，选对区域，把密钥存到 VS Code SecretStorage，设为当前。Key 自己的 `apiBaseUrl` 是聊天请求走哪个 Anthropic 兼容端点的唯一事实来源；旧 `minimax.apiBaseUrl` 只作为空池 fallback，不再被同步改写。想加多少把都行。
 - **5 个新命令**，并与历史 "设置/清除" 并存：
   - **MiniMax: 添加 API Key** — 起名 + 输入 + 区域探测 + 设为当前。
-  - **MiniMax: 切换 API Key** — 从池里选一把；该 Key 的端点会自动同步。
+  - **MiniMax: 切换 API Key** — 从池里选一把；后续请求跟随该 Key 自己的端点。
   - **MiniMax: 重命名 API Key** — 改显示名，密钥不动。
   - **MiniMax: 删除 API Key** — 选 Key、确认、清掉密钥和元数据，当前 Key 自动轮换到下一把。
   - **MiniMax: 管理 API Key** — 子菜单：添加 / 切换 / 重命名 / 删除。
@@ -18,7 +18,20 @@
 - **按 Key 拆分本地用量。** `UsageStore` 现在按 `keyId` 给 Copilot 用量分桶。默认跟随当前 Key；后续按需加 "全部 Key 汇总"，不会默认显示。Claude Code JSONL 仍作独立来源，不强行归到某把 Key。
 - **跨窗口同步。** `KeyManager.onDidChange` 推到聊天模型选择器、用量面板、状态栏、PlanCache。`secrets.onDidChange` 监听 `minimax-vscode.apiKeys.*` 整个前缀，窗口 A 添加/切换/删除，窗口 B 不用重载就立刻刷新。
 - **切换 active key 失效 PlanCache 并重注册 MCP provider。** `runtime/commands.ts` 在 `KeyManager.onDidChange` 上多挂了一对：清空所有 `(apiKey, host)` 指纹的 quota 缓存（旧身份已不匹配新 Key），并触发 `mcp.refreshDefinitions()`，让 VS Code 在下次 MCP spawn 时拿到新 Key + endpoint。SecretStorage 之外被清掉的旧单 Key 槽也每轮重新探测，对应面板条目会出现 `密钥丢失` 警告标签，而不是默默走 legacy fallback。
-- **Add Key 自动探测为辅助决策。** `KeyManager.addApiKey` 会并行对官方 China / Global 两个 host 跑 `coding_plan/remains`，取最窄结果填入 `region` / `apiBaseUrl`。两边都成功时默认走 China endpoint（和 `autoSelectEndpointIfUnset` 一致）；都不成功时 Key 仍保存但 `region: 'custom'`，面板会显示为 "未识别"。用户可以随时通过 `MiniMax: 切换 API Key` / `MiniMax: 切换到国际版 API` / `MiniMax: 切换到国内版 API` 修正。
+- **Add Key 自动探测为辅助决策。** `KeyManager.addApiKey` 会并行对官方 China / Global 两个 host 跑 `coding_plan/remains`，取最窄结果填入 `region` / `apiBaseUrl`。两边都成功时默认走 China endpoint（和 `autoSelectEndpointIfUnset` 一致）；都不成功时 Key 仍保存但 `region: 'custom'`，并保留用户当前配置的 `minimax.apiBaseUrl`，面板会显示为 "未识别"。用户可以随时通过切换 Key 或 **MiniMax: 重新探测当前 API Key** 修正。
+
+### 新增 — 终端环境注入
+
+- **系统提示词和工具描述现在会带上宿主终端信息。** [`injectTerminalEnvironment`](src/provider/terminalEnvironment.ts) 生成一个短环境块（OS、shell、默认工作目录、可用时的 `git status` 短 SHA），每轮聊天前置到 system prompt；同一块也追加到工具 `description`，让 MCP server / `Activate_*` 占位工具能判断是否该开子进程。
+- **可关闭。** 新设置 `minimax.experimental.injectTerminalEnvironment` 默认 `true`；高级用户需要贴近上游基线时可以关掉，关闭后不会被静默重新开启。
+
+### 新增 — Chat 模型 BYOK 标记
+
+- 所有 chat model 现在都在 [`LanguageModelChatInformation`](src/provider/models.ts) 上声明 `isBYOK: true`。MiniMax Token Plan 计费和 Copilot premium-request 预算完全分离；宿主识别该标记后不会把这次往返扣到 Copilot 自己的额度里。
+
+### 变更 — Provider 请求体
+
+- **相邻同 role 消息会在发 API 前合并。** Anthropic 兼容协议拒绝连续 `user` 或连续 `assistant` 消息；当 Copilot 把 tool result 等内容拆成相邻片段时，转换层现在会按顺序合并内容块，不丢内容、不改 role，也保留 tool-call / tool-result 配对。
 
 ### 变更
 
@@ -28,6 +41,18 @@
 ### 修复
 
 - **M2.7 系列不再声明原生图片输入能力。** MiniMax 的 Anthropic 兼容 API 对 M2.x 家族只接受文本和工具调用内容块；图片和视频块仅 M3 支持。模型选择器能力、converter 测试和 README 模型表已同步这个边界，避免把图片附件作为不受支持的 `image` 块转发给 `MiniMax-M2.7` / `MiniMax-M2.7-highspeed`。
+
+### 新增 — Key 拥有 host
+
+MiniMax API Key 现在是 Anthropic 兼容端点的事实来源。`minimax.apiBaseUrl` 已废弃，只在命名 Key 池没有 active entry 时作为 fallback 读取。切换 active key 不再改写设置，自定义代理用户保留自己的代理 URL。
+
+- **旧单 Key 槽激活时自动迁移。** `activate()` 会把旧 `secrets['minimax-vscode.apiKey']` 复制成命名池里的 `__legacy__` entry，并异步探测 region / endpoint。探测未完成前，请求路径仍 fallback 到旧配置。
+- **新增 `KeyManager.reprobeActiveKey()` 与命令 `MiniMax: 重新探测当前 API Key`。** 对当前 Key 重新跑 China / Global 官方探测；若结果是 `unsupported`，entry 保持 `region: 'custom'` 并继续 fallback 到用户配置的 `minimax.apiBaseUrl`，保护自定义代理。
+- **请求路径读取 active key host。** 聊天请求、PlanCache、Dashboard quota card、MCP provider definition 都改为先读 active key 的 `apiBaseUrl`，再 fallback 到旧设置。
+
+### 移除
+
+- **`minimax.switchToGlobal` / `minimax.switchToChina` 命令移除。** 已由 **MiniMax: 重新探测当前 API Key** 替代；旧 keybinding 需要改到新命令。
 
 ## 2.4.1 — 402/429 直接落到聊天里，`.vscodeignore` 屏蔽 `*.log`
 

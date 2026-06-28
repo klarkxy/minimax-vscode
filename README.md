@@ -34,6 +34,12 @@
 - **MiniMax Web Search MCP (Agent Mode)** — VS Code's MCP runtime launches `uvx minimax-coding-plan-mcp` automatically once you've set an API key and a recognised host; the extension injects the key + host as env and re-fires the definition when either changes.
 - **Diagnostics** — per-request classifier, cache-hit stats, verbose mode dumps every request to disk.
 
+## Screenshots
+
+![MiniMax usage dashboard](image/dashboard.png)
+
+![MiniMax quota status bar](image/状态栏.png)
+
 ## Getting Started
 
 ### Prerequisites

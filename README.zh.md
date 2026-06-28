@@ -22,6 +22,12 @@
 - **mmx-cli 状态检测** — 面板显示官方 MiniMax CLI / auth / SKILL 是否就绪；可一键复制安装 prompt 到剪贴板。
 - **诊断能力** — 每请求分类、缓存命中统计、verbose 模式把每条请求 dump 到磁盘。
 
+## 截图
+
+![MiniMax 用量面板](image/dashboard.png)
+
+![MiniMax 配额状态栏](image/状态栏.png)
+
 ## 快速开始
 
 ### 环境要求
