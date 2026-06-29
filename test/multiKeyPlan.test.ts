@@ -245,6 +245,11 @@ test('TokenPlanPoller: refreshAll iterates all keys in pool', async () => {
 	const results = await poller.refresh();
 	assert.equal(results.length, 2);
 	assert.equal(results.every((r) => r.ok), true);
+	assert.ok(
+		cache.read({ apiKey: 'secret-a', host: 'china' }),
+		'active-key read(platform) should see the poller-populated snapshot',
+	);
+	assert.equal(cache.readAll().size, 2);
 	poller.dispose();
 });
 

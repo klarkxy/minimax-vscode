@@ -310,6 +310,77 @@ test('DashboardPanel: planCache events do not trigger a follow-up refresh', asyn
 	);
 });
 
+test('DashboardPanel: first refresh uses token poller for all keys without forcing TTL', async () => {
+	const deps = makeDeps();
+	let pollerCalls = 0;
+	let lastForce: boolean | undefined;
+	const usage = {
+		modelName: 'MiniMax-M3',
+		currentUsed: 3,
+		currentTotal: 10,
+		currentPercentage: 30,
+		currentResetText: '3h 20m',
+		weeklyUsed: 17,
+		weeklyTotal: 100,
+		weeklyPercentage: 17,
+		weeklyResetText: '6d 3h',
+		weeklyUnlimited: false,
+		allModels: [],
+	};
+	const allKeyPlans = new Map([
+		['k-active', { usage, fetchedAt: Date.now(), keyId: 'k-active' }],
+		['k-backup', { usage: { ...usage, currentPercentage: 12 }, fetchedAt: Date.now(), keyId: 'k-backup' }],
+	]);
+	const planCache = {
+		read: () => allKeyPlans.get('k-active'),
+		readAll: () => allKeyPlans,
+		refresh: () => {
+			throw new Error('dashboard should use tokenPlanPoller when it is available');
+		},
+		subscribe: () => ({ dispose() {} }),
+		invalidate: () => {},
+	};
+	const tokenPlanPoller = {
+		refresh: (options?: { force?: boolean }) => {
+			pollerCalls += 1;
+			lastForce = options?.force === true;
+			return Promise.resolve([]);
+		},
+		dispose() {},
+		get disposed() { return false; },
+	};
+	DashboardPanel.show({
+		extensionUri: { scheme: 'file', path: '/extension', fsPath: '/extension' } as never,
+		auth: {
+			getApiKey: () => Promise.resolve('test-key'),
+			onDidChangeApiKey: () => ({ dispose() {} }),
+		} as never,
+		usageStore: deps.usageStore,
+		planCache: planCache as never,
+		mmxCliCache: deps.mmxCliCache as never,
+		tokenPlanPoller: tokenPlanPoller as never,
+		getHost: () => 'china',
+	});
+
+	await waitFor(() => captureChannelLog().some((line) => line.includes('dashboard.refresh.loop.end')));
+	await waitForPanelIdle();
+	const webviewPanel = mockState.webviewPanels[0]!;
+	const lastData = webviewPanel.webview.postedMessages
+		.slice()
+		.reverse()
+		.find((m) => !!m && typeof m === 'object' && (m as { type?: string }).type === 'data') as
+		| { payload?: { allKeyPlans?: Record<string, unknown> } }
+		| undefined;
+
+	assert.ok(pollerCalls >= 1, 'dashboard should invoke tokenPlanPoller on ordinary refresh');
+	assert.equal(lastForce, false, 'ordinary dashboard refresh should honour the TTL');
+	assert.deepEqual(
+		Object.keys(lastData?.payload?.allKeyPlans ?? {}).sort(),
+		['k-active', 'k-backup'],
+		'final dashboard frame should include cached snapshots for every key',
+	);
+});
+
 // ---------------------------------------------------------------------------
 // Test 2 — usageStore.record() 5× does NOT cause the panel to refresh.
 //

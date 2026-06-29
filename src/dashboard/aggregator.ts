@@ -225,7 +225,7 @@ export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
 			// `force: true` bypasses the TTL (used by the dashboard's
 			// Refresh button).
 			const fp = planCacheFingerprint(platform);
-			const kid = options?.keyId;
+			const kid = options?.keyId ?? fingerprintToKeyId.get(fp);
 			const storeKey = kid ?? fp;
 			const cached = snapshots.get(storeKey);
 			const force = options?.force === true;
@@ -291,9 +291,32 @@ export function createPlanCache(options?: { ttlMs?: number }): PlanCache {
 				return { ok: true, usage: cached.usage };
 			}
 			const fp = target.fingerprint;
+			const sharedKeyId = fingerprintToKeyId.get(fp);
+			const sharedCached = sharedKeyId ? snapshots.get(sharedKeyId) : undefined;
+			if (!force && sharedCached && Date.now() - sharedCached.fetchedAt < ttlMs) {
+				snapshots.set(target.keyId, {
+					usage: sharedCached.usage,
+					fetchedAt: sharedCached.fetchedAt,
+					keyId: target.keyId,
+				});
+				fingerprintToKeyId.set(fp, target.keyId);
+				notify();
+				return { ok: true, usage: sharedCached.usage };
+			}
 			const pending = inFlight.get(fp);
 			if (pending) {
-				return pending;
+				return pending.then((result) => {
+					if (result.ok) {
+						snapshots.set(target.keyId, {
+							usage: result.usage,
+							fetchedAt: Date.now(),
+							keyId: target.keyId,
+						});
+						fingerprintToKeyId.set(fp, target.keyId);
+						notify();
+					}
+					return result;
+				});
 			}
 			const apiOptions: PlanApiOptions = {
 				apiKey: target.apiKey,

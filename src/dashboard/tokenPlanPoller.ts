@@ -15,7 +15,7 @@
 //     TTL-respecting)
 
 import { logger } from '../logger';
-import type { PlanCache, PlanRefreshTarget } from './aggregator';
+import { planCacheFingerprint, type PlanCache, type PlanRefreshTarget } from './aggregator';
 import type { PlanApiResult } from './api';
 import { resolvePlatformHost } from '../consts';
 import type { KeyManager } from '../keyManager';
@@ -80,7 +80,7 @@ export function createTokenPlanPoller(
 			const secret = await fetchSecret(key.id);
 			if (!secret) continue;
 			const host = resolveHostFromUrl(key.apiBaseUrl);
-			const fingerprint = `poll:${key.id}`;
+			const fingerprint = planCacheFingerprint({ apiKey: secret, host });
 			targets.push({
 				keyId: key.id,
 				apiKey: secret,

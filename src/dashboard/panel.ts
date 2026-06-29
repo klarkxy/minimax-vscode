@@ -49,11 +49,12 @@ export interface DashboardPanelDeps {
 	 *  ingester's `activate()` call), the section is rendered as a
 	 *  thin "disabled" placeholder. */
 	claudeCodeIngest?: ClaudeCodeIngestHandle;
-	/** Optional Token Plan poller. When present, the dashboard's
-	 *  Refresh button triggers `poller.refresh({ force: true })`
-	 *  which refreshes all named keys in one batch. Without the
-	 *  poller the panel falls back to `planCache.refresh(platform)`
-	 *  for the active key only (backward-compatible). */
+	/** Optional Token Plan poller. When present, dashboard refreshes
+	 *  run through `poller.refresh({ force })`, so every named key is
+	 *  refreshed against the shared PlanCache while still honouring
+	 *  the TTL unless the user pressed Refresh. Without the poller the
+	 *  panel falls back to `planCache.refresh(platform)` for the active
+	 *  key only (backward-compatible). */
 	tokenPlanPoller?: TokenPlanPollerHandle;
 	/**
 	 * Resolver for the live platform host. Evaluated at every
@@ -539,11 +540,12 @@ export class DashboardPanel {
 			}
 
 			// Refresh the plan cache in the background. When the
-			// multi-key poller is available and this is a force
-			// refresh, we trigger the poller which refreshes ALL
-			// named keys in one batch — the dashboard will soon need
-			// the full key pool. Without the poller, or for non-force
-			// auto-pulse refreshes, we only refresh the active key.
+			// multi-key poller is available, route every dashboard
+			// refresh through it so the Token Plan card can populate
+			// all named keys from the same TTL-respecting cache. The
+			// user-facing Refresh button passes `force: true`; ordinary
+			// opens / auto-pulses pass `force: false` and reuse fresh
+			// snapshots.
 			//
 			// `force: true` is intentionally reserved for the user
 			// pressing the dashboard's Refresh button. All
@@ -555,12 +557,12 @@ export class DashboardPanel {
 			let planRefreshPromise: Promise<unknown> = Promise.resolve();
 			if (platform) {
 				op.info('plan.refresh.start', { force });
-				if (force && this.deps.tokenPlanPoller) {
-					// Force-refresh ALL keys via the poller. The
-					// poller resolves secrets and refreshes
-					// everything, so we just await its completion.
+				if (this.deps.tokenPlanPoller) {
+					// Refresh ALL keys via the poller. The poller
+					// resolves secrets and delegates to PlanCache, so
+					// non-force calls still short-circuit inside the TTL.
 					planRefreshPromise = this.deps.tokenPlanPoller
-						.refresh({ force: true })
+						.refresh({ force })
 						.catch((error) => {
 							planRefreshError =
 								error instanceof Error ? error.message : String(error);
@@ -568,9 +570,8 @@ export class DashboardPanel {
 							return null;
 						});
 				} else {
-					// Non-force: only refresh the active key (TTL
-					// will likely short-circuit this). The poller's
-					// background cycle covers all keys on its own.
+					// Backward-compatible fallback for tests / hosts
+					// that do not provide the multi-key poller.
 					planRefreshPromise = this.deps.planCache
 						.refresh(platform, { force })
 						.catch((error) => {
