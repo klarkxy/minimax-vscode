@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.5.2 — 2026-06-29
+
+### Improved — Token Plan polling & dashboard display
+
+- **Poller and cache now share one fingerprint namespace.** [`tokenPlanPoller`](src/dashboard/tokenPlanPoller.ts) used to mint per-key fingerprints as `poll:${key.id}`; `PlanCache` keyed on `(apiKey, host)` instead. The two namespaces never overlapped, so `PlanCache.read(platform)` could not see a snapshot the poller had already paid for, and the dashboard issued a fresh `coding_plan/remains` round-trip on every open. The poller now computes its fingerprint through [`planCacheFingerprint`](src/dashboard/aggregator.ts) (the same `(apiKey, host)` hash), so any TTL-fresh snapshot the poller already holds is automatically reused by `PlanCache.read(platform)` and by `refreshKey` calls in other tabs.
+- **`PlanCache.refresh` resolves the keyId after the fingerprint hits.** [`PlanCache.refresh`](src/dashboard/aggregator.ts) used to require a `keyId` up front and would discard a TTL-fresh snapshot stored under a different keyId. The reverse-fingerprint fallback now lets a `refreshKey(targetId)` call reuse any snapshot in the cache whose `(apiKey, host)` matches, and stores it under the new keyId without a network round-trip. In-flight requests behave the same way: a second `refreshKey(B)` arriving while `refreshKey(A)` is still pending will reuse A's result instead of firing a parallel request.
+- **`DashboardPanel.refresh` always routes through the poller when available.** Previously the panel only consulted the multi-key poller on `force: true` (the manual Refresh button); automatic pulses and chat-turn notifier ticks fell back to `planCache.refresh(platform)` for the active key only. The panel now forwards `force` to `poller.refresh({ force })` so all named keys are refreshed against the shared cache, while non-force calls still honour the TTL. Effect: opening the dashboard, switching the API key, or letting the chat-turn notifier pulse no longer triggers redundant `coding_plan/remains` calls when the poller has fresh data.
+
+### Fixed — Weekly-unlimited display
+
+- **Status-bar tooltip shows `∞` for unlimited weekly quotas, not `?`.** [`buildPoolTooltip`](src/dashboard/planStatusBar.ts) used to derive the weekly column from `weeklyPercentage` alone: when the platform reported `weeklyUnlimited: true` it rendered `?` because no percent was supplied. The tooltip now branches on `weeklyUnlimited` first and renders `∞` in both the active-key row and the other-keys summary, matching what the dashboard card already shows.
+- **`platformSection` now uses the same renderer as `tokenPlanSection`.** The two functions in [`webview/main.ts`](src/dashboard/webview/main.ts) had diverged — the active-key section showed the rainbow `∞` bar, the legacy `platformSection` entry rendered a flat 0% progress bar with a `∞` reset pill. Both paths now go through the shared `renderPlanCards` helper, so the unlimited bar (and the rest of the card layout) is consistent everywhere the Token Plan surface is rendered. `planBar`, `planUnlimitedBar`, and `renderPlanCards` were extracted as named helpers and the inline duplication removed.
+
 ## 2.5.1 — 2026-06-28
 
 ### Fixed

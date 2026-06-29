@@ -2,6 +2,19 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.5.2 — 2026-06-29
+
+### 优化 — Token Plan 轮询与看板显示
+
+- **轮询器与缓存共用同一套指纹空间。** [`tokenPlanPoller`](src/dashboard/tokenPlanPoller.ts) 之前按 key 给每把 Key 生成 `poll:${key.id}` 指纹，而 [`PlanCache`](src/dashboard/aggregator.ts) 用的是 `(apiKey, host)` 哈希——两个命名空间完全对不上。结果是 `PlanCache.read(platform)` 看不到轮询器刚花钱拉回来的快照，每次打开看板都要重发一次 `coding_plan/remains`。轮询器现在改走 [`planCacheFingerprint`](src/dashboard/aggregator.ts)（和缓存同一份 `(apiKey, host)` 实现），所以任何 TTL 还新鲜的快照都会被 `PlanCache.read(platform)` 和其他 tab 里的 `refreshKey` 直接命中复用。
+- **`PlanCache.refresh` 先按指纹命中，再回填 keyId。** [`PlanCache.refresh`](src/dashboard/aggregator.ts) 之前要求调用方先传 `keyId`，不同 keyId 下即使 `(apiKey, host)` 完全一样也会被判成两个快照、`refreshKey` 互相看不到。现在加了 fingerprint → keyId 反向回退：TTL 内的 `refreshKey(B)` 会直接复用 keyId=A 那条缓存并落到 B 名下，零网络往返；in-flight 的请求同理，并发的 `refreshKey(B)` 在 `refreshKey(A)` 还没结算时直接拿 A 的结果，不再并发打两次。
+- **`DashboardPanel.refresh` 始终走轮询器。** 之前面板只在 `force: true`（用户手动按 Refresh）时才用轮询器，自动 pulse 和 chat-turn notifier 触发的刷新会回退到只刷 active key 的 `planCache.refresh(platform)`。现在面板把 `force` 透传给 `poller.refresh({ force })`，所有命名 Key 都从共享缓存拿快照，非 force 路径仍然尊重 TTL。实际效果：打开看板、切 API Key、让 chat-turn notifier 自动 pulse 一下，都不会再触发多余的 `coding_plan/remains` 请求（只要轮询器里有新鲜数据）。
+
+### 修复 — 周配额无限制的显示
+
+- **状态栏 Tooltip 在 weekly unlimited 时显示 `∞`，不再是 `?`。** [`buildPoolTooltip`](src/dashboard/planStatusBar.ts) 之前只从 `weeklyPercentage` 派生周列；当平台返回 `weeklyUnlimited: true` 时没给百分比数字，结果就是渲染成 `?`。现在 tooltip 先判断 `weeklyUnlimited`，active key 行和其他 Key 概览行都正确显示 `∞`，跟看板卡片上的样式对齐。
+- **`platformSection` 和 `tokenPlanSection` 现在共用同一个渲染器。** [`webview/main.ts`](src/dashboard/webview/main.ts) 里这两个函数已经走偏——active key 走的是彩虹色 `∞` 条，legacy `platformSection` 入口画的是 0% 灰色进度条 + `∞` reset pill。两边现在统一走 `renderPlanCards` helper，无限制的彩虹条和卡片布局在所有展示 Token Plan 的地方一致。`planBar` / `planUnlimitedBar` / `renderPlanCards` 被抽成命名 helper，重复的内联实现一并删除。
+
 ## 2.5.1 — 2026-06-28
 
 ### 修复
