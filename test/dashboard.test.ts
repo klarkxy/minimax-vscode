@@ -221,6 +221,105 @@ test('fetchPlanUsage: total=0 with only remaining-percent (general quota model)'
 	}
 });
 
+test('fetchPlanUsage: current_weekly_status === 3 marks the week as unlimited', async () => {
+	// The platform now surfaces an explicit `current_weekly_status: 3`
+	// status bit to mean "weekly quota is unlimited". Even when the
+	// payload also carries a `current_weekly_total_count` (which the
+	// pre-status-bit fallback would have ignored), the explicit bit
+	// wins and the dashboard renders the rainbow bar.
+	const payload = {
+		model_remains: [
+			{
+				model_name: 'MiniMax-M3',
+				current_interval_total_count: 1000,
+				current_interval_usage_count: 250,
+				current_interval_remaining_percent: 75,
+				remains_time: 1000 * 60 * 60 * 2,
+				// Both fields would normally indicate a limited weekly quota,
+				// but the explicit unlimited status bit takes precedence.
+				current_weekly_total_count: 5000,
+				current_weekly_usage_count: 500,
+				current_weekly_remaining_percent: 90,
+				current_weekly_status: 3,
+				weekly_remains_time: 1000 * 60 * 60 * 24 * 3,
+			},
+		],
+	};
+	const result = await fetchPlanUsage({
+		apiKey: 'k',
+		fetchImpl: () => Promise.resolve(jsonResponse(payload)),
+	});
+	assert.equal(result.ok, true);
+	if (result.ok) {
+		assert.equal(result.usage.weeklyUnlimited, true);
+		assert.equal(result.usage.weeklyResetText, 'unlimited');
+	}
+});
+
+test('fetchPlanUsage: weekly fields present with status !== 3 is NOT unlimited', async () => {
+	// Regression guard for the explicit-bit path: when the platform
+	// reports a finite weekly quota (status 0 or any non-3 value) AND
+	// supplies the totals, the renderer must NOT collapse the card to
+	// the rainbow "∞" state. This used to be silently masked by the
+	// legacy `weeklyTotal === 0 && no pct` fallback.
+	const payload = {
+		model_remains: [
+			{
+				model_name: 'MiniMax-M3',
+				current_interval_total_count: 1000,
+				current_interval_usage_count: 250,
+				current_interval_remaining_percent: 75,
+				remains_time: 1000 * 60 * 60 * 2,
+				current_weekly_total_count: 5000,
+				current_weekly_usage_count: 500,
+				current_weekly_remaining_percent: 90,
+				current_weekly_status: 0, // any non-3 status
+				weekly_remains_time: 1000 * 60 * 60 * 24 * 3,
+			},
+		],
+	};
+	const result = await fetchPlanUsage({
+		apiKey: 'k',
+		fetchImpl: () => Promise.resolve(jsonResponse(payload)),
+	});
+	assert.equal(result.ok, true);
+	if (result.ok) {
+		assert.equal(result.usage.weeklyUnlimited, false);
+		assert.match(result.usage.weeklyResetText, /3d/);
+	}
+});
+
+test('fetchPlanUsage: legacy fallback (no weekly fields, no status) still reports unlimited', async () => {
+	// Pinned regression for the fallback branch: payloads from older
+	// platform responses / non-weekly plans never included weekly
+	// fields at all. The implicit fallback must keep treating those
+	// as "unlimited" — otherwise every legacy user flips from "∞"
+	// to "0% / no reset text" overnight. The PR that introduced the
+	// explicit status bit deliberately kept the fallback for exactly
+	// this reason.
+	const payload = {
+		model_remains: [
+			{
+				model_name: 'MiniMax-M3',
+				current_interval_total_count: 1000,
+				current_interval_usage_count: 250,
+				current_interval_remaining_percent: 75,
+				remains_time: 1000 * 60 * 60 * 2,
+				// no weekly_* fields at all
+			},
+		],
+	};
+	const result = await fetchPlanUsage({
+		apiKey: 'k',
+		fetchImpl: () => Promise.resolve(jsonResponse(payload)),
+	});
+	assert.equal(result.ok, true);
+	if (result.ok) {
+		assert.equal(result.usage.weeklyUnlimited, true);
+		assert.equal(result.usage.weeklyResetText, 'unlimited');
+	}
+});
+
 test('fetchPlanUsage: payload without model_remains returns unsupported', async () => {
 	const result = await fetchPlanUsage({
 		apiKey: 'k',

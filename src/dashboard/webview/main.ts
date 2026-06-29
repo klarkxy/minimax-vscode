@@ -438,53 +438,58 @@ export function localCard(i18n: I18nBundle, title: string, usage: UsageBreakdown
 	);
 }
 
+function planBar(pct: number): string {
+	const clamped = Math.max(0, Math.min(100, pct || 0));
+	const cls = progressClass(clamped);
+	return (
+		'<div class="progress ' + cls + '"><div class="fill" style="width: ' + clamped + '%"></div></div>' +
+		'<div class="kv" style="margin-top: 6px;"><span class="dim">' + clamped + '%</span></div>'
+	);
+}
+
+/** Rainbow-shifting progress bar shown when the weekly quota is
+ *  unlimited. The motion is paused under `prefers-reduced-motion`. */
+function planUnlimitedBar(): string {
+	return '<div class="progress rainbow"><div class="fill" style="width: 100%"></div></div>';
+}
+
+function renderPlanCards(i18n: I18nBundle, p: PlanSection): string {
+	const cardWithReset = (title: string, pct: number, resetText: string) =>
+		'<div class="card"><h3>' +
+		'<span>' + escapeHtml(title) + '</span>' +
+		'<span class="reset-pill">' + escapeHtml(resetText) + '</span>' +
+		'</h3>' + planBar(pct) + '</div>';
+	const currentCard = cardWithReset(p.modelName + ' · 5h', p.currentPercentage, p.currentResetText);
+	const weeklyCard = p.weeklyUnlimited
+		? '<div class="card"><h3><span>' + escapeHtml(i18n.fieldWeekly) + '</span>' +
+			'<span class="reset-pill">∞</span></h3>' + planUnlimitedBar() + '</div>'
+		: cardWithReset(i18n.fieldWeekly, p.weeklyPercentage, p.weeklyResetText);
+	const expiryCard = p.expiryDate
+		? (() => {
+			const days = p.expiryDays ?? 0;
+			const template =
+				days < 0 ? i18n.fieldExpiryDaysPast :
+				days === 0 ? i18n.fieldExpiryDaysToday :
+				i18n.fieldExpiryDaysFuture;
+			const text = template.replace('{days}', String(Math.abs(days)));
+			return card(i18n.fieldExpiry, [[p.expiryDate, text]]);
+		})()
+		: '';
+	return (
+		'<div class="grid grid-2">' +
+		currentCard +
+		weeklyCard +
+		'</div>' +
+		expiryCard
+	);
+}
+
 export function tokenPlanSection(
 	i18n: I18nBundle,
 	plan: PlanSection | undefined,
 	allKeyPlans: Record<string, KeyPlanSnapshot> | undefined,
 	selectedKeyId: string | undefined,
 ): string {
-	const planBar = (pct: number) => {
-		const clamped = Math.max(0, Math.min(100, pct || 0));
-		const cls = progressClass(clamped);
-		return (
-			'<div class="progress ' + cls + '"><div class="fill" style="width: ' + clamped + '%"></div></div>' +
-			'<div class="kv" style="margin-top: 6px;"><span class="dim">' + clamped + '%</span></div>'
-		);
-	};
-	const planUnlimitedBar = () =>
-		'<div class="progress rainbow"><div class="fill" style="width: 100%"></div></div>';
-	const cardWithReset = (title: string, pct: number, resetText: string) =>
-		'<div class="card"><h3>' +
-		'<span>' + escapeHtml(title) + '</span>' +
-		'<span class="reset-pill">' + escapeHtml(resetText) + '</span>' +
-		'</h3>' + planBar(pct) + '</div>';
-
-	function renderPlanCards(p: PlanSection): string {
-		const currentCard = cardWithReset(p.modelName + ' · 5h', p.currentPercentage, p.currentResetText);
-		const weeklyCard = p.weeklyUnlimited
-			? '<div class="card"><h3><span>' + escapeHtml(i18n.fieldWeekly) + '</span>' +
-				'<span class="reset-pill">∞</span></h3>' + planUnlimitedBar() + '</div>'
-			: cardWithReset(i18n.fieldWeekly, p.weeklyPercentage, p.weeklyResetText);
-		const expiryCard = p.expiryDate
-			? (() => {
-				const days = p.expiryDays ?? 0;
-				const template =
-					days < 0 ? i18n.fieldExpiryDaysPast :
-					days === 0 ? i18n.fieldExpiryDaysToday :
-					i18n.fieldExpiryDaysFuture;
-				const text = template.replace('{days}', String(Math.abs(days)));
-				return card(i18n.fieldExpiry, [[p.expiryDate, text]]);
-			})()
-			: '';
-		return (
-			'<div class="grid grid-2">' +
-			currentCard +
-			weeklyCard +
-			'</div>' +
-			expiryCard
-		);
-	}
 
 	// Build the key selector row: a set of small pill buttons.
 	// If there's only one key (or no allKeyPlans), skip the selector.
@@ -530,7 +535,7 @@ export function tokenPlanSection(
 			return (
 				'<section id="token-plan-section"><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
 				selectorHtml +
-				renderPlanCards(plan) +
+				renderPlanCards(i18n, plan) +
 				'</section>'
 			);
 		}
@@ -538,7 +543,7 @@ export function tokenPlanSection(
 			return (
 				'<section id="token-plan-section"><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
 				selectorHtml +
-				renderPlanCards(snapshot.usage) +
+				renderPlanCards(i18n, snapshot.usage) +
 				'</section>'
 			);
 		}
@@ -588,7 +593,7 @@ export function tokenPlanSection(
 	if (!plan) return platformBanner(i18n, { plan: 'loading', copilot: 'ok', claudeCode: 'ok' });
 	return (
 		'<section id="token-plan-section"><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
-		renderPlanCards(plan) +
+		renderPlanCards(i18n, plan) +
 		'</section>'
 	);
 }
@@ -597,45 +602,9 @@ export function tokenPlanSection(
  *  for backward compatibility with the `platformBanner` flow. */
 export function platformSection(i18n: I18nBundle, plan: PlanSection | undefined): string {
 	if (!plan) return '';
-	const planBar = (pct: number) => {
-		const clamped = Math.max(0, Math.min(100, pct || 0));
-		const cls = progressClass(clamped);
-		return (
-			'<div class="progress ' + cls + '"><div class="fill" style="width: ' + clamped + '%"></div></div>' +
-			'<div class="kv" style="margin-top: 6px;"><span class="dim">' + clamped + '%</span></div>'
-		);
-	};
-	const cardWithReset = (title: string, pct: number, resetText: string) =>
-		'<div class="card"><h3>' +
-		'<span>' + escapeHtml(title) + '</span>' +
-		'<span class="reset-pill">' + escapeHtml(resetText) + '</span>' +
-		'</h3>' + planBar(pct) + '</div>';
-
-	const currentCard = cardWithReset(plan.modelName + ' · 5h', plan.currentPercentage, plan.currentResetText);
-	const weeklyCard = plan.weeklyUnlimited
-		? '<div class="card"><h3><span>' + escapeHtml(i18n.fieldWeekly) + '</span>' +
-			'<span class="reset-pill">∞</span></h3>' + planBar(0) + '</div>'
-		: cardWithReset(i18n.fieldWeekly, plan.weeklyPercentage, plan.weeklyResetText);
-
-	const expiryCard = plan.expiryDate
-		? (() => {
-			const days = plan.expiryDays ?? 0;
-			const template =
-				days < 0 ? i18n.fieldExpiryDaysPast :
-				days === 0 ? i18n.fieldExpiryDaysToday :
-				i18n.fieldExpiryDaysFuture;
-			const text = template.replace('{days}', String(Math.abs(days)));
-			return card(i18n.fieldExpiry, [[plan.expiryDate, text]]);
-		})()
-		: '';
-
 	return (
 		'<section><h2>' + escapeHtml(i18n.planSectionTitle) + '</h2>' +
-		'<div class="grid grid-2">' +
-		currentCard +
-		weeklyCard +
-		'</div>' +
-		expiryCard +
+		renderPlanCards(i18n, plan) +
 		'</section>'
 	);
 }

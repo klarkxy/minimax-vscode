@@ -67,6 +67,13 @@ function emptyText(usage: PlanUsage, key: 'current' | 'weekly'): string {
  * items blend with the rest of the status bar (which is theme-default)
  * instead of looking like five different buttons in a row.
  * Returns undefined (theme default) for null/undefined.
+ *
+ * Note: the weekly-unlimited branch in `renderQuota` is a special case
+ * that does NOT flow through this function — it constructs the
+ * `statusBarItem.remoteForeground` colour directly, because the
+ * platform returns no used percent at all in that state. Callers
+ * wanting to render the unlimited case should handle the `usedPct
+ * == null` branch the same way `renderQuota` does.
  */
 function usedColor(usedPct: number | null | undefined): vscode.ThemeColor | undefined {
 	if (usedPct == null) return undefined;
@@ -114,7 +121,7 @@ export function buildPoolTooltip(
 		if (snap?.usage) {
 			const u = snap.usage;
 			const fiveH = u.currentPercentage != null ? `${u.currentPercentage}%` : '?';
-			const wk = u.weeklyPercentage != null ? `${u.weeklyPercentage}%` : '∞';
+			const wk = u.weeklyUnlimited ? '∞' : u.weeklyPercentage != null ? `${u.weeklyPercentage}%` : '?';
 			const reset = u.currentResetText ? `  ${t('statusBar.plan.resetsIn')} ${u.currentResetText}` : '';
 			lines.push(`  5h ${fiveH}  ${t('statusBar.plan.weekly')} ${wk}${reset}`);
 		} else {
@@ -128,7 +135,7 @@ export function buildPoolTooltip(
 		if (snap?.usage) {
 			const u = snap.usage;
 			const fiveH = u.currentPercentage != null ? String(u.currentPercentage) : '?';
-			const wk = u.weeklyPercentage != null ? String(u.weeklyPercentage) : '?';
+			const wk = u.weeklyUnlimited ? '∞' : u.weeklyPercentage != null ? String(u.weeklyPercentage) : '?';
 			lines.push(t('statusBar.plan.otherKeyCompact', entry.name, fiveH, wk));
 		} else {
 			lines.push(t('statusBar.plan.otherKeyCompact', entry.name, '?', '?'));
@@ -138,7 +145,7 @@ export function buildPoolTooltip(
 	return lines.join('\n');
 }
 
-function renderQuota(
+export function renderQuota(
 	state: RenderState,
 	key: 'current' | 'weekly',
 	label: string,

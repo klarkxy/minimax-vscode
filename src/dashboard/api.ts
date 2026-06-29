@@ -32,6 +32,18 @@ const REFERER_BY_HOST: Record<'china' | 'global', string> = {
 	global: 'https://platform.minimax.io/',
 };
 
+/** `current_weekly_status` values returned by the platform's
+ *  `coding_plan/remains` endpoint. The platform surfaces this field
+ *  as an integer status code; we only act on the "weekly quota is
+ *  explicitly unlimited" bit. Other statuses (`Active`,
+ *  `Exhausted`, `Expired`, …) are inferred from the absence of the
+ *  unlimited bit AND the absence of weekly count fields, so we don't
+ *  enumerate them here — see `parsePlanUsage`. */
+const WeeklyStatus = {
+	/** The platform tells us the weekly quota is unlimited. */
+	Unlimited: 3,
+} as const;
+
 export interface PlanApiOptions {
 	apiKey: string;
 	/** `china` resolves to `minimaxi.com`, `global` to `minimax.io`.
@@ -162,8 +174,15 @@ function parsePlanUsage(payload: unknown): PlanUsage | null {
 			: 0;
 	const weeklyUsed = numberOr(first.current_weekly_usage_count, 0);
 	const weeklyStatus = numberOr(first.current_weekly_status, 0);
+	// A weekly quota is treated as unlimited when EITHER:
+	//   - the platform explicitly reports `current_weekly_status === 3`
+	//     (see `WeeklyStatus.Unlimited`), OR
+	//   - the payload omits every weekly field — the legacy fallback for
+	//     older API responses / non-weekly plans that never had a quota
+	//     in the first place. Removing this fallback would silently
+	//     flip those users from "∞" to "0% / no reset" overnight.
 	const weeklyUnlimited =
-		weeklyStatus === 3 ||
+		weeklyStatus === WeeklyStatus.Unlimited ||
 		(weeklyTotal === 0 && weeklyRemainingPct === undefined);
 	const weeklyResetText = weeklyUnlimited
 		? 'unlimited'

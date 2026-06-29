@@ -36,8 +36,10 @@ import {
 	sourceSection,
 	start,
 	statusBadge,
+	tokenPlanSection,
 	type DashboardView,
 	type I18nBundle,
+	type KeyPlanSnapshot,
 	type TabId,
 } from '../src/dashboard/webview/main.js';
 
@@ -476,6 +478,57 @@ test('platformSection: returns empty when plan is undefined', () => {
 test('platformSection: weekly unlimited shows ∞', () => {
 	const out = platformSection(i18n(), makePlan({ weeklyUnlimited: true }));
 	assert.match(out, /∞/);
+});
+
+test('platformSection: weekly unlimited renders the rainbow progress bar', () => {
+	// Pinned regression: the PR that introduced the rainbow bar only
+	// updated the multi-key `tokenPlanSection` path. The single-key
+	// `platformSection` fallback (still used by the `platformBanner`
+	// flow) kept rendering the old empty `planBar(0)` strip — same
+	// `weeklyUnlimited: true` flag, two different visuals in the
+	// same dashboard. Both paths now share `renderPlanCards`, so the
+	// rainbow class must appear in BOTH outputs.
+	const out = platformSection(i18n(), makePlan({ weeklyUnlimited: true }));
+	assert.match(out, /class="progress rainbow"/);
+	assert.match(out, /<div class="fill" style="width: 100%"/);
+});
+
+test('platformSection: weekly limited does not render the rainbow bar', () => {
+	const out = platformSection(i18n(), makePlan({ weeklyUnlimited: false }));
+	assert.doesNotMatch(out, /class="progress rainbow"/);
+});
+
+test('tokenPlanSection: weekly unlimited renders the rainbow progress bar (multi-key path)', () => {
+	// With `allKeyPlans: undefined` the function falls through to the
+	// single-plan branch which still calls the shared `renderPlanCards`.
+	// A plan with `weeklyUnlimited: true` must render the rainbow class
+	// — the regression we're guarding against was the OPPOSITE (the
+	// multi-key branch updated, the single-key branch forgotten).
+	const out = tokenPlanSection(i18n(), makePlan({ weeklyUnlimited: true }), undefined, undefined);
+	assert.match(out, /∞/);
+	assert.match(out, /class="progress rainbow"/);
+});
+
+test('tokenPlanSection: multi-key snapshot with weekly unlimited also renders the rainbow bar', () => {
+	// The full multi-key path: a `KeyPlanSnapshot` whose `usage` is
+	// populated with `weeklyUnlimited: true` must produce the rainbow
+	// bar through the resolved-snapshot branch (not just the
+	// single-plan fallback). The active key is the only one in the
+	// pool, so the selector is omitted and the rendering is
+	// structurally equivalent to the single-key test above.
+	const snap: KeyPlanSnapshot = {
+		label: 'primary',
+		isActive: true,
+		source: 'ok',
+		usage: makePlan({ weeklyUnlimited: true }),
+	};
+	const out = tokenPlanSection(
+		i18n(),
+		undefined,
+		{ primary: snap },
+		undefined,
+	);
+	assert.match(out, /class="progress rainbow"/);
 });
 
 test('platformSection: expiry date renders with formatted days', () => {
