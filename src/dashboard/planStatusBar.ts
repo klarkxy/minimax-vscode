@@ -166,7 +166,7 @@ function renderQuota(
 		return {
 			text: `${label} ${emptyText(plan, key)}`,
 			tooltip: t('statusBar.plan.weeklyUnlimited'),
-			color: undefined,
+			color: new vscode.ThemeColor('statusBarItem.remoteForeground'),
 		};
 	}
 

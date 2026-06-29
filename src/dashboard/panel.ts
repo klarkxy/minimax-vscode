@@ -1149,6 +1149,25 @@ section h2 {
 }
 .progress.warn > .fill { background: var(--warn); }
 .progress.bad > .fill { background: var(--bad); }
+.progress.rainbow > .fill {
+	background: linear-gradient(
+		90deg,
+		var(--accent) 0%,
+		var(--good) 25%,
+		var(--warn) 50%,
+		var(--bad) 75%,
+		var(--accent) 100%
+	);
+	background-size: 200% 100%;
+	animation: rainbow-shift 4s linear infinite;
+}
+@keyframes rainbow-shift {
+	from { background-position: 0% 50%; }
+	to { background-position: 200% 50%; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.progress.rainbow > .fill { animation: none; }
+}
 .empty {
 	padding: 32px 16px;
 	text-align: center;
