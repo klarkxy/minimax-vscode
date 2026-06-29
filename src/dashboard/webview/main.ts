@@ -452,6 +452,8 @@ export function tokenPlanSection(
 			'<div class="kv" style="margin-top: 6px;"><span class="dim">' + clamped + '%</span></div>'
 		);
 	};
+	const planUnlimitedBar = () =>
+		'<div class="progress rainbow"><div class="fill" style="width: 100%"></div></div>';
 	const cardWithReset = (title: string, pct: number, resetText: string) =>
 		'<div class="card"><h3>' +
 		'<span>' + escapeHtml(title) + '</span>' +
@@ -462,7 +464,7 @@ export function tokenPlanSection(
 		const currentCard = cardWithReset(p.modelName + ' · 5h', p.currentPercentage, p.currentResetText);
 		const weeklyCard = p.weeklyUnlimited
 			? '<div class="card"><h3><span>' + escapeHtml(i18n.fieldWeekly) + '</span>' +
-				'<span class="reset-pill">∞</span></h3>' + planBar(0) + '</div>'
+				'<span class="reset-pill">∞</span></h3>' + planUnlimitedBar() + '</div>'
 			: cardWithReset(i18n.fieldWeekly, p.weeklyPercentage, p.weeklyResetText);
 		const expiryCard = p.expiryDate
 			? (() => {

@@ -161,7 +161,10 @@ function parsePlanUsage(payload: unknown): PlanUsage | null {
 			? Math.floor((numberOr(first.current_weekly_usage_count, 0) / weeklyTotal) * 100)
 			: 0;
 	const weeklyUsed = numberOr(first.current_weekly_usage_count, 0);
-	const weeklyUnlimited = weeklyTotal === 0 && weeklyRemainingPct === undefined;
+	const weeklyStatus = numberOr(first.current_weekly_status, 0);
+	const weeklyUnlimited =
+		weeklyStatus === 3 ||
+		(weeklyTotal === 0 && weeklyRemainingPct === undefined);
 	const weeklyResetText = weeklyUnlimited
 		? 'unlimited'
 		: formatRemainingMs(numberOr(first.weekly_remains_time, 0));
