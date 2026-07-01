@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added — M3 priority variant
+
+- **New picker entry: `MiniMax-M3 (Priority)`.** Same upstream model as `MiniMax-M3`, routed via `service_tier: "priority"` on every Anthropic request. Faster response and lower failure rate, billed at **1.5× the standard per-token rate** (and at **3×** when the >512K context tier is enabled). Added to `minimax.visibleModels` by default; `apiModelId: 'MiniMax-M3'` on the registry means the picker ID still resolves to the same upstream model and existing `minimax.modelIdOverrides` keys against the picker ID work as before.
+- **1M-context toggle now lifts both M3 and M3-Priority together.** `minimax.enableM31MContext` and the `minimax.toggleM31MContext` command now mention both entries in their warning copy, and the picker tooltip swaps in the `m3Large` / `m3LargePriority` pricing row when the cap is lifted so the user sees the >512K rate they are actually being billed at.
+
+### Fixed
+
+- **`minimax.modelIdOverrides` for the new variant is no longer ignored.** The chat request now resolves the API model ID with the picker ID as the primary key, falling back to the registry's `apiModelId` only when no override is set. Previously a per-variant override (e.g. routing M3-Priority through a third-party proxy) was silently dropped, and a base-M3 override was silently applied to M3-Priority requests too.
+- **`service_tier: "priority"` no longer gets clobbered by `minimax.experimental.modelDefPresets`.** A new `extraReserved` field on the model definition lets the registry pin keys the user must not override. A user who sets any preset entry for the priority variant now keeps the priority service tier (and the 1.5× / 3× billing that goes with it) — previously the tier was silently dropped as soon as any preset was set.
+
 ## 2.5.2 — 2026-06-29
 
 ### Improved — Token Plan polling & dashboard display

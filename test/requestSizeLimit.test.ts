@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import {
 	enforceRequestBodySizeLimit,
 	estimateRequestBodyBytes,
+	mergeExtraPreservingReserved,
 } from '../src/provider/request.js';
 import type { ConvertedConversation, MiniMaxContentBlock, MiniMaxMessage } from '../src/types.js';
 
@@ -190,4 +191,88 @@ test('enforceRequestBodySizeLimit: mm_file video is exempt from the per-attachme
 		messages: [mmFileMsg(), textMsg('user', 'look at the file')],
 	};
 	enforceRequestBodySizeLimit(conv, M3_ID); // no throw
+});
+
+const M3_PRIORITY_API_ID = 'MiniMax-M3';
+
+test('enforceRequestBodySizeLimit: MiniMax-M3-Priority uses the 64 MB cap (multimodal shared with M3)', () => {
+	// The M3-Priority variant shares the upstream M3 model and its
+	// multimodal caps. Ten ~6 MB images (under the per-attachment
+	// 10 MB cap) total ~60 MB, just under the 64 MB body cap, so the
+	// body-cap check must NOT throw on the priority picker's resolved
+	// API id — the 64 MB branch in MAX_REQUEST_BODY_BYTES_FOR_MODEL
+	// is what covers M3 (and, by extension, M3-Priority). Before the
+	// request.ts rework the size check was keyed off the picker id,
+	// which meant the priority id hit the 32 MB fallback.
+	const perImage = Math.floor((6 * 1024 * 1024 * 4) / 3);
+	const conv: ConvertedConversation = {
+		messages: Array.from({ length: 10 }, () => imageMsg(perImage)),
+	};
+	enforceRequestBodySizeLimit(conv, M3_PRIORITY_API_ID); // no throw
+});
+
+test('enforceRequestBodySizeLimit: MiniMax-M3-Priority still throws when over the 64 MB cap', () => {
+	// Twelve ~6 MB images decode to ~72 MB, well over the 64 MB body
+	// cap, while every individual image stays under the 10 MB
+	// per-attachment cap. The body-cap check must trigger.
+	const perImage = Math.floor((6 * 1024 * 1024 * 4) / 3);
+	const conv: ConvertedConversation = {
+		messages: Array.from({ length: 12 }, () => imageMsg(perImage)),
+	};
+	assert.throws(
+		() => enforceRequestBodySizeLimit(conv, M3_PRIORITY_API_ID),
+		/64 MB|request body|请求体/,
+	);
+});
+
+// ---- mergeExtraPreservingReserved --------------------------------
+//
+// The priority variant relies on this helper to pin `service_tier`
+// while still letting the user override other escape-hatch fields
+// (`stop_sequences`, `metadata`, …). The previous `??` short-circuit
+// in `prepareChatRequest` silently dropped `service_tier` as soon as
+// any preset entry was set, so we pin the contract with a direct test.
+
+test('mergeExtraPreservingReserved: returns registry extra when user extra is empty', () => {
+	const registry = { service_tier: 'priority', metadata: { team: 'core' } };
+	const merged = mergeExtraPreservingReserved(registry, undefined, ['service_tier']);
+	assert.deepEqual(merged, registry);
+});
+
+test('mergeExtraPreservingReserved: user wins for non-reserved keys', () => {
+	const registry = { service_tier: 'priority', stop_sequences: ['OLD'] };
+	const user = { stop_sequences: ['NEW'] };
+	const merged = mergeExtraPreservingReserved(registry, user, ['service_tier']);
+	assert.deepEqual(merged, { service_tier: 'priority', stop_sequences: ['NEW'] });
+});
+
+test('mergeExtraPreservingReserved: registry wins for reserved keys even when user sets them', () => {
+	// The whole point of the helper — a user setting service_tier
+	// in modelDefPresets must NOT downgrade the priority variant.
+	const registry = { service_tier: 'priority' };
+	const user = { service_tier: 'standard', stop_sequences: ['END'] };
+	const merged = mergeExtraPreservingReserved(registry, user, ['service_tier']);
+	assert.equal(merged.service_tier, 'priority');
+	assert.deepEqual(merged.stop_sequences, ['END']);
+});
+
+test('mergeExtraPreservingReserved: missing reserved key in registry is stripped from user extra', () => {
+	// Defensive case: a future variant adds a reserved list without
+	// populating the registry value. The user must not be allowed to
+	// inject a half-configured value.
+	const merged = mergeExtraPreservingReserved(
+		undefined,
+		{ service_tier: 'priority' },
+		['service_tier'],
+	);
+	assert.equal(Object.prototype.hasOwnProperty.call(merged, 'service_tier'), false);
+});
+
+test('mergeExtraPreservingReserved: empty reserved list is a plain shallow merge', () => {
+	const merged = mergeExtraPreservingReserved(
+		{ a: 1, b: 2 },
+		{ b: 3, c: 4 },
+		[],
+	);
+	assert.deepEqual(merged, { a: 1, b: 3, c: 4 });
 });

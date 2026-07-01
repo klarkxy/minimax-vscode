@@ -24,7 +24,22 @@ export const isChineseLocale = isChineseLocaleShared;
  * `localizeModelPricing()` based on the user's `minimax.apiBaseUrl` and
  * `vscode.env.language`.
  */
-type PricingKey = 'm3' | 'm3Large' | 'm27' | 'm27Highspeed';
+type PricingKey = 'm3' | 'm3Large' | 'm3Priority' | 'm3LargePriority' | 'm27' | 'm27Highspeed';
+
+/**
+ * Map a standard-tier pricing key to its >512K counterpart. Models
+ * whose pricing tiers do not split by context window (M2.7 family)
+ * are absent from the table; the `wantsLargeContext` guard above
+ * already excludes them. Adding a new priority variant is a
+ * two-line change: drop its `mXxxLargePriority` row in both pricing
+ * tables and an entry here. Hard-coding the map inside
+ * `getModels()` would let the next contributor's silent wrong-tier
+ * slip past review.
+ */
+const LARGE_CONTEXT_PRICING_KEY: Partial<Record<PricingKey, PricingKey>> = {
+	m3: 'm3Large',
+	m3Priority: 'm3LargePriority',
+};
 
 const PRICING_CNY: Record<PricingKey, ModelPricing> = {
 	/** M3 in the standard ≤512K tier (永久五折后). */
@@ -43,6 +58,24 @@ const PRICING_CNY: Record<PricingKey, ModelPricing> = {
 		cacheWrite: null,
 		currency: 'CNY',
 		note: '>512K 输入限量供应，需联系销售；预计数日后全量开放',
+	},
+	/** M3 priority ≤512K tier — 1.5× the standard per-token rate. */
+	m3Priority: {
+		input: 3.15,
+		output: 12.6,
+		cacheRead: 0.63,
+		cacheWrite: null,
+		currency: 'CNY',
+		note: '优先服务按标准价格的 1.5 倍计费，请求获得优先准入（service_tier: "priority"）',
+	},
+	/** M3 priority >512K tier — 1.5× the >512K standard rate (3× of the standard ≤512K rate). */
+	m3LargePriority: {
+		input: 6.3,
+		output: 25.2,
+		cacheRead: 1.26,
+		cacheWrite: null,
+		currency: 'CNY',
+		note: '>512K 输入限量供应，需联系销售；优先服务按对应标准档位价格的 1.5 倍计费',
 	},
 	m27: {
 		input: 2.1,
@@ -75,6 +108,24 @@ const PRICING_USD: Record<PricingKey, ModelPricing> = {
 		cacheWrite: null,
 		currency: 'USD',
 		note: '>512K input tokens are limited-availability; contact sales. Public rollout expected within days.',
+	},
+	/** M3 priority ≤512K — 1.5× standard pricing. */
+	m3Priority: {
+		input: 0.45,
+		output: 1.8,
+		cacheRead: 0.09,
+		cacheWrite: null,
+		currency: 'USD',
+		note: 'Priority requests get faster response and lower failure rate via service_tier: "priority", billed at 1.5× the standard per-token rate.',
+	},
+	/** M3 priority >512K tier — 1.5× the >512K standard rate (3× of the standard ≤512K rate). */
+	m3LargePriority: {
+		input: 0.9,
+		output: 3.6,
+		cacheRead: 0.18,
+		cacheWrite: null,
+		currency: 'USD',
+		note: '>512K input tokens are limited-availability; contact sales. Priority requests billed at 1.5× the corresponding standard-tier rate.',
 	},
 	m27: {
 		input: 0.3,
@@ -137,9 +188,14 @@ export function pickPricingTable(baseUrl: string): Record<PricingKey, ModelPrici
  * access to the >512K tier can lift it via the
  * `minimax.enableM31MContext` setting — the only way to flip that
  * setting is the **MiniMax: Toggle M3 1M Context** command, which pops
- * a modal warning about the 2× billing rate before changing it. Going
+ * a modal warning about the 1.5× billing rate before changing it. Going
  * through the command (rather than editing `settings.json` directly)
  * is what makes the warning visible to the user.
+ *
+ * Note on M3 Priority: the `MiniMax-M3-Priority` variant shares the
+ * same upstream model (`apiModelId: 'MiniMax-M3'`) but sends
+ * `service_tier: "priority"` on every request for faster response and
+ * lower failure rate, billed at 1.5× the standard per-token price.
  *
  * [pp]: https://platform.minimax.io/docs/guides/pricing-paygo
  *
@@ -186,6 +242,38 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		},
 		pricingKey: 'm3',
 		priceCategory: 'medium',
+	},
+	{
+		id: 'MiniMax-M3-Priority',
+		name: 'MiniMax M3 (Priority)',
+		apiModelId: 'MiniMax-M3',
+		family: 'minimax',
+		version: '3',
+		detail: 'M3 with priority access — faster response, lower failure rate',
+		contextLength: 1_000_000,
+		maxInputTokens: 512_000,
+		maxOutputTokens: 512_000,
+		capabilities: {
+			toolCalling: MINIMAX_TOOLS_LIMIT,
+			imageInput: true,
+			videoInput: true,
+			thinking: true,
+		},
+		thinking: {
+			supportsBudget: false,
+			supportsAdaptive: true,
+		},
+		pricingKey: 'm3Priority',
+		priceCategory: 'high',
+		extra: { service_tier: 'priority' },
+		// `service_tier: "priority"` is what actually routes the
+		// request to the priority tier. The user-facing preset escape
+		// hatch (`minimax.experimental.modelDefPresets`) is shallow-
+		// merged on top of this template, so without the reserved list
+		// a user who set any preset entry for this picker ID would
+		// silently drop `service_tier` and get standard-tier billing
+		// while believing they had priority access.
+		extraReserved: ['service_tier'],
 	},
 	{
 		id: 'MiniMax-M2.7',
@@ -262,22 +350,52 @@ export function getModels(baseUrl: string = readConfiguredBaseUrl()): ModelDefin
 	// M3's effective cap is either the safe 512K default or the official
 	// 1M cap, depending on `minimax.enableM31MContext`. The boolean is
 	// flipped via the `minimax.toggleM31MContext` command (which pops
-	// a modal warning about the 2× billing rate and the need for
+	// a modal warning about the 1.5× billing rate and the need for
 	// sales-granted >512K access). When the toggle is on we lift M3's
 	// `maxInputTokens` / `maxOutputTokens` to 1M so the VS Code
 	// "上下文窗口" indicator reflects what the user is opting into.
+	// The same logic applies to the priority variant (`MiniMax-M3-Priority`)
+	// so both entries stay in sync when the user lifts the context cap.
 	const m3Window = getM3ContextWindow();
 	return MODEL_TEMPLATES.map((t) => {
 		const { pricingKey, ...rest } = t;
-		if (t.id === 'MiniMax-M3' && m3Window !== t.maxInputTokens) {
-			return {
+		// Spread `extra` and `extraReserved` into fresh containers so
+		// callers cannot mutate the module-level `MODEL_TEMPLATES`
+		// literal by writing through the returned `ModelDefinition`.
+		// `extra` may hold nested objects (e.g. `metadata: { team }`)
+		// in future variants; deep-cloning it is the caller's
+		// responsibility — the registry only shallow-copies.
+		const base: ModelDefinition = (rest.extra || rest.extraReserved)
+			? {
 				...rest,
-				maxInputTokens: m3Window,
-				maxOutputTokens: m3Window,
+				extra: rest.extra ? { ...rest.extra } : undefined,
+				extraReserved: rest.extraReserved ? [...rest.extraReserved] : undefined,
 				pricing: table[pricingKey],
-			};
+			}
+			: { ...rest, pricing: table[pricingKey] };
+		const wantsLargeContext =
+			(t.id === 'MiniMax-M3' || t.id === 'MiniMax-M3-Priority') &&
+			m3Window !== t.maxInputTokens;
+		if (!wantsLargeContext) {
+			return base;
 		}
-		return { ...rest, pricing: table[pricingKey] };
+		// When the user lifts the context cap, also switch the pricing
+		// row to the >512K entry so the picker tooltip shows the
+		// actually-applicable rate. Without this, the >512K keys
+		// (`m3Large` for standard M3, `m3LargePriority` for the
+		// priority variant) would be defined but unreachable, and the
+		// user would see the ≤512K rate in the picker while being
+		// billed at the >512K rate. The priority large rate is 1.5×
+		// the standard large rate (3× of the standard ≤512K rate,
+		// vs 1.5× for plain M3), so the gap is wider for the variant
+		// and matters more.
+		const largeKey = LARGE_CONTEXT_PRICING_KEY[pricingKey];
+		return {
+			...base,
+			maxInputTokens: m3Window,
+			maxOutputTokens: m3Window,
+			pricing: largeKey ? table[largeKey] : table[pricingKey],
+		};
 	});
 }
 

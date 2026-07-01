@@ -362,7 +362,7 @@ export function registerCommands(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand('minimax.toggleM31MContext', () => {
 			// Lifts the M3 picker entry from the safe 512K default to
 			// the official 1M cap. The command pops a modal warning
-			// about the 2× billing rate and the need for sales-granted
+			// about the 1.5× billing rate and the need for sales-granted
 			// >512K access before flipping on; off is unconditional.
 			void toggleM31MContextEnabled();
 		}),

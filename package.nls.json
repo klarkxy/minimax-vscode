@@ -3,7 +3,7 @@
         "minimax.command.openRequestDumpsFolder": "Open Request Dumps Folder",
         "minimax.command.reprobeApiKey": "Re-probe Active API Key",
         "minimax.command.useForCopilotCommitMessages": "Set Copilot's Utility Models",
-        "minimax.command.toggleM31MContext": "Toggle M3 1M Context (Advanced)",
+        "minimax.command.toggleM31MContext": "Toggle M3 / M3-Priority 1M Context (Advanced)",
         "minimax.command.openDashboard": "Open Usage Dashboard",
         "minimax.command.installMmxCli": "Copy mmx-cli install prompt",
         "minimax.command.refreshClaudeCodeIngest": "Rescan Claude Code Logs",

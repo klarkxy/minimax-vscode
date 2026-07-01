@@ -3,7 +3,7 @@
         "minimax.command.openRequestDumpsFolder": "打开请求 Dump 目录",
         "minimax.command.reprobeApiKey": "重新识别当前 API Key 区域",
         "minimax.command.useForCopilotCommitMessages": "设置 Copilot 工具模型",
-        "minimax.command.toggleM31MContext": "切换 M3 1M 上下文（高级）",
+        "minimax.command.toggleM31MContext": "切换 M3 / M3-Priority 1M 上下文（高级）",
         "minimax.command.openDashboard": "打开用量面板",
         "minimax.command.installMmxCli": "复制 mmx-cli 官方安装指令",
         "minimax.command.refreshClaudeCodeIngest": "重新扫描 Claude Code 日志",

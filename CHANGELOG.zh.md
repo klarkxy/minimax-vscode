@@ -2,6 +2,18 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## Unreleased
+
+### 新增 — M3 优先服务变体
+
+- **新增 picker 条目 `MiniMax M3 (Priority)`。** 与 `MiniMax-M3` 共用同一个上游模型，但每条 Anthropic 请求都会带 `service_tier: "priority"`，响应更快、失败率更低，按 **标准价 1.5 倍**计费（开启 >512K 输入档后为 **3 倍**）。默认加入 `minimax.visibleModels`。注册表中声明了 `apiModelId: 'MiniMax-M3'`，picker ID 仍解析到同一个上游模型，针对 picker ID 的 `minimax.modelIdOverrides` 旧配置保持兼容。
+- **1M 上下文开关同时影响 M3 与 M3-Priority。** `minimax.enableM31MContext` 和 `minimax.toggleM31MContext` 命令的警告文案现在同时提到两个条目；抬升至 1M 后 picker tooltip 会切换到 `m3Large` / `m3LargePriority` 计费档，避免用户在不知情的情况下被按 >512K 档位计费。
+
+### 修复
+
+- **`minimax.modelIdOverrides` 不再被新变体忽略。** 请求解析 API model id 时把 picker ID 作为优先 key，未命中才回落到注册表的 `apiModelId`。修复前按变体配置的覆盖（比如把 M3-Priority 路由到第三方代理）会被静默丢弃，按标准 M3 配置的覆盖会被静默应用到 M3-Priority 请求上。
+- **`service_tier: "priority"` 不再被 `minimax.experimental.modelDefPresets` 覆盖。** `ModelDefinition` 新增 `extraReserved` 字段，注册表用它来锁定"用户不可改"的键。priority 变体现在即使用户在 preset 里设了任何值，priority 服务档（以及对应的 1.5× / 3× 计费）都会保留——之前只要用户设了 preset 就会被静默抹掉。
+
 ## 2.5.2 — 2026-06-29
 
 ### 优化 — Token Plan 轮询与看板显示

@@ -20,6 +20,7 @@ type Translations = Record<string, string>;
 const zh: Translations = {
 	// Model descriptions
 	'model.M3.detail': '原生多模态、1M 上下文 Frontier Coding 模型',
+	'model.M3-Priority.detail': 'M3 优先服务：响应更快、失败率更低（计费档位见 tooltip）',
 	'model.M2.7.detail': '开启模型的自我迭代（输出速度约 60 TPS）',
 	'model.M2.7-highspeed.detail': 'M2.7 极速版：效果不变，更快更敏捷（输出速度约 100 TPS）',
 	// Thinking mode — dropdown labels (rendered in Copilot Chat model picker)
@@ -29,15 +30,12 @@ const zh: Translations = {
 	'thinking.off.desc': '关闭 typed thinking 内容块（仅 M3 受控）。temperature / topP 可用用户设置的采样值。',
 
 	// M3 1M context — toggle / warning copy
-	'm31m.toggledOn': 'M3 上下文已开启至 1M（`minimax.enableM31MContext = true`）——超过 512K 的请求按 2 倍费率计费。',
-	'm31m.toggledOff': 'M3 上下文已恢复为安全默认值 512K（`minimax.enableM31MContext = false`）。',
-	'm31m.warning.title': '开启 M3 1M 上下文窗口',
+	'm31m.toggledOn': 'M3 与 M3-Priority 上下文已开启至 1M（`minimax.enableM31MContext = true`）——超过 512K 的请求按对应 >512K 档位费率计费。',
+	'm31m.toggledOff': 'M3 与 M3-Priority 上下文已恢复为安全默认值 512K（`minimax.enableM31MContext = false`）。',
+	'm31m.warning.title': '开启 M3 / M3-Priority 1M 上下文窗口',
 	'm31m.warning.body':
-		'将把模型选择器中 **MiniMax-M3** 的上下文窗口从安全默认值 512K 抬升至官方规格 1,000,000。\n\n请确认以下条件均已满足：\n• 你的 MiniMax 账号已通过销售开通了 **>512K 输入层**——未开通时 API 会直接返回 HTTP 400。\n• 你清楚 >512K 部分按 **2 倍费率** 计费（官方定价页 ¥4.20/M 输入、¥16.80/M 输出，是 512K 以内档位的两倍）。\n• Token Plan 套餐内额度也按 2 倍价格扣减。\n\n若不确定，可以先保持关闭；后续随时可调。',
+		'将把模型选择器中 **MiniMax-M3** 与 **MiniMax-M3-Priority** 的上下文窗口从安全默认值 512K 抬升至官方规格 1,000,000。\n\n请确认以下条件均已满足：\n• 你的 MiniMax 账号已通过销售开通了 **>512K 输入层**——未开通时 API 会直接返回 HTTP 400。\n• 你清楚 >512K 部分按 **1.5 倍费率**（标准 M3）或 **3 倍费率**（M3-Priority）计费，具体以 picker tooltip 中显示的速率为准。\n• Token Plan 套餐内额度也按对应档位扣减。\n\n若不确定，可以先保持关闭；后续随时可调。',
 	'm31m.warning.confirm': '我已了解，启用 1M',
-	'm31m.warning.cancel': '取消',
-	'm31m.error.alreadyOn': 'M3 已经处于 1M 上下文模式。',
-	'm31m.error.alreadyOff': 'M3 已经处于默认 512K 上下文模式。',
 
 	// API Key
 	'auth.apiKeyRequiredDetail': '请先配置 API Key',
@@ -243,6 +241,7 @@ const zh: Translations = {
 const en: Translations = {
 	// Model descriptions
 	'model.M3.detail': 'Native multimodal, 1M context frontier coding model',
+	'model.M3-Priority.detail': 'M3 with priority access — faster response, lower failure rate (see tooltip for billing)',
 	'model.M2.7.detail': 'Self-iterating model (~60 TPS)',
 	'model.M2.7-highspeed.detail': 'M2.7 high-speed: same quality, faster',
 	// Thinking mode — toggle / status labels
@@ -254,15 +253,12 @@ const en: Translations = {
 		'Turns off the typed thinking block (M3 only — M2.x ignores this). User sampling temperature/topP take effect.',
 
 	// M3 1M context — toggle / warning copy
-	'm31m.toggledOn': 'M3 context window lifted to 1M (`minimax.enableM31MContext = true`) — requests above 512K are billed at 2× the per-token rate.',
-	'm31m.toggledOff': 'M3 context window restored to the safe 512K default (`minimax.enableM31MContext = false`).',
-	'm31m.warning.title': 'Lift MiniMax-M3 context window to 1M',
+	'm31m.toggledOn': 'M3 and M3-Priority context window lifted to 1M (`minimax.enableM31MContext = true`) — requests above 512K are billed at the >512K tier rate for each model.',
+	'm31m.toggledOff': 'M3 and M3-Priority context window restored to the safe 512K default (`minimax.enableM31MContext = false`).',
+	'm31m.warning.title': 'Lift MiniMax-M3 / MiniMax-M3-Priority context window to 1M',
 	'm31m.warning.body':
-		'This raises the **MiniMax-M3** entry in the model picker from the safe 512K default up to the official 1,000,000-token cap.\n\nMake sure all of the following apply:\n• Your MiniMax account has been granted the **>512K input tier** by sales — without it the upstream API will return HTTP 400 for requests above 512K.\n• You understand that the >512K portion is billed at **2× the per-token rate** (see the [pricing page](https://platform.minimax.io/docs/guides/pricing-paygo)).\n• Token Plan quota also deducts at the 2× rate.\n\nIf unsure, leave it off — you can flip it on later at any time.',
+		'This raises the **MiniMax-M3** and **MiniMax-M3-Priority** entries in the model picker from the safe 512K default up to the official 1,000,000-token cap.\n\nMake sure all of the following apply:\n• Your MiniMax account has been granted the **>512K input tier** by sales — without it the upstream API will return HTTP 400 for requests above 512K.\n• You understand that the >512K portion is billed at **1.5× the per-token rate** for standard M3 or **3× the per-token rate** for M3-Priority (see the rate shown in the picker tooltip, or the [pricing page](https://platform.minimax.io/docs/guides/pricing-paygo)).\n• Token Plan quota also deducts at the corresponding tier rate.\n\nIf unsure, leave it off — you can flip it on later at any time.',
 	'm31m.warning.confirm': 'I understand, enable 1M',
-	'm31m.warning.cancel': 'Cancel',
-	'm31m.error.alreadyOn': 'M3 is already in 1M context mode.',
-	'm31m.error.alreadyOff': 'M3 is already in the default 512K context mode.',
 
 	// API Key
 	'auth.apiKeyRequiredDetail': 'Set an API key first',

@@ -154,18 +154,20 @@
             "type": "string",
             "enum": [
               "MiniMax-M3",
+              "MiniMax-M3-Priority",
               "MiniMax-M2.7",
               "MiniMax-M2.7-highspeed"
             ]
           },
           "default": [
             "MiniMax-M3",
+            "MiniMax-M3-Priority",
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed"
           ],
           "uniqueItems": true,
           "scope": "application",
-          "markdownDescription": "Programming text models (M2.7 / M2.7-highspeed / M3) for Token Plan. M3 is the latest native-multimodal frontier coding model (officially 1M context; effective 512K until the >512K tier is fully rolled out). MiniMax no longer recommends M2.5 and earlier."
+          "markdownDescription": "Programming text models (M2.7 / M2.7-highspeed / M3) for Token Plan. M3 is the latest native-multimodal frontier coding model (officially 1M context; effective 512K until the >512K tier is fully rolled out). `MiniMax-M3-Priority` is the same upstream model routed via `service_tier: \"priority\"` for faster responses and lower failure rate, billed at 1.5× the standard per-token rate. MiniMax no longer recommends M2.5 and earlier."
         },
         "minimax.maxOutputTokens": {
           "type": "number",
@@ -184,7 +186,7 @@
           "type": "boolean",
           "default": false,
           "scope": "application",
-          "markdownDescription": "Lift the **MiniMax-M3** context window advertised in the model picker from the safe default of 512,000 to the official 1,000,000-token cap. **Off by default.** Enabling this unlocks the >512K input tier only if your MiniMax account has been granted access; otherwise the upstream API will return HTTP 400 for requests above 512K, and the >512K tier is billed at **2× the per-token rate** of the standard tier (see the [pricing page](https://platform.minimaxi.com/docs/guides/pricing-paygo)). Prefer the **MiniMax: Toggle M3 1M Context** command — it surfaces the warnings inline before flipping the switch."
+          "markdownDescription": "Lift the **MiniMax-M3** and **MiniMax-M3-Priority** context windows advertised in the model picker from the safe default of 512,000 to the official 1,000,000-token cap. **Off by default.** Enabling this unlocks the >512K input tier only if your MiniMax account has been granted access; otherwise the upstream API will return HTTP 400 for requests above 512K. The >512K tier is billed at **1.5× the per-token rate** of the standard tier for standard M3 and at **3×** for M3-Priority (see the [pricing page](https://platform.minimaxi.com/docs/guides/pricing-paygo)). Prefer the **MiniMax: Toggle M3 1M Context** command — it surfaces the warnings inline before flipping the switch."
         },
         "minimax.debugMode": {
           "type": "string",
@@ -255,7 +257,7 @@
         "minimax.modelIdOverrides": {
           "type": "object",
           "default": {},
-          "markdownDescription": "Map a Copilot picker model ID to the actual API model ID the upstream endpoint expects. The default `{}` means 'no override' — the picker ID is sent to the API verbatim. Useful when routing through a third-party proxy that uses different model names (e.g. `{\"MiniMax-M3\": \"provider-internal-m3-001\"}`). Mappings for IDs not in the picker are silently ignored. To re-add a historical model (M2.5 / M2.1 / M2) to the picker itself, also add it to `minimax.visibleModels`.",
+          "markdownDescription": "Map a Copilot picker model ID to the actual API model ID the upstream endpoint expects. The default `{}` means 'no override' — the picker ID is sent to the API verbatim (variants like `MiniMax-M3-Priority` still fall back to their registry-declared `apiModelId`). Useful when routing through a third-party proxy that uses different model names (e.g. `{\"MiniMax-M3\": \"provider-internal-m3-001\"}`). Mappings for IDs not in the picker are silently ignored. To re-add a historical model (M2.5 / M2.1 / M2) to the picker itself, also add it to `minimax.visibleModels`.",
           "additionalProperties": {
             "type": "string"
           }
@@ -271,7 +273,7 @@
         "minimax.sampling": {
           "type": "object",
           "default": {},
-          "markdownDescription": "Per-model sampling overrides. Map a model ID (`MiniMax-M3`, `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`) to a `{ temperature?, topP?, topK?, frequencyPenalty? }` object. Each field is optional; unset fields fall back to the API default. **Ignored when thinking is on** for `temperature` and `topP` (Anthropic's `thinking: { type: 'adaptive' }` constraint forces `temperature: 1` and drops `topP`). Restart the chat session after changing.",
+          "markdownDescription": "Per-model sampling overrides. Map a model ID (`MiniMax-M3`, `MiniMax-M3-Priority`, `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`) to a `{ temperature?, topP?, topK?, frequencyPenalty? }` object. Each field is optional; unset fields fall back to the API default. **Ignored when thinking is on** for `temperature` and `topP` (Anthropic's `thinking: { type: 'adaptive' }` constraint forces `temperature: 1` and drops `topP`). Restart the chat session after changing.",
           "additionalProperties": {
             "type": "object",
             "properties": {
@@ -329,6 +331,7 @@
           },
           "default": [
             "MiniMax-M3",
+            "MiniMax-M3-Priority",
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed",
             "MiniMax-M2.5",

@@ -248,7 +248,7 @@ export function getConfiguredThinkingEffort(
  *
  * 1. The picker immediately advertises 1M, so VS Code's
  *    "上下文窗口" indicator shows `N / 1M` instead of `N / 512K`.
- * 2. Requests above 512K will be billed at **2× the per-token rate**
+ * 2. Requests above 512K will be billed at **1.5× the per-token rate**
  *    (see the [pricing page][pp]).
  * 3. The >512K input tier is in limited rollout — accounts without
  *    explicit sales-granted access will get HTTP 400 from the API.

@@ -68,7 +68,7 @@ On first activation, if `minimax.apiBaseUrl` is still at its default, the extens
 | **MiniMax M2.7** | 204,800 | — | Self-iterating, ~60 TPS; text and tool-call content blocks only. |
 | **MiniMax M2.7-highspeed** | 204,800 | — | Same quality, ~100 TPS; text and tool-call content blocks only. |
 
-Users with >512K access can run **MiniMax: Toggle M3 1M Context** to lift the cap (the command pops a modal warning about 2× billing before flipping the switch). The full spec is on the [Supported models page](https://platform.minimax.io/docs/guides/text-generation).
+Users with >512K access can run **MiniMax: Toggle M3 1M Context** to lift the cap (the command pops a modal warning about 1.5× billing before flipping the switch). The full spec is on the [Supported models page](https://platform.minimax.io/docs/guides/text-generation).
 
 **Historical models:** M2.5 / M2.1 / M2 are not in the picker by default.
 
@@ -102,10 +102,10 @@ A Subscription Key covers language models plus speech / video / music / image en
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `minimax.apiBaseUrl` | _auto-picked_ | Anthropic-compatible base URL. Auto-picked on first activation; defaults to `https://api.minimax.io/anthropic`. |
-| `minimax.visibleModels` | _all M-series_ | Restrict which models appear in the picker. |
+| `minimax.visibleModels` | _all M-series_ | Restrict which models appear in the picker. Defaults to `MiniMax-M3 / MiniMax-M3-Priority / MiniMax-M2.7 / MiniMax-M2.7-highspeed`. |
 | `minimax.maxOutputTokens` | `0` | Output cap. `0` lets the model decide. See `minimax.enableM31MContext` for the input/context window. |
-| `minimax.enableM31MContext` | `false` | Lift M3 from 512K to 1M context. Off by default; the toggle command pops a billing warning first. |
-| `minimax.sampling` | `{}` | Per-model `temperature` / `topP` / `topK` / `frequencyPenalty` overrides. |
+| `minimax.enableM31MContext` | `false` | Lift M3 / M3-Priority from 512K to 1M context. Off by default; the toggle command pops a billing warning first. |
+| `minimax.sampling` | `{}` | Per-model `temperature` / `topP` / `topK` / `frequencyPenalty` overrides. Keys: `MiniMax-M3`, `MiniMax-M3-Priority`, `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`. |
 | `minimax.experimental.modelDefPresets` | `{}` | Per-model escape hatch for request body fields. |
 | `minimax.debugMode` | `minimal` | `minimal` / `metadata` / `verbose`. |
 | `minimax.modelIdOverrides` | `{}` | Map picker IDs to API IDs (useful for proxies). |

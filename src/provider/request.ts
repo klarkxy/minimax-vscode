@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { AuthManager } from '../auth';
 import { MiniMaxClient } from '../client';
-import { getApiModelId, getMaxTokens } from '../config';
+import { resolveApiModelId, getMaxTokens } from '../config';
 import { CONFIG_SECTION } from '../consts';
 import { t } from '../i18n';
 import { findModelById } from '../models/registry';
@@ -98,7 +98,18 @@ export async function prepareChatRequest({
 		? {
 				...modelDef,
 				sampling: userSampling ?? modelDef.sampling,
-				extra: userExtra ?? modelDef.extra,
+				// Shallow-merge user presets on top of registry defaults
+				// for the open escape-hatch fields, but restore any
+				// registry-managed `extraReserved` keys afterwards so
+				// the user can never silently strip them out. The
+				// `?? {}` on `userExtra` is what allows a user who
+				// hasn't configured anything to inherit the registry's
+				// `extra` verbatim.
+				extra: mergeExtraPreservingReserved(
+					modelDef.extra,
+					userExtra,
+					modelDef.extraReserved,
+				),
 			}
 		: undefined;
 	// M3 supports a binary `thinking: { type: "disabled" }` switch via
@@ -128,7 +139,14 @@ export async function prepareChatRequest({
 	// capped at 64 MB. Inline (base64/url) image+video data dominates
 	// the count; we check the total bytes against the cap so we throw
 	// a friendly error before the API returns 413.
-	enforceRequestBodySizeLimit(converted, modelInfo.id);
+	//
+	// Resolve the API model ID first so a user who has set
+	// `modelIdOverrides["MiniMax-M3-Priority"] = "MiniMax-M2.5"` (a
+	// 32 MB historical model) gets the 32 MB cap applied pre-flight
+	// instead of the 64 MB cap that would let the request through and
+	// then 413 at the upstream.
+	const resolvedApiModelId = resolveApiModelId(modelInfo.id, modelDef?.apiModelId);
+	enforceRequestBodySizeLimit(converted, resolvedApiModelId);
 
 	// Resolve the `max_tokens` value to send on the request.
 	//
@@ -144,7 +162,13 @@ export async function prepareChatRequest({
 	const effectiveMaxTokens = configuredMaxTokens ?? 0;
 
 	const request = client.buildRequest(
-		getApiModelId(modelInfo.id),
+		// Use the API model id we already resolved for the size cap
+		// (see the call site above) so the chain stays consistent
+		// with the picker override. `resolveApiModelId` is documented
+		// in `src/config.ts` — see the comment there for why a plain
+		// `getApiModelId(...) || modelDef?.apiModelId || modelInfo.id`
+		// chain does not work (the first term is always truthy).
+		resolvedApiModelId,
 		converted.messages,
 		systemPrompt,
 		effectiveMaxTokens,
@@ -263,6 +287,48 @@ function readUserExtra(modelId: string): Record<string, unknown> | undefined {
 	const raw = config.get<Record<string, unknown>>('experimental.modelDefPresets', {});
 	const entry = raw?.[modelId];
 	return isPlainObject(entry) ? entry : undefined;
+}
+
+/**
+ * Merge user `experimental.modelDefPresets` over the registry's
+ * `modelDef.extra`, then restore the registry's value for any key
+ * listed in `modelDef.extraReserved`. Reserved keys are the registry's
+ * way of saying "this field belongs to the variant, not to the user
+ * — they must not be able to override it via the preset escape
+ * hatch". The M3-Priority variant uses this to pin `service_tier`
+ * so a user who sets any preset entry (e.g. `stop_sequences`) doesn't
+ * silently lose priority routing and end up billed at the standard
+ * rate while thinking they have priority access.
+ *
+ * Exported for unit tests; production callers should rely on the
+ * request-prep pipeline wiring it via `modelDef.extraReserved`.
+ */
+export function mergeExtraPreservingReserved(
+	registryExtra: Record<string, unknown> | undefined,
+	userExtra: Record<string, unknown> | undefined,
+	reserved: readonly string[] | undefined,
+): Record<string, unknown> {
+	const merged: Record<string, unknown> = {
+		...(registryExtra ?? {}),
+		...(userExtra ?? {}),
+	};
+	if (!reserved || reserved.length === 0) {
+		return merged;
+	}
+	for (const key of reserved) {
+		if (registryExtra && Object.prototype.hasOwnProperty.call(registryExtra, key)) {
+			merged[key] = registryExtra[key];
+		} else {
+			// Reserved list mentions a key the registry doesn't set —
+			// strip any user value rather than leave a half-merged
+			// residue. Defensive: today every reserved key is also
+			// present in `registryExtra`, but the request layer should
+			// not break if a future variant adds a reserved list
+			// without populating the value yet.
+			delete merged[key];
+		}
+	}
+	return merged;
 }
 
 /**
@@ -515,9 +581,23 @@ function enforceInlineAttachmentSizeLimits(converted: ConvertedConversation): vo
  * picker models (M3, M2.7, M2.7-highspeed) accept inline media and are
  * subject to the 64 MB ceiling. The 32 MB fallback exists for callers
  * that still point at historical models via `modelIdOverrides`.
+ *
+ * `modelId` is the *resolved* API model id (the value sent in the
+ * request body), not the picker id — see the call site above. That
+ * way a user who has rerouted `MiniMax-M3-Priority` to a 32 MB
+ * historical model via `modelIdOverrides` gets the 32 MB cap applied
+ * pre-flight instead of the 64 MB cap that would let the request
+ * through and then 413 at the upstream.
  */
 function MAX_REQUEST_BODY_BYTES_FOR_MODEL(modelId: string): number {
-	if (modelId === 'MiniMax-M3' || modelId === 'MiniMax-M2.7' || modelId === 'MiniMax-M2.7-highspeed') return 64 * 1024 * 1024;
+	// API model IDs of every model that accepts inline images / videos.
+	// `MiniMax-M3-Priority` resolves to `MiniMax-M3` via the
+	// registry's `apiModelId`, so it does not need a separate branch.
+	if (
+		modelId === 'MiniMax-M3' ||
+		modelId === 'MiniMax-M2.7' ||
+		modelId === 'MiniMax-M2.7-highspeed'
+	) return 64 * 1024 * 1024;
 	return 32 * 1024 * 1024;
 }
 

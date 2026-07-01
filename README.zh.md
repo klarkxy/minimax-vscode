@@ -56,7 +56,7 @@
 | **MiniMax M2.7** | 204,800 | — | 自迭代，~60 TPS；只支持文本和工具调用内容块。 |
 | **MiniMax M2.7-highspeed** | 204,800 | — | 同质量，~100 TPS；只支持文本和工具调用内容块。 |
 
-拿到 >512K 权限的用户可以跑 **MiniMax: 切换 M3 1M 上下文** 把 cap 抬到 1M（开之前会弹模态警告说明 2× 计费）。完整规格见 [Supported models 页](https://platform.minimaxi.com/docs/guides/text-generation)。
+拿到 >512K 权限的用户可以跑 **MiniMax: 切换 M3 1M 上下文** 把 cap 抬到 1M（开之前会弹模态警告说明 1.5× 计费）。完整规格见 [Supported models 页](https://platform.minimaxi.com/docs/guides/text-generation)。
 
 **历史模型：** M2.5 / M2.1 / M2 不在默认 picker 里。
 
@@ -92,8 +92,8 @@
 | `minimax.apiBaseUrl` | _auto-picked_ | Anthropic 兼容基础 URL。激活时若未设置会自动按语言选，默认 `https://api.minimaxi.com/anthropic`。 |
 | `minimax.visibleModels` | _所有 M 档_ | 限制 picker 里出现的模型。 |
 | `minimax.maxOutputTokens` | `0` | 输出上限。`0` 让模型自己决定。上下文窗口看 `minimax.enableM31MContext`。 |
-| `minimax.enableM31MContext` | `false` | 把 M3 从 512K 抬到 1M 上下文。默认关闭；切换命令会先弹计费警告。 |
-| `minimax.sampling` | `{}` | 按模型覆盖 `temperature` / `topP` / `topK` / `frequencyPenalty`。 |
+| `minimax.enableM31MContext` | `false` | 把 M3 / M3-Priority 从 512K 抬到 1M 上下文。默认关闭；切换命令会先弹计费警告。 |
+| `minimax.sampling` | `{}` | 按模型覆盖 `temperature` / `topP` / `topK` / `frequencyPenalty`。键：`MiniMax-M3`、`MiniMax-M3-Priority`、`MiniMax-M2.7`、`MiniMax-M2.7-highspeed`。 |
 | `minimax.experimental.modelDefPresets` | `{}` | 按模型逃生口，往请求体里塞自定义字段。 |
 | `minimax.debugMode` | `minimal` | `minimal` / `metadata` / `verbose`。 |
 | `minimax.modelIdOverrides` | `{}` | picker id → API id 映射（代理场景用）。 |

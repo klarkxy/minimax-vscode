@@ -190,6 +190,15 @@ export type PriceCategory = 'low' | 'medium' | 'high' | 'very_high';
 
 export interface ModelDefinition {
 	id: string;
+	/**
+	 * The model ID sent in the request body. When `apiModelId` is set,
+	 * the API receives this value instead of `id` (which is the VS Code
+	 * picker ID). Used for model variants like `MiniMax-M3-Priority`
+	 * that share the same upstream model with a modified request body
+	 * (e.g. `service_tier: "priority"`). When absent, `id` is used as
+	 * the API model ID (the default for all current models).
+	 */
+	apiModelId?: string;
 	name: string;
 	family: string;
 	version: string;
@@ -256,4 +265,15 @@ export interface ModelDefinition {
 	 * Unknown keys are forwarded unchanged.
 	 */
 	extra?: Record<string, unknown>;
+	/**
+	 * Optional list of `extra` keys the registry manages and that must
+	 * not be overridden by `minimax.experimental.modelDefPresets`. The
+	 * request layer shallow-merges user presets on top of registry
+	 * defaults, so without this hint a user who set any preset entry
+	 * for the picker ID would silently lose registry-managed keys
+	 * (notably `service_tier: "priority"` for the M3-Priority
+	 * variant). Keys listed here always come from the registry's own
+	 * `extra` regardless of what the user presets say.
+	 */
+	extraReserved?: readonly string[];
 }

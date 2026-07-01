@@ -56,6 +56,36 @@ export function getApiModelId(vscodeModelId: string): string {
 }
 
 /**
+ * Resolve the API model ID for the request builder, distinguishing
+ * "no override set" from "override exists". Returns the first of:
+ *
+ * 1. The user's `modelIdOverrides[pickerId]` entry, if set.
+ * 2. The registry-declared `apiModelId` for variants that share an
+ *    upstream model with another picker entry (e.g. M3-Priority's
+ *    `apiModelId: 'MiniMax-M3'`). Without this fallback the chain
+ *    would fall through to step 3 and the upstream would receive
+ *    a picker-only ID it does not recognize.
+ * 3. The picker ID itself (the historical default).
+ *
+ * The chain has to be implemented here rather than as `||` in the
+ * call site because `getApiModelId` collapses "no override" and
+ * "override equals picker ID" into the same truthy return — a
+ * `|| modelDef?.apiModelId` fallback never fires.
+ *
+ * `registryApiModelId` is optional so the helper can also be used
+ * from contexts (e.g. unit tests) where the registry is not in scope.
+ */
+export function resolveApiModelId(pickerId: string, registryApiModelId?: string): string {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const overrides = config.get<Record<string, string>>('modelIdOverrides');
+	const override = overrides?.[pickerId]?.trim();
+	if (override) {
+		return override;
+	}
+	return registryApiModelId || pickerId;
+}
+
+/**
  * Diagnostic mode. `verbose` also enables metadata logs.
  */
 export function getDebugMode(): DebugMode {
@@ -113,7 +143,7 @@ export function getMaxTokens(): number | undefined {
  *
  * Default is `false`. The toggle is wired through the
  * `minimax.toggleM31MContext` command (see `runtime/commands.ts`),
- * which pops a modal warning about the 2× billing rate and the need
+ * which pops a modal warning about the 1.5× billing rate and the need
  * for sales-granted >512K access before flipping the setting. Going
  * through the command (rather than editing `settings.json` directly)
  * is what makes the warning visible to the user.
@@ -194,6 +224,7 @@ export function getClaudeCodePollIntervalMs(): number {
  */
 export const DEFAULT_CLAUDE_CODE_ALLOWED_MODELS: readonly string[] = [
 	'MiniMax-M3',
+	'MiniMax-M3-Priority',
 	'MiniMax-M2.7',
 	'MiniMax-M2.7-highspeed',
 	'MiniMax-M2.5',
