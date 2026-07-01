@@ -143,6 +143,8 @@ const zh: Translations = {
 
 	// Pricing (per million tokens, ¥)
 	'pricing.unlisted': '见官方',
+	'pricing.largeContextHint.standard': '提示：上方显示的是 ≤512K 档位的费率。请求输入超过 512K 的部分按 **1.5 倍** /M 计费（¥4.2 输入 / ¥16.8 输出 / ¥0.84 缓存读取）。',
+	'pricing.largeContextHint.priority': '提示：上方显示的是 ≤512K 档位的费率。请求输入超过 512K 的部分按 **3 倍** /M 计费（¥6.3 输入 / ¥25.2 输出 / ¥1.26 缓存读取）——这是优先级档位（1.5×）与 >512K 档位（再加 1.5×）叠加后的结果。',
 
 	// Extension
 	'extension.activateFailed': 'MiniMax 激活失败，请运行 "MiniMax: 显示日志" 查看详情。',
@@ -366,6 +368,8 @@ const en: Translations = {
 
 	// Pricing (per million tokens, currency follows the user's apiBaseUrl)
 	'pricing.unlisted': 'see official',
+	'pricing.largeContextHint.standard': 'Note: the rates above are the ≤512K tier. The portion of any request that exceeds 512K input tokens is billed at **1.5×** /M ($0.6 input / $2.4 output / $0.12 cache read).',
+	'pricing.largeContextHint.priority': 'Note: the rates above are the ≤512K tier. The portion of any request that exceeds 512K input tokens is billed at **3×** /M ($0.9 input / $3.6 output / $0.18 cache read) — the priority 1.5× and the >512K 1.5× stacked.',
 
 	// Extension
 	'extension.activateFailed': 'MiniMax activation failed. Run "MiniMax: Show Logs" for details.',

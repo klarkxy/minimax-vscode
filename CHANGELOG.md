@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.5.4 — 2026-07-01
+
+### Fixed — M3 / M3-Priority picker pricing
+
+- **The price column for `MiniMax-M3` and `MiniMax-M3 (Priority)` no longer inflates when `minimax.enableM31MContext` is on.** Previously the 1M toggle also swapped the model's pricing row to the >512K tier (`m3Large` / `m3LargePriority`), making the picker show ¥4.2 / ¥16.8 / ¥0.84 (M3) and ¥6.3 / ¥25.2 / ¥1.26 (M3-Priority) for *every* token. The actual upstream rate is tiered per request: ≤512K input is billed at the base rate (¥2.1 / ¥3.15), and only the portion above 512K is billed at 1.5× (M3) or 3× (M3-Priority). The picker now shows the base rate, and `formatPricingTooltip` appends a `>512K` hint line when the cap is lifted so the per-token rate for the overflow portion is visible in the tooltip. Fixes the 2.5.3 release note which described the inflated rate as the correct behaviour.
+- **`maxInputTokens` correctly tracks the 1M toggle (512K off, 1M on).** The "位置: N / M" indicator in the model picker is rendered from `maxInputTokens`. The toggle now lifts it to 1M only when enabled, and resets to 512K on disable — no reload required (the provider listens to `onDidChangeConfiguration` and fires the change emitter). New regression test `M3 maxInputTokens tracks the toggle exactly: 512K off, 1M on, never 2M` pins the contract.
+
+### Fixed — Picker context-size column reads "input + output" (upstream quirk)
+
+- **The "Manage Language Models" panel now shows `"512K"` for M3 / M3-Priority when the 1M toggle is off, instead of `"1M"`.** VS Code's `chatModelsWidget.ts` (`TokenLimitsColumnRenderer.renderModelElement` in `microsoft/vscode`) renders the context-size column by **summing `maxInputTokens + maxOutputTokens`** and then formatting the total via `formatTokenCount()`. The previous `maxOutputTokens: 512_000` on the M3 family made the sum cross the 1M threshold (`512K + 512K = 1_024_000 → "1M"`) regardless of the toggle state — a misleading "1M" label that disagreed with the actual 512K input cap. The M3 / M3-Priority picker entries now use `maxOutputTokens: 0` so the column shows `formatTokenCount(maxInputTokens)` directly (`"512K"` off, `"1M"` on). The actual `max_tokens` request parameter is **not** sourced from this field — `request.ts` deliberately uses the user's `minimax.maxOutputTokens` setting instead, so this is a display-only knob. Mirrors the `deepseek-v4-for-copilot` precedent (PR Vizards/deepseek-v4-for-copilot#71). New regression test `M3 picker displays "512K" when the 1M toggle is off (regression: was "1M")` pins the contract against future regressions.
+
 ## 2.5.3 — 2026-07-01
 
 ### Added — M3 priority variant

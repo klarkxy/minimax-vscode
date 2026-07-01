@@ -69,6 +69,18 @@ coverage/**
 /com[1-9]
 /lpt[1-9]
 
+# Vendored upstream VS Code source kept at the repo root as reference
+# while authoring the picker context-size column tests (see
+# `test/pickerContextSize.test.ts` for the upstream rendering rule
+# these files document). `vsce package` does not strip root-level
+# `.ts` files that nothing imports, so the 73 KB vendored copy of
+# `microsoft/vscode/.../chatModelsWidget.ts` was being shipped as
+# `extension/chatModelsWidget.ts` in the published VSIX. Deny
+# both files at the root so a future contributor who drops another
+# vendored reference at the root must update this rule on purpose.
+chatModelsWidget.ts
+numbers.ts
+
 # Bundle the SKILL files that ship with the extension (consumed at
 # runtime by the dashboard's "Install Agent Skill" fallback). They
 # live outside `src/` and are not in the deny list above, but we

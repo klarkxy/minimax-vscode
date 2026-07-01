@@ -135,13 +135,28 @@ export function toChatInfo(
 	};
 }
 
-function formatPricingTooltip(m: ModelDefinition): string {
-	const { pricing, contextLength, maxInputTokens, maxOutputTokens } = m;
+/**
+ * Build the multi-line pricing tooltip shown in the Copilot Chat
+ * model picker. Exported for unit tests — production code paths
+ * reach it through `toChatInfo`.
+ */
+export function formatPricingTooltip(m: ModelDefinition): string {
+	const { pricing, contextLength, maxInputTokens } = m;
 	const symbol = pricing.currency === 'USD' ? '$' : '¥';
 	const fmt = (n: number | null) => (n === null ? t('pricing.unlisted') : `${symbol}${n} /M`);
+	// We intentionally do NOT render an "Output cap" line here: the
+	// model picker's context-size column requires
+	// `maxInputTokens + maxOutputTokens` to round-trip through
+	// `formatTokenCount`, so the registry pins `maxOutputTokens` to
+	// `0` for M3 / M2.7 to land on the "512K" / "1M" / "205K"
+	// boundary labels. Printing that `0` in the tooltip would read
+	// as "the model produces no output" to the user, which is
+	// wrong. The actual `max_tokens` request parameter is sourced
+	// from the user's `minimax.maxOutputTokens` setting (see
+	// `request.ts`); if they want to know what cap is being sent
+	// on the wire, that's the setting to look at, not this tooltip.
 	const lines = [
 		`Context: ${formatNumber(contextLength)} (effective: ${formatNumber(maxInputTokens)})`,
-		`Output cap: ${formatNumber(maxOutputTokens)}`,
 		`Input: ${fmt(pricing.input)}`,
 		`Output: ${fmt(pricing.output)}`,
 		`Cache read: ${fmt(pricing.cacheRead)}`,
@@ -149,6 +164,22 @@ function formatPricingTooltip(m: ModelDefinition): string {
 	];
 	if (pricing.note) {
 		lines.push('', pricing.note);
+	}
+	// The picker advertises a single per-million-token rate, but
+	// MiniMax bills the >512K portion of an actual request at a
+	// higher per-token rate (1.5× for standard M3, 3× for
+	// M3-Priority). When the user has lifted the cap to 1M via
+	// `minimax.toggleM31MContext` we surface that here so the
+	// tooltip is honest about what a >512K request will cost.
+	if (maxInputTokens > 512_000) {
+		lines.push(
+			'',
+			t(
+				m.id === 'MiniMax-M3-Priority'
+					? 'pricing.largeContextHint.priority'
+					: 'pricing.largeContextHint.standard',
+			),
+		);
 	}
 	return lines.join('\n');
 }

@@ -2,6 +2,17 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.5.4 — 2026-07-01
+
+### 修复 — M3 / M3-Priority picker 定价
+
+- **开启 `minimax.enableM31MContext` 后，picker 价格列不再虚高。** 之前 1M 开关会把整行 pricing 切到 >512K 档（`m3Large` / `m3LargePriority`），让 picker 显示 ¥4.2 / ¥16.8 / ¥0.84（M3）和 ¥6.3 / ¥25.2 / ¥1.26（M3-Priority）的*全 token* 价。真实上游费率是按请求区间计算的：≤512K 输入按基础档计费（¥2.1 / ¥3.15），只有超过 512K 的部分才按 1.5×（M3）或 3×（M3-Priority）计费。现在 picker 显示的是基础档费率，开启 1M 时 `formatPricingTooltip` 会追加一行 `>512K` 提示，把溢出部分按 token 算的实际费率写在 tooltip 里。修正了 2.5.3 release notes 中把虚高费率描述为正确行为的说法。
+- **`maxInputTokens` 跟随 1M 开关正确变化（关 512K，开 1M）。** picker 的「位置: N / M」指标按 `maxInputTokens` 渲染。现在开关开就抬到 1M，关就回到 512K——不需要 reload 窗口（provider 监听 `onDidChangeConfiguration` 后会触发 change emitter）。新增回归测试 `M3 maxInputTokens tracks the toggle exactly: 512K off, 1M on, never 2M` 把这条契约钉死。
+
+### 修复 — 模型选择器「Manage Language Models」context-size 列受上游渲染规则影响
+
+- **关闭 1M 开关后，M3 / M3-Priority 的「Manage Language Models」context-size 列正确显示 `"512K"`，不再误报为 `"1M"`。** VS Code 自己的 `chatModelsWidget.ts`（`TokenLimitsColumnRenderer.renderModelElement`，`microsoft/vscode` 仓库）的渲染规则是**把 `maxInputTokens + maxOutputTokens` 求和后再用 `formatTokenCount()` 格式化**——把"输出上限"和"输入上限"加在一起当"context size"。先前的 `maxOutputTokens: 512_000` 让总和越过 1M 阈值（`512K + 512K = 1_024_000 → "1M"`），不论 1M 开关是开是关 picker 都显示 "1M"，与 512K 的真实输入上限不符。现在 M3 / M3-Priority 的 `maxOutputTokens` 改为 `0`，让列直接显示 `formatTokenCount(maxInputTokens)`——关闭时 "512K"、开启时 "1M"。**实际请求里的 `max_tokens` 参数不读这个字段**——`request.ts` 故意用用户的 `minimax.maxOutputTokens` 设置，所以这只是显示层调整，不影响 API 调用。和 `deepseek-v4-for-copilot` 之前在 PR Vizards/deepseek-v4-for-copilot#71 里用的同样思路。新增回归测试 `M3 picker displays "512K" when the 1M toggle is off (regression: was "1M")` 把这条契约钉死。
+
 ## 2.5.3 — 2026-07-01
 
 ### 新增 — M3 优先服务变体

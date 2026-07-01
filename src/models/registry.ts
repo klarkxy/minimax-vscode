@@ -26,21 +26,6 @@ export const isChineseLocale = isChineseLocaleShared;
  */
 type PricingKey = 'm3' | 'm3Large' | 'm3Priority' | 'm3LargePriority' | 'm27' | 'm27Highspeed';
 
-/**
- * Map a standard-tier pricing key to its >512K counterpart. Models
- * whose pricing tiers do not split by context window (M2.7 family)
- * are absent from the table; the `wantsLargeContext` guard above
- * already excludes them. Adding a new priority variant is a
- * two-line change: drop its `mXxxLargePriority` row in both pricing
- * tables and an entry here. Hard-coding the map inside
- * `getModels()` would let the next contributor's silent wrong-tier
- * slip past review.
- */
-const LARGE_CONTEXT_PRICING_KEY: Partial<Record<PricingKey, PricingKey>> = {
-	m3: 'm3Large',
-	m3Priority: 'm3LargePriority',
-};
-
 const PRICING_CNY: Record<PricingKey, ModelPricing> = {
 	/** M3 in the standard ≤512K tier (永久五折后). */
 	m3: {
@@ -50,7 +35,14 @@ const PRICING_CNY: Record<PricingKey, ModelPricing> = {
 		cacheWrite: null,
 		currency: 'CNY',
 	},
-	/** M3 in the >512K tier (限量供应, 需联系销售). */
+	// M3 standard >512K — 1.5× the standard ≤512K rate. Kept in the
+	// table for the **per-token** (>512K input portion) rate that the
+	// API applies at request time, but NOT used to label the picker
+	// entry: the picker entry shows the ≤512K base rate (¥2.1 input),
+	// and the >512K portion is billed at 1.5× at the API. A future
+	// "show me the >512K rate in the picker" feature would surface
+	// this row in the tooltip — see the >512K hint appended by
+	// `formatPricingTooltip` when `maxInputTokens > 512_000`.
 	m3Large: {
 		input: 4.2,
 		output: 16.8,
@@ -68,7 +60,9 @@ const PRICING_CNY: Record<PricingKey, ModelPricing> = {
 		currency: 'CNY',
 		note: '优先服务按标准价格的 1.5 倍计费，请求获得优先准入（service_tier: "priority"）',
 	},
-	/** M3 priority >512K tier — 1.5× the >512K standard rate (3× of the standard ≤512K rate). */
+	// M3 priority >512K — 1.5× the >512K standard rate (3× of the
+	// standard ≤512K rate). Same status as `m3Large`: defined for
+	// reference, the picker entry uses `m3Priority` as the base rate.
 	m3LargePriority: {
 		input: 6.3,
 		output: 25.2,
@@ -101,6 +95,8 @@ const PRICING_USD: Record<PricingKey, ModelPricing> = {
 		cacheWrite: null,
 		currency: 'USD',
 	},
+	// Per-token rate for the >512K input portion of standard M3 —
+	// see the CNY table for the full rationale.
 	m3Large: {
 		input: 0.6,
 		output: 2.4,
@@ -118,7 +114,8 @@ const PRICING_USD: Record<PricingKey, ModelPricing> = {
 		currency: 'USD',
 		note: 'Priority requests get faster response and lower failure rate via service_tier: "priority", billed at 1.5× the standard per-token rate.',
 	},
-	/** M3 priority >512K tier — 1.5× the >512K standard rate (3× of the standard ≤512K rate). */
+	// Per-token rate for the >512K input portion of M3-Priority.
+	// See the CNY table for the rationale.
 	m3LargePriority: {
 		input: 0.9,
 		output: 3.6,
@@ -229,7 +226,24 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		// rebuilds the picker entry when that setting changes, so the
 		// UI updates live without an editor reload.
 		maxInputTokens: 512_000,
-		maxOutputTokens: 512_000,
+		// VS Code's "Manage Language Models" panel renders the picker
+		// context-size column by SUMMING `maxInputTokens + maxOutputTokens`
+		// and passing the total through `formatTokenCount()`
+		// (microsoft/vscode/src/vs/workbench/contrib/chat/browser/chatManagement/chatModelsWidget.ts,
+		// `TokenLimitsColumnRenderer.renderModelElement`). Setting both
+		// fields to `512_000` would make that column render as `1M`
+		// (1_024_000 round-trips to `1M`) even when `enableM31MContext`
+		// is off — a misleading "1M" label that disagrees with the actual
+		// 512K input cap the user is paying for. We set `maxOutputTokens`
+		// to `0` here so the column shows `formatTokenCount(maxInputTokens)`
+		// = `"512K"` when the 1M toggle is off and `"1M"` when it is on.
+		// The actual `max_tokens` request parameter is **not** read from
+		// this field — `request.ts` deliberately uses the user's
+		// `minimax.maxOutputTokens` setting instead, so this is a
+		// display-only knob. See CLAUDE.md → "Picket context-size column"
+		// for the upstream rendering rule and the deepseek-v4-for-copilot
+		// precedent (PR Vizards/deepseek-v4-for-copilot#71).
+		maxOutputTokens: 0,
 		capabilities: {
 			toolCalling: MINIMAX_TOOLS_LIMIT,
 			imageInput: true,
@@ -252,7 +266,10 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		detail: 'M3 with priority access — faster response, lower failure rate',
 		contextLength: 1_000_000,
 		maxInputTokens: 512_000,
-		maxOutputTokens: 512_000,
+		// See the M3 entry above for why `maxOutputTokens` is `0` —
+		// VS Code sums the two fields when rendering the "Manage
+		// Language Models" context-size column, so this is display-only.
+		maxOutputTokens: 0,
 		capabilities: {
 			toolCalling: MINIMAX_TOOLS_LIMIT,
 			imageInput: true,
@@ -282,8 +299,14 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		version: '2.7',
 		detail: 'Self-iterating coding model (~60 TPS)',
 		contextLength: 204_800,
-		maxInputTokens: 131_072,
-		maxOutputTokens: 73_728,
+		// The official "上下文窗口" column lists 204,800 — on the
+		// Anthropic-compatible surface this is the **input** capacity.
+		// Earlier builds split the 204,800 pool into 131_072 input +
+		// 73_728 output, but the MiniMax docs never published such a
+		// split; the data sheet calls the whole number the "context
+		// window", which in Anthropic convention means `max_input_tokens`.
+		maxInputTokens: 204_800,
+		maxOutputTokens: 0,
 		capabilities: {
 			toolCalling: MINIMAX_TOOLS_LIMIT,
 			// M2.x only supports text and tool-call blocks on MiniMax's Anthropic API.
@@ -303,8 +326,8 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		version: '2.7-highspeed',
 		detail: 'M2.7 high-speed: same quality, faster (~100 TPS)',
 		contextLength: 204_800,
-		maxInputTokens: 131_072,
-		maxOutputTokens: 73_728,
+		maxInputTokens: 204_800,
+		maxOutputTokens: 0,
 		capabilities: {
 			toolCalling: MINIMAX_TOOLS_LIMIT,
 			// M2.x only supports text and tool-call blocks on MiniMax's Anthropic API.
@@ -373,28 +396,36 @@ export function getModels(baseUrl: string = readConfiguredBaseUrl()): ModelDefin
 				pricing: table[pricingKey],
 			}
 			: { ...rest, pricing: table[pricingKey] };
-		const wantsLargeContext =
-			(t.id === 'MiniMax-M3' || t.id === 'MiniMax-M3-Priority') &&
-			m3Window !== t.maxInputTokens;
-		if (!wantsLargeContext) {
+		const isM3Family =
+			t.id === 'MiniMax-M3' || t.id === 'MiniMax-M3-Priority';
+		// Lifting the picker cap to 1M only changes `maxInputTokens`.
+		// The picker **price column** still shows the ≤512K base rate
+		// (¥2.1 for standard M3, ¥3.15 for priority). The >512K
+		// portion of an actual request is billed per-token at the
+		// `m3Large` / `m3LargePriority` rate by the upstream API — see
+		// the hint appended in `formatPricingTooltip` when the picker
+		// advertises >512K, which is where those numbers surface.
+		//
+		// The previous implementation switched the entire `pricing`
+		// row to `m3Large` / `m3LargePriority` when the 1M toggle was
+		// on, which made every token in the picker look 1.5×–3× more
+		// expensive than the ≤512K base rate the user is actually
+		// billed for on most requests.
+		if (!isM3Family || m3Window === t.maxInputTokens) {
 			return base;
 		}
-		// When the user lifts the context cap, also switch the pricing
-		// row to the >512K entry so the picker tooltip shows the
-		// actually-applicable rate. Without this, the >512K keys
-		// (`m3Large` for standard M3, `m3LargePriority` for the
-		// priority variant) would be defined but unreachable, and the
-		// user would see the ≤512K rate in the picker while being
-		// billed at the >512K rate. The priority large rate is 1.5×
-		// the standard large rate (3× of the standard ≤512K rate,
-		// vs 1.5× for plain M3), so the gap is wider for the variant
-		// and matters more.
-		const largeKey = LARGE_CONTEXT_PRICING_KEY[pricingKey];
+		// Lifting the cap to 1M only changes `maxInputTokens`. We
+		// deliberately leave `maxOutputTokens` at the template's value
+		// (0 for M3 family — see the comment at the M3 template above
+		// for why) so that `formatTokenCount(maxInputTokens + maxOutputTokens)`
+		// in VS Code's picker column renders the desired boundary label
+		// ("512K" off, "1M" on). If `maxOutputTokens` were also lifted,
+		// the sum would cross the 1M threshold (`1M + 1M = 2M → "2M"`)
+		// and the picker would show a misleading "2M" label that
+		// disagrees with the actual 1M input cap.
 		return {
 			...base,
 			maxInputTokens: m3Window,
-			maxOutputTokens: m3Window,
-			pricing: largeKey ? table[largeKey] : table[pricingKey],
 		};
 	});
 }
