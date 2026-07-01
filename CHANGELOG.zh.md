@@ -2,7 +2,7 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
-## Unreleased
+## 2.5.3 — 2026-07-01
 
 ### 新增 — M3 优先服务变体
 
