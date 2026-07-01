@@ -7,6 +7,15 @@ dist/
 .DS_Store
 Thumbs.db
 
+# 本地临时脚本
+tmp/
+tmp-*.ps1
+tmp-*.txt
+tmp-*.*
+
+# husky 内部状态目录（不要跟踪）
+.husky/_/
+
 .idea/
 .learnings/
 .codegraph/

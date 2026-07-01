@@ -1,0 +1,32 @@
+# 构建产物 / 缓存
+out/
+out-test/
+dist/
+coverage/
+.codegraph/
+.learnings/
+
+# 依赖
+node_modules/
+
+# 参考仓库（不参与仓库自身格式化）
+deepseek-v4-for-copilot/
+minimax-status/
+Mini-Agent/
+oai-compatible-copilot/
+
+# 锁文件
+package-lock.json
+
+# 本地临时文件
+tmp/
+tmp-*.ps1
+
+# i18n 翻译表是手动排版的多行字符串字面量，不让 Prettier 合并
+src/i18n.ts
+
+# TypeScript 源文件的 JSDoc 注释里大量使用 em-dash（—）等 Unicode 标点，
+# Prettier 会把这些字符 normalize 成 ASCII 连字符，破坏可读性。
+# 交由代码评审 + tsc 风格约束保证一致性，Prettier 不接管 TS 源码。
+src/**/*.ts
+test/**/*.ts

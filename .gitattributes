@@ -1,0 +1,2 @@
+# 锁住文本文件 LF，避免 Windows 上 core.autocrlf 把仓库写爆 CRLF
+* text=auto eol=lf

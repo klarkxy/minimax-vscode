@@ -24,6 +24,8 @@ jobs:
 
       - run: npm ci
 
+      - run: npm run format:diff
+
       - run: npm run compile
 
       - run: node .github/scripts/prepare-marketplace-readme.mjs
