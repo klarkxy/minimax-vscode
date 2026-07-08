@@ -449,6 +449,30 @@ test('computeVisibleTabs: claude tab is hidden when claudeCode state is disabled
 	assert.ok(!tabs.some((t) => t.id === 'claude'));
 });
 
+test('computeVisibleTabs: claude tab is hidden when no Claude Code logs are detected', () => {
+	const v: DashboardView = {
+		sources: { copilot: 'ok', claudeCode: 'empty', plan: 'ok' },
+		total: emptySource(),
+		copilot: emptySource(),
+		claudeCode: {
+			status: {
+				state: 'empty',
+				logPath: '~/.claude/projects',
+				filesTracked: 0,
+				parseErrors: 0,
+				skippedModels: 0,
+			},
+			today: emptyBreakdown(),
+			sevenDay: emptyBreakdown(),
+			thirtyDay: emptyBreakdown(),
+			dailySeries: [],
+			perModel: [],
+		},
+	};
+	const tabs = computeVisibleTabs(i18n(), v);
+	assert.ok(!tabs.some((t) => t.id === 'claude'));
+});
+
 test('renderTabsHtml: marks the active tab with aria-selected=true', () => {
 	const html = renderTabsHtml(
 		[{ id: 'total', label: '总' }, { id: 'copilot', label: 'Copilot' }],

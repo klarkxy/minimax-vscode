@@ -260,7 +260,7 @@ export function computeVisibleTabs(i18n: I18nBundle, view: DashboardView): Tab[]
 		{
 			id: 'claude',
 			label: i18n.tabsClaude,
-			visible: !!view.claudeCode && view.sources.claudeCode !== 'disabled',
+			visible: !!view.claudeCode && view.sources.claudeCode !== 'disabled' && view.sources.claudeCode !== 'empty',
 		},
 	];
 	return all.filter((t) => t.id === 'total' || t.visible);
