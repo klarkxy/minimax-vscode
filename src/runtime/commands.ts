@@ -491,14 +491,15 @@ async function copyMmxInstallPromptForCommand(): Promise<void> {
  * Stage 1 — pick a model. Lists every chat model the current VS Code
  * instance knows about (MiniMax, plus any other extension-registered
  * provider the user has installed). Sorts MiniMax first, then by
- * `vendor:id`. The current `chat.utilitySmallModel` value is marked.
+ * `vendor/id`. The current `chat.utilitySmallModel` value is marked.
  *
  * Stage 2 — pick which `chat.*` setting(s) to write the chosen model
- * into. Defaults to `chat.utilitySmallModel` (the ✨ button family);
- * `chat.utilityModel` is also offered (titles / summaries family).
+ * into. Both `chat.utilitySmallModel` (Agent helpers / ✨ button) and
+ * `chat.utilityModel` (titles / summaries) are selected by default so
+ * VS Code 1.128+ BYOK Agent mode has both utility families available.
  * Both go through the same `ILanguageModelsService` (see
  * https://github.com/microsoft/vscode/blob/main/src/vs/workbench/contrib/chat/browser/utilityModelContribution.ts)
- * so the `<vendor>:<id>` format is the right shape for both.
+ * so the `<vendor>/<id>` format is the right shape for both.
  *
  * The per-task `github.copilot.chat.*.model` overrides
  * (`askAgent.model`, `conversationCompaction.model`,
@@ -568,7 +569,7 @@ async function useForCopilotCommitMessages(): Promise<void> {
 			label: t('commit.targetUtility'),
 			description: 'chat.utilityModel',
 			detail: t('commit.targetUtilityDetail'),
-			picked: false,
+			picked: true,
 		},
 	];
 	// Multi-select: use `createQuickPick` rather than `showQuickPick`

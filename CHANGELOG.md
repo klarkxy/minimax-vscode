@@ -1,10 +1,17 @@
 # Changelog
 
+## 2.5.6 — 2026-07-10
+
+### Fixed — BYOK Agent utility-model setup
+
+- **The utility-model command now selects both utility slots by default.** VS Code 1.128 no longer assigns a Copilot utility model automatically when the main Agent model is BYOK. Leaving `chat.utilitySmallModel` unset could therefore stop Agent mode before the request reached MiniMax with `No utility model is configured for 'copilot-utility-small'`. **MiniMax: Set Copilot's Utility Models** now selects both `chat.utilitySmallModel` and `chat.utilityModel` by default.
+- **First-run guidance now includes the required BYOK Agent setup.** The walkthrough, setup guide, command table, and troubleshooting section explain when to run the utility-model command and document `chat.byokUtilityModelDefault: mainAgent` as an alternative. The extension does not silently change this global VS Code setting because it also affects other installed BYOK providers.
+
 ## 2.5.4 — 2026-07-01
 
 ### Fixed — M3 / M3-Priority picker pricing
 
-- **The price column for `MiniMax-M3` and `MiniMax-M3 (Priority)` no longer inflates when `minimax.enableM31MContext` is on.** Previously the 1M toggle also swapped the model's pricing row to the >512K tier (`m3Large` / `m3LargePriority`), making the picker show ¥4.2 / ¥16.8 / ¥0.84 (M3) and ¥6.3 / ¥25.2 / ¥1.26 (M3-Priority) for *every* token. The actual upstream rate is tiered per request: ≤512K input is billed at the base rate (¥2.1 / ¥3.15), and only the portion above 512K is billed at 1.5× (M3) or 3× (M3-Priority). The picker now shows the base rate, and `formatPricingTooltip` appends a `>512K` hint line when the cap is lifted so the per-token rate for the overflow portion is visible in the tooltip. Fixes the 2.5.3 release note which described the inflated rate as the correct behaviour.
+- **The price column for `MiniMax-M3` and `MiniMax-M3 (Priority)` no longer inflates when `minimax.enableM31MContext` is on.** Previously the 1M toggle also swapped the model's pricing row to the >512K tier (`m3Large` / `m3LargePriority`), making the picker show ¥4.2 / ¥16.8 / ¥0.84 (M3) and ¥6.3 / ¥25.2 / ¥1.26 (M3-Priority) for _every_ token. The actual upstream rate is tiered per request: ≤512K input is billed at the base rate (¥2.1 / ¥3.15), and only the portion above 512K is billed at 1.5× (M3) or 3× (M3-Priority). The picker now shows the base rate, and `formatPricingTooltip` appends a `>512K` hint line when the cap is lifted so the per-token rate for the overflow portion is visible in the tooltip. Fixes the 2.5.3 release note which described the inflated rate as the correct behaviour.
 - **`maxInputTokens` correctly tracks the 1M toggle (512K off, 1M on).** The "位置: N / M" indicator in the model picker is rendered from `maxInputTokens`. The toggle now lifts it to 1M only when enabled, and resets to 512K on disable — no reload required (the provider listens to `onDidChangeConfiguration` and fires the change emitter). New regression test `M3 maxInputTokens tracks the toggle exactly: 512K off, 1M on, never 2M` pins the contract.
 
 ### Fixed — Picker context-size column reads "input + output" (upstream quirk)
@@ -200,7 +207,7 @@ VS Code's `ILanguageModelsService` already routes `chat.utilitySmallModel` to ex
 - **Removed four commands (`Show Provider Status`, `Show Usage`, `Reset Usage`, `Show Pricing`)** that were redundant with the **Usage Dashboard** (`MiniMax: Open Usage Dashboard`). The pricing table is now inlined in the README (CNY and USD tables side-by-side) instead of rendered on demand via the `Show Pricing` command. The `status.*`, `usage.*`, and `pricing.*` i18n keys (except `status.thinking`, `usage.resetDone`, and `pricing.unlisted` which remain in use) are removed from `src/i18n.ts`. Renamed `package.nls.zh-cn.json` → `package.nls.zh.json`. VS Code's NLS lookup strips the rightmost locale segment until it finds a match, so `zh-Hans-CN` (the BCP 47 tag Windows 10/11 reports for Simplified Chinese) previously fell through `zh-hans-cn` → `zh-hans` → `zh` and ended up at the English fallback, leaving Chinese users staring at English titles in the command palette. The new name matches the `zh` segment on the second hop for every Chinese locale variant (`zh-cn`, `zh-hans-cn`, `zh-hans`, `zh`, …). Behaviour for non-Chinese locales is unchanged.
 - **Host classification is now spoof-proof end-to-end.** `isChinaBaseUrl()` (used by `pickPricingTable()` to pick the CNY vs USD price table and the Show Pricing flag) and the inline `baseUrl.includes('minimaxi.com')` check in `showPricing()` were both substring-matching the raw URL, the same spoofable pattern LRN-20260611-005 documented for the 401/402 action buttons. A user with `minimax.apiBaseUrl = 'https://api.minimax.io@my-proxy.example.com/v1'` would have been silently classified as international even though their real request goes to the proxy host. Both call sites now go through the hardened `resolvePlatformHost()` helper (which uses `new URL().hostname` strict equality). The 401/402 action buttons were also simplified to share the new `resolvePlatformUrl()` / `displayPlatformUrl()` helpers. No behaviour change for valid `api.minimaxi.com` / `api.minimax.io` URLs.
 - **`auth.prompt` and `pricing.note` no longer ship the wrong platform to the wrong user.** Both strings were locale-keyed (`zh-cn` → `platform.minimaxi.com`, `en` → `platform.minimax.io`), so a Chinese-locale user on the international endpoint got a `platform.minimaxi.com` link they couldn't log in to, and vice versa. Both now take the platform URL as a `{0}` placeholder; the caller resolves it from the configured `minimax.apiBaseUrl` via `displayPlatformUrl()`. Third-party-proxy users get the configured URL verbatim instead of a hard-coded platform link.
-- **Renamed `minimax.maxTokens` → `minimax.maxOutputTokens`** to disambiguate from `minimax.enableM31MContext` (which controls the *input* context window, not the output cap). The new key is read first; the old `minimax.maxTokens` is kept as a deprecated fallback so existing `settings.json` entries continue to work, and is marked `deprecationMessage` in the JSON schema. The old key will be removed in 3.0.
+- **Renamed `minimax.maxTokens` → `minimax.maxOutputTokens`** to disambiguate from `minimax.enableM31MContext` (which controls the _input_ context window, not the output cap). The new key is read first; the old `minimax.maxTokens` is kept as a deprecated fallback so existing `settings.json` entries continue to work, and is marked `deprecationMessage` in the JSON schema. The old key will be removed in 3.0.
 
 ## 2.2.0 — README restyling, config unification, Claude Code JSONL ingest
 
@@ -296,7 +303,7 @@ VS Code's `ILanguageModelsService` already routes `chat.utilitySmallModel` to ex
 - On uninstall the two new keys are inert and are eventually
   garbage-collected by VS Code.
 - **The `minimax.thinking.enabled` setting and the `MiniMax: Toggle
-  M3 Thinking Mode` command are gone.** The thinking on/off switch
+M3 Thinking Mode` command are gone.** The thinking on/off switch
   is now per-model in the Copilot Chat picker dropdown (sent
   verbatim as `thinking: { type: "disabled" | "adaptive" }` to the
   Anthropic-compatible surface). Users upgrading from 2.1.9 with
@@ -512,7 +519,7 @@ machine that didn't have a literal `npm.exe` on PATH.
 - Unit tests: **82/82 pass** (2 new tests for `resolveNpmBin` /
   `resolveNpmEnv`)
 - Real spawn smoke test on Windows: `cmd.exe /c
-  C:\Program Files\nodejs\npm.cmd --version` → `11.6.2` ✅
+C:\Program Files\nodejs\npm.cmd --version` → `11.6.2` ✅
 
 ## 2.1.3 — mmx-cli integration
 
@@ -532,8 +539,8 @@ vision, and web search using the same Token Plan API key.
   2. `mmx auth login --api-key <key>` (reuses the SecretStorage
      key — the user is prompted to set it if missing)
   3. `npx skills add MiniMax-AI/cli -y -g`
-  A green "agent ready" hint appears once all three are done,
-  telling the user the agent can now call mmx from a prompt.
+     A green "agent ready" hint appears once all three are done,
+     telling the user the agent can now call mmx from a prompt.
 - **`MiniMax: Install mmx-cli` command.** Walks the same three
   steps in order with a progress notification, then opens the
   dashboard. The SKILL step falls back to copying the bundled
@@ -558,7 +565,7 @@ proper layout, and unblock CI.
   `$(graph) MiniMax 1.2k` slot is gone; today's token totals live
   in the dashboard (**MiniMax: Open Usage Dashboard**) and the
   **MiniMax: Show Usage** command.
-- **Status bar now shows the *used* percent.** The 5h and Week
+- **Status bar now shows the _used_ percent.** The 5h and Week
   items read `5h 54%` / `Week 88%` to mean "I've used 54% / 88% of
   the quota". The colour thresholds (≥85% red, 60-85% yellow,
   <60% green) match the dashboard's progress bar, and the tooltip
@@ -681,10 +688,10 @@ redraws the token breakdown as a donut chart with percentages.
   5. Dashboard open / Refresh / view-state-visible (the existing
      path, now also routed through the shared cache so the status
      bar sees the same response).
-  No `setInterval` is installed. The extension does no background
-  network work when idle. The dashboard's `DashboardPanel.refresh()`
-  now calls `planCache.refresh()` instead of `fetchPlanUsage`
-  directly, so the two consumers always render the same snapshot.
+     No `setInterval` is installed. The extension does no background
+     network work when idle. The dashboard's `DashboardPanel.refresh()`
+     now calls `planCache.refresh()` instead of `fetchPlanUsage`
+     directly, so the two consumers always render the same snapshot.
 
 ### Fixes
 
@@ -700,7 +707,7 @@ redraws the token breakdown as a donut chart with percentages.
   stack vertically for readability.
 - **Token Plan panel no longer shows meaningless "0 / 0" pairs.**
   Some platform quota models (notably `general`) return a
-  `current_interval_remaining_percent` *without* a matching
+  `current_interval_remaining_percent` _without_ a matching
   `current_interval_total_count`, so the dashboard used to render
   `0 / 0` for the used/total numbers even when the progress bar
   clearly showed a real percentage. Following the
@@ -715,14 +722,14 @@ redraws the token breakdown as a donut chart with percentages.
   - Renders an em-dash (`—`) in the per-model table's
     used/total cells when the model has no reported total, so
     the table stays tabular-aligned.
-  The platform gives no way to derive a real used count when the
-  total is missing (`current_interval_usage_count` is unreliable
-  on quota models, see the long comment in
-  [minimax-status/.../api.js](https://github.com/JochenYang/minimax-status)).
-  Hiding the missing numbers is the right call.
+    The platform gives no way to derive a real used count when the
+    total is missing (`current_interval_usage_count` is unreliable
+    on quota models, see the long comment in
+    [minimax-status/.../api.js](https://github.com/JochenYang/minimax-status)).
+    Hiding the missing numbers is the right call.
 - **Token counters no longer double-count Anthropic cache fields.**
   The Anthropic Messages API reports `input_tokens` as the
-  *incremental, non-cached* input and reports
+  _incremental, non-cached_ input and reports
   `cache_creation_input_tokens` / `cache_read_input_tokens` on top
   of that. The old `totalTokens()` summed all four, so every
   cache-creation turn added the entire prompt prefix a second
@@ -731,10 +738,10 @@ redraws the token breakdown as a donut chart with percentages.
   underlying bill was much smaller. `totalTokens()` now returns
   `input + output` only. A new `totalBilledTokens()` helper
   returns the all-in number (`input + cacheWrite + cacheRead +
-  output`) for callers that need to multiply by the per-model
+output`) for callers that need to multiply by the per-model
   price table. The dashboard donut centre shows the net total;
   the legend still breaks out the cache slices, so you can see
-  *how much* of the day's traffic hit cache.
+  _how much_ of the day's traffic hit cache.
 - **Daily-token status bar item removed.** The previous
   `$(graph) MiniMax 43.66M` slot was deleted for two reasons:
   (a) the number was a side effect of the cache double-count bug
@@ -825,7 +832,7 @@ most are behind-the-scenes hardening.
   `reportCopilotContextUsage` previously sent only
   `usage.input_tokens` as `prompt_tokens`, which understated the
   full computational cost on cache-creation turns (Anthropic
-  charges for the full input prefix when *writing* the cache
+  charges for the full input prefix when _writing_ the cache
   entry). The data part now aggregates
   `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`,
   matches the oai-compatible-copilot upstream, and skips the part
@@ -900,16 +907,16 @@ users via `minimax.modelIdOverrides` and `minimax.visibleModels`.
 
 ### New / changed configuration
 
-| Setting | Change | Default |
-| --- | --- | --- |
-| `minimax.apiBaseUrl` | Anthropic URL | `https://api.minimaxi.com/anthropic` |
-| `minimax.maxTokens` | hard cap respected | `0` |
-| `minimax.commitModel` | new setting | `MiniMax-M2.7` |
-| New command `MiniMax: Show Pricing` | — | — |
-| New command `MiniMax: Generate Commit Message` | — | — |
+| Setting                                        | Change             | Default                              |
+| ---------------------------------------------- | ------------------ | ------------------------------------ |
+| `minimax.apiBaseUrl`                           | Anthropic URL      | `https://api.minimaxi.com/anthropic` |
+| `minimax.maxTokens`                            | hard cap respected | `0`                                  |
+| `minimax.commitModel`                          | new setting        | `MiniMax-M2.7`                       |
+| New command `MiniMax: Show Pricing`            | —                  | —                                    |
+| New command `MiniMax: Generate Commit Message` | —                  | —                                    |
 
 The `switchToGlobal` and `switchToChina` commands now point to the
-  Anthropic endpoint.
+Anthropic endpoint.
 
 - New command **MiniMax: Generate Commit Message** is also wired into
   the `scm/inputBox/title` menu so it sits next to the Copilot sparkle

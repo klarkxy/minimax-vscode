@@ -2,6 +2,13 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.5.6 — 2026-07-10
+
+### 修复 — BYOK Agent utility model 配置
+
+- **设置 Copilot 工具模型命令现在默认同时勾选两个 utility 槽。** VS Code 1.128 不再为 BYOK Agent 主模型自动分配 Copilot utility model；`chat.utilitySmallModel` 未配置时，Agent 模式会在请求到达 MiniMax 之前报 `No utility model is configured for 'copilot-utility-small'`。现在运行 **MiniMax: 设置 Copilot 工具模型** 会默认同时选择 `chat.utilitySmallModel` 和 `chat.utilityModel`。
+- **首次引导补充 BYOK Agent 的必要配置。** Walkthrough、安装步骤、命令表和故障排查均说明何时运行 utility model 命令，并提供 `chat.byokUtilityModelDefault: mainAgent` 作为替代方案。扩展不会静默修改这个 VS Code 全局设置，因为它也会影响用户安装的其他 BYOK provider。
+
 ## 2.5.4 — 2026-07-01
 
 ### 修复 — M3 / M3-Priority picker 定价
@@ -216,9 +223,9 @@ VS Code 的 `ILanguageModelsService` 已经会把 `chat.utilitySmallModel` 路�
   探测结果。面板打开的第一帧直接渲染缓存状态，后台异步重探——
   重启后不再看到"未知 → 变绿"的闪烁。
 - **面板不再被平台请求阻塞。** `refresh()` 现在先同步画出本地计数
-  + 缓存的平台 quota 快照，再后台触发 `planCache.refresh()`，新数据
-  到达后再次重绘。新增 `plan: 'loading'` 源状态，in-flight 期间用
-  "正在加载 Token Plan 数据..." 横幅占位。
+  - 缓存的平台 quota 快照，再后台触发 `planCache.refresh()`，新数据
+    到达后再次重绘。新增 `plan: 'loading'` 源状态，in-flight 期间用
+    "正在加载 Token Plan 数据..." 横幅占位。
 - **mmx auth 默认不再 shell out。** 快路径直接读 `~/.mmx/config.json`
   （0 subprocess、0 网络），既快又准：mmx ≥ 1.0 把 key 显示成
   `sk-c…4fB4`（中间是真 `…`），并且 `mmx auth status` 每次还会顺带
@@ -314,7 +321,7 @@ Windows 上 `execFile` **不**走 `PATHEXT` 解析，文件名叫 `npm` 就
   Volta），结果带缓存。
 - `run()` 内部对任何 `.cmd` / `.bat` 目标自动包一层 `cmd.exe /c …`，
   绕开 Node 18+ 的 `EINVAL` 拦截。传给 `mmx auth login
-  --api-key <key>` 的 API Key 仍然走 Node 的 argv 转义路径，**不**
+--api-key <key>` 的 API Key 仍然走 Node 的 argv 转义路径，**不**
   经过 shell，"不在进程列表里露 Key" 的原有保证不变。
 - **MiniMax: 安装 mmx-cli** 失败时如果错误信息是 npm 缺失，多弹
   一个 **重新加载窗口** 按钮——那些"装完 Node 之后才开 VS Code"
@@ -326,7 +333,7 @@ Windows 上 `execFile` **不**走 `PATHEXT` 解析，文件名叫 `npm` 就
 - 单元测试：**82/82 pass**（新增 2 个针对 `resolveNpmBin` /
   `resolveNpmEnv` 的测试）
 - Windows 实测：`cmd.exe /c C:\Program Files\nodejs\npm.cmd
-  --version` → `11.6.2` ✅
+--version` → `11.6.2` ✅
 
 ## 2.1.3 — 集成 mmx-cli
 
@@ -345,8 +352,8 @@ Token Plan API Key 调用图像、视频、音乐、语音、视觉理解与网�
   2. `mmx auth login --api-key <key>`（复用 SecretStorage 里
      已存的 Key；若没有则提示用户去设置）
   3. `npx skills add MiniMax-AI/cli -y -g`
-  三步全部完成后会显示绿色"Agent 就绪"提示，告诉用户 Agent
-  现在可以在提示词里直接调用 mmx。
+     三步全部完成后会显示绿色"Agent 就绪"提示，告诉用户 Agent
+     现在可以在提示词里直接调用 mmx。
 - **新增命令 `MiniMax: 安装 mmx-cli`。** 按顺序引导完成以上三步，
   并在最后打开 Dashboard。SKILL 步骤在 `npx` 不可用或拉取失败
   时会回退到把内置 `SKILL.md`（在 `skills/minimax-cli/` 下）
@@ -383,7 +390,7 @@ Token Plan API Key 调用图像、视频、音乐、语音、视觉理解与网�
   语法拒绝，整条 workflow 一直 validate 失败。改成只用 `vars.*`
   判定，secret 是否存在移到 step 内部的 bash 守卫里。
 - **从 `release.yml` 里移除了市场推送步骤。** 之前 `Publish to
-  VS Code Marketplace` 和 `Publish to Open VSX` 两个 step 是用
+VS Code Marketplace` 和 `Publish to Open VSX` 两个 step 是用
   `vars.PUBLISH_*` 开关守着的，但开关从来没被设过，是死代码。
   整体删除。等以后要推市场时，改用 `rescue.yml` 手动跑；它的
   三个推送开关现在默认全部 `false`，避免“token 为空还去推”的
@@ -429,13 +436,13 @@ CNY 之间切换，用量面板的「local」卡片也重画成了带百分比�
 - **状态栏额度项（`5h 73%` / `Week 11%`）。** 在现有
   `$(graph) MiniMax 1.2k` 计数器的右边新增两个 `StatusBarItem`，
   一眼看到平台的 5h / 周额度：
-    时显示 `∞`）。
+  时显示 `∞`）。
   - 颜色走内置的 `statusBarItem.remoteBackground` /
     `warningBackground` / `errorBackground` 三个主题 token
     （剩得多则绿、少则红），亮色 / 暗色主题都跟得上。
   - hover 显示 `X / Y · 重置 Hh Mm` 简报，跟 Dashboard 的卡片一致
-  （平台未报 total 时不显示 `X / Y`，跟下面那条修复同源）。点击
-  直接打开 Dashboard。
+    （平台未报 total 时不显示 `X / Y`，跟下面那条修复同源）。点击
+    直接打开 Dashboard。
   - 未配 API Key 时两项都是灰色破折号，hover 提示运行
     **MiniMax: Set API Key**。
 - **Dashboard 与状态栏共享 `PlanCache`。** `src/dashboard/aggregator.ts`
@@ -462,9 +469,9 @@ CNY 之间切换，用量面板的「local」卡片也重画成了带百分比�
      一次平台拉取。
   5. Dashboard 打开 / Refresh / 切到可见（原有路径，**也**改成走共享
      cache，Dashboard 与状态栏一定渲染同一份快照）。
-  完全不装 `setInterval`，空闲时零后台网络流量。
-  `DashboardPanel.refresh()` 也从直接调 `fetchPlanUsage` 改成走
-  `planCache.refresh()`，两个消费者看到的快照永远一致。
+     完全不装 `setInterval`，空闲时零后台网络流量。
+     `DashboardPanel.refresh()` 也从直接调 `fetchPlanUsage` 改成走
+     `planCache.refresh()`，两个消费者看到的快照永远一致。
 
 ### 修复
 
@@ -488,10 +495,10 @@ CNY 之间切换，用量面板的「local」卡片也重画成了带百分比�
     "title · reset-time" 布局一致。
   - 按模型拆分的明细表：当某个模型没有 total 时，把 used / 合计两列
     渲染成破折号 `—`，让表格的对齐保持稳定。
-  平台在 total 缺失时确实没办法算出真实的"已用"次数——
-  `current_interval_usage_count` 字段在配额模型上不可信（详见
-  [minimax-status/.../api.js](https://github.com/JochenYang/minimax-status)
-  的注释），与其硬塞一个 `0 / 0`，不如直接隐掉。
+    平台在 total 缺失时确实没办法算出真实的"已用"次数——
+    `current_interval_usage_count` 字段在配额模型上不可信（详见
+    [minimax-status/.../api.js](https://github.com/JochenYang/minimax-status)
+    的注释），与其硬塞一个 `0 / 0`，不如直接隐掉。
 - **token 计数器不再重复统计 Anthropic cache 字段。** Anthropic
   Messages API 的 `input_tokens` 是**增量、未缓存**的那部分输入，
   `cache_creation_input_tokens` / `cache_read_input_tokens` 是
@@ -510,6 +517,7 @@ CNY 之间切换，用量面板的「local」卡片也重画成了带百分比�
 - **额度状态栏颜色改为纯文字色。** `$(bolt) 5h …` 和
   `$(calendar) Week …` 这两个项现在只换文字色（绿/黄/红），不再染
   底色，跟状态栏整体融为一体。
+
 ## 2.0.0 — 改名为 MiniMax Copilot + 移除思考强度选择器
 
 这一版把市场化的改名和一轮行为修复打包发布。其中一部分对用户可见（UI 元素没了、Copilot 状态栏的上下文统计数字变正确了）；大部分是底层加固。
@@ -599,13 +607,13 @@ M2.5 / M2.1 / M2 这些历史模型 MiniMax 已不再推荐，本版本也不再
 
 ### 新增 / 变更的配置
 
-| 配置项 | 变更 | 默认值 |
-| --- | --- | --- |
-| `minimax.apiBaseUrl` | 改为 Anthropic 端点 | `https://api.minimaxi.com/anthropic` |
-| `minimax.maxTokens` | 硬上限生效 | `0` |
-| `minimax.commitModel` | 新增 | `MiniMax-M2.7` |
-| 新增命令 `MiniMax: Show Pricing` | — | — |
-| 新增命令 `MiniMax: Generate Commit Message` | — | — |
+| 配置项                                      | 变更                | 默认值                               |
+| ------------------------------------------- | ------------------- | ------------------------------------ |
+| `minimax.apiBaseUrl`                        | 改为 Anthropic 端点 | `https://api.minimaxi.com/anthropic` |
+| `minimax.maxTokens`                         | 硬上限生效          | `0`                                  |
+| `minimax.commitModel`                       | 新增                | `MiniMax-M2.7`                       |
+| 新增命令 `MiniMax: Show Pricing`            | —                   | —                                    |
+| 新增命令 `MiniMax: Generate Commit Message` | —                   | —                                    |
 
 `switchToGlobal` / `switchToChina` 命令现在也直接指向 Anthropic 兼容端点。
 
