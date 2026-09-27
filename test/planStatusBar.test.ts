@@ -197,3 +197,56 @@ test('renderQuota: 5h with no key shows theme default colour and "—" placehold
 	assert.equal(out.color, undefined);
 	assert.match(out.text, /—/);
 });
+
+// ---- renderQuota: low usage (headroom) must use the theme-default colour ----
+
+test('renderQuota: low-headroom 5h does NOT tint with the remote theme colour', () => {
+	// Regression: previously the "plenty of headroom" bucket (used < 60%)
+	// returned `statusBarItem.remoteForeground` — a blue token VS Code
+	// reserves for remote-SSH indicators. That made the `$(bolt) 5h 3%`
+	// and `$(calendar) Week 1%` items stand out from the rest of the
+	// status bar with a colour that had nothing to do with quota health.
+	// They should now use the theme-default foreground (undefined) so
+	// they blend with neighbouring entries, the same way the dashboard's
+	// progress bar leaves the 'good' bucket unclassed.
+	const state = {
+		key: 'set' as const,
+		usage: makeUsage({ currentPercentage: 3, currentTotal: 100, currentUsed: 3 }),
+	};
+	const out = renderQuota(state, 'current', t('statusBar.plan.fiveHour'), undefined, '');
+	assert.equal(out.color, undefined, 'low-headroom 5h must use theme-default foreground');
+	assert.match(out.text, /3%/);
+});
+
+test('renderQuota: low-headroom weekly does NOT tint with the remote theme colour', () => {
+	const state = {
+		key: 'set' as const,
+		usage: makeUsage({ weeklyPercentage: 1, weeklyTotal: 100, weeklyUsed: 1, weeklyUnlimited: false }),
+	};
+	const out = renderQuota(state, 'weekly', t('statusBar.plan.weekly'), undefined, '');
+	assert.equal(out.color, undefined, 'low-headroom weekly must use theme-default foreground');
+	assert.match(out.text, /1%/);
+});
+
+test('renderQuota: warning and error buckets still colour-code', () => {
+	// Negative case for the regression above: medium (warn) and high (error)
+	// usage must still flow through the colour scale — only the low-headroom
+	// bucket loses the remote tint.
+	const warn = renderQuota(
+		{ key: 'set' as const, usage: makeUsage({ currentPercentage: 73, currentTotal: 100, currentUsed: 73 }) },
+		'current',
+		t('statusBar.plan.fiveHour'),
+		undefined,
+		'',
+	);
+	assert.equal((warn.color as { id: string } | undefined)?.id, 'statusBarItem.warningForeground');
+
+	const err = renderQuota(
+		{ key: 'set' as const, usage: makeUsage({ currentPercentage: 90, currentTotal: 100, currentUsed: 90 }) },
+		'current',
+		t('statusBar.plan.fiveHour'),
+		undefined,
+		'',
+	);
+	assert.equal((err.color as { id: string } | undefined)?.id, 'statusBarItem.errorForeground');
+});
