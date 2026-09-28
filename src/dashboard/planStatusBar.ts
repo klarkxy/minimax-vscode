@@ -79,7 +79,11 @@ function usedColor(usedPct: number | null | undefined): vscode.ThemeColor | unde
 	if (usedPct == null) return undefined;
 	if (usedPct >= 85) return new vscode.ThemeColor('statusBarItem.errorForeground');
 	if (usedPct >= 60) return new vscode.ThemeColor('statusBarItem.warningForeground');
-	return new vscode.ThemeColor('statusBarItem.remoteForeground');
+	// Low usage: stay on the theme-default foreground so the item blends
+	// with the other status-bar entries. `statusBarItem.remoteForeground`
+	// is the blue token VS Code reserves for remote-SSH indicators — it has
+	// nothing to do with quota health and makes the items look out of place.
+	return undefined;
 }
 
 /** Get the platform's reported USED percent (0-100) for a quota. */
@@ -170,6 +174,12 @@ export function renderQuota(
 	const plan = state.usage;
 	const usedPct = usedPctOf(plan, key);
 	if (usedPct == null) {
+		// Weekly-unlimited branch. The platform returns no usage percent here,
+		// so `usedColor` can't colour-code it. We tint with
+		// `statusBarItem.remoteForeground` (a calm, neutral foreground that
+		// is *visually distinct from the no-key placeholder*) so the user
+		// can tell at a glance that "∞" is a real "no weekly cap" reading
+		// rather than a missing/loading state.
 		return {
 			text: `${label} ${emptyText(plan, key)}`,
 			tooltip: t('statusBar.plan.weeklyUnlimited'),
