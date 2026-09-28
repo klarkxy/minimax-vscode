@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.6.0 — 2026-09-28
+
+### Added — M3.1 Flash (Preview)
+
+- **New picker entry: `MiniMax M3.1 Flash (Preview)`.** The post-trained M3 variant (`MiniMax-M3.1-Flash-Preview`) joins `MiniMax-M3`, `MiniMax-M3-Priority`, `MiniMax-M2.7` and `MiniMax-M2.7-highspeed` in the Copilot Chat model picker, enabled by default in `minimax.visibleModels`. It inherits M3's full configuration: native image + video input, the `adaptive` / `disabled` thinking dropdown, the same 512K safe default context, and the same `m3` pricing row ($0.30 / $1.20 / $0.06 per million tokens for international users; ¥2.10 / ¥8.40 / ¥0.42 for the China platform).
+- **The 1M-context toggle now lifts the whole M3 family.** `minimax.enableM31MContext` and the `minimax.toggleM31MContext` command extend to `MiniMax-M3.1-Flash-Preview` alongside M3 and M3-Priority, so all three entries stay in sync (512K off → 1M on) and the modal warning copy lists every affected entry. The >512K portion bills at 1.5× the standard rate for M3 / M3.1-Flash-Preview and 3× for M3-Priority.
+- **Claude Code ingestion recognises the new model.** `minimax.claudeCode.allowedModels` defaults now include `MiniMax-M3.1-Flash-Preview`, so Claude Code traffic routed to it is counted in the dashboard instead of being dropped by the MiniMax model allowlist.
+
 ## 2.5.6 — 2026-07-10
 
 ### Fixed — BYOK Agent utility-model setup

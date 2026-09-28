@@ -2,6 +2,14 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.6.0 — 2026-09-28
+
+### 新增 — M3.1 Flash（预览版）
+
+- **新增 picker 条目：`MiniMax M3.1 Flash（Preview）`。** 后训练版 M3（`MiniMax-M3.1-Flash-Preview`）加入 Copilot Chat 模型选择器，与 `MiniMax-M3`、`MiniMax-M3-Priority`、`MiniMax-M2.7`、`MiniMax-M2.7-highspeed` 并列，默认出现在 `minimax.visibleModels` 里。它完整继承 M3 的配置：原生图片 + 视频输入、`adaptive` / `disabled` 思考开关下拉、同样默认 512K 的上下文窗口，以及同一行 `m3` 定价（国际站 $0.30 / $1.20 / $0.06 每百万 token，中国站 ¥2.10 / ¥8.40 / ¥0.42）。
+- **1M 上下文开关现在覆盖整个 M3 家族。** `minimax.enableM31MContext` 与 `minimax.toggleM31MContext` 命令把 `MiniMax-M3.1-Flash-Preview` 一起纳入，与 M3、M3-Priority 同步（关闭 512K / 开启 1M），模态警告文案也列全了受影响的条目。超过 512K 的部分按标准费率 1.5× 计费（M3 / M3.1-Flash-Preview），M3-Priority 为 3×。
+- **Claude Code 接入识别新模型。** `minimax.claudeCode.allowedModels` 默认值新增 `MiniMax-M3.1-Flash-Preview`，Claude Code 走到该模型的流量会计入用量面板，而不会被 MiniMax 模型白名单丢弃。
+
 ## 2.5.6 — 2026-07-10
 
 ### 修复 — BYOK Agent utility model 配置

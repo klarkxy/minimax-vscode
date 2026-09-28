@@ -12,7 +12,7 @@
 
 ## 功能
 
-- **M3 / M2.7 / M2.7-highspeed 进 Copilot Chat 模型选择器**，tooltip 里直接给价。M3 原生支持图片和视频；M2.7 系列在 Anthropic 兼容 API 上只支持文本和工具调用块。
+- **M3.1-Flash-Preview / M3 / M2.7 / M2.7-highspeed 进 Copilot Chat 模型选择器**，tooltip 里直接给价。M3 原生支持图片和视频；M2.7 系列在 Anthropic 兼容 API 上只支持文本和工具调用块。
 - **M3 原生视频输入** — 直接发 `type: "video"` part，硬限 64 MB 请求体上限。
 - **思考模式开关** — Anthropic 兼容端点只暴露二值 `disabled` / `adaptive` 开关，挂在 M3 picker 下拉菜单里。
 - **让 Copilot utility 流程使用 MiniMax** — Agent 辅助流程、标题、摘要和 Source Control ✨ 提交信息都可路由到 MiniMax。
@@ -50,11 +50,12 @@
 
 ## 模型
 
-| Model                      | 上下文（官方 / 生效） | 原生媒体输入   | 备注                                                                                           |
-| -------------------------- | --------------------: | -------------- | ---------------------------------------------------------------------------------------------- |
-| **MiniMax M3**             |   1,000,000 / 512,000 | ✅ 图片 + 视频 | 顶级编码；原生视频输入（MP4 / AVI / MOV / MKV）。生效值 512K 是因为 >512K 输入层还在限量发布。 |
-| **MiniMax M2.7**           |               204,800 | —              | 自迭代，~60 TPS；只支持文本和工具调用内容块。                                                  |
-| **MiniMax M2.7-highspeed** |               204,800 | —              | 同质量，~100 TPS；只支持文本和工具调用内容块。                                                 |
+| Model                             | 上下文（官方 / 生效） | 原生媒体输入   | 备注                                                                                           |
+| --------------------------------- | --------------------: | -------------- | ---------------------------------------------------------------------------------------------- |
+| **MiniMax M3.1 Flash (Preview)**  |   1,000,000 / 512,000 | ✅ 图片 + 视频 | M3 后训练版；能力、定价、512K 默认值与 1M 开关都与 M3 一致。                                  |
+| **MiniMax M3**                    |   1,000,000 / 512,000 | ✅ 图片 + 视频 | 顶级编码；原生视频输入（MP4 / AVI / MOV / MKV）。生效值 512K 是因为 >512K 输入层还在限量发布。 |
+| **MiniMax M2.7**                  |               204,800 | —              | 自迭代，~60 TPS；只支持文本和工具调用内容块。                                                  |
+| **MiniMax M2.7-highspeed**        |               204,800 | —              | 同质量，~100 TPS；只支持文本和工具调用内容块。                                                 |
 
 拿到 >512K 权限的用户可以跑 **MiniMax: 切换 M3 1M 上下文** 把 cap 抬到 1M（开之前会弹模态警告说明 1.5× 计费）。完整规格见 [Supported models 页](https://platform.minimaxi.com/docs/guides/text-generation)。
 
@@ -68,6 +69,7 @@
 
 | Model                             |  输入 |   输出 | 缓存读取 | 缓存写入 |
 | --------------------------------- | ----: | -----: | -------: | -------: |
+| **MiniMax M3.1 Flash (Preview)**  | ¥2.10 |  ¥8.40 |    ¥0.42 |        — |
 | **MiniMax M3 (≤512K 输入)**       | ¥2.10 |  ¥8.40 |    ¥0.42 |        — |
 | **MiniMax M3 (>512K 输入，限量)** | ¥4.20 | ¥16.80 |    ¥0.84 |        — |
 | **MiniMax M2.7**                  | ¥2.10 |  ¥8.40 |    ¥0.42 |   ¥2.625 |
@@ -92,8 +94,8 @@
 | `minimax.apiBaseUrl`                     | _auto-picked_                                           | Anthropic 兼容基础 URL。激活时若未设置会自动按语言选，默认 `https://api.minimaxi.com/anthropic`。                                                    |
 | `minimax.visibleModels`                  | _所有 M 档_                                             | 限制 picker 里出现的模型。                                                                                                                           |
 | `minimax.maxOutputTokens`                | `0`                                                     | 输出上限。`0` 让模型自己决定。上下文窗口看 `minimax.enableM31MContext`。                                                                             |
-| `minimax.enableM31MContext`              | `false`                                                 | 把 M3 / M3-Priority 从 512K 抬到 1M 上下文。默认关闭；切换命令会先弹计费警告。                                                                       |
-| `minimax.sampling`                       | `{}`                                                    | 按模型覆盖 `temperature` / `topP` / `topK` / `frequencyPenalty`。键：`MiniMax-M3`、`MiniMax-M3-Priority`、`MiniMax-M2.7`、`MiniMax-M2.7-highspeed`。 |
+| `minimax.enableM31MContext`              | `false`                                                 | 把 M3 / M3-Priority / M3.1-Flash-Preview 从 512K 抬到 1M 上下文。默认关闭；切换命令会先弹计费警告。                                    |
+| `minimax.sampling`                       | `{}`                                                    | 按模型覆盖 `temperature` / `topP` / `topK` / `frequencyPenalty`。键：`MiniMax-M3.1-Flash-Preview`、`MiniMax-M3`、`MiniMax-M3-Priority`、`MiniMax-M2.7`、`MiniMax-M2.7-highspeed`。 |
 | `minimax.experimental.modelDefPresets`   | `{}`                                                    | 按模型逃生口，往请求体里塞自定义字段。                                                                                                               |
 | `minimax.debugMode`                      | `minimal`                                               | `minimal` / `metadata` / `verbose`。                                                                                                                 |
 | `minimax.modelIdOverrides`               | `{}`                                                    | picker id → API id 映射（代理场景用）。                                                                                                              |

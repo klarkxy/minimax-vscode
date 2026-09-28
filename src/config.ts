@@ -223,6 +223,7 @@ export function getClaudeCodePollIntervalMs(): number {
  * this allowlist before recording anything.
  */
 export const DEFAULT_CLAUDE_CODE_ALLOWED_MODELS: readonly string[] = [
+	'MiniMax-M3.1-Flash-Preview',
 	'MiniMax-M3',
 	'MiniMax-M3-Priority',
 	'MiniMax-M2.7',

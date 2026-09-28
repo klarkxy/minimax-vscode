@@ -23,7 +23,7 @@
 
 ## Features
 
-- **M3 / M2.7 / M2.7-highspeed in the Copilot Chat model picker** with pricing in the tooltip. M3 accepts native image and video input; M2.7 models are text / tool-call only on the Anthropic-compatible API.
+- **M3.1-Flash-Preview / M3 / M2.7 / M2.7-highspeed in the Copilot Chat model picker** with pricing in the tooltip. M3 accepts native image and video input; M2.7 models are text / tool-call only on the Anthropic-compatible API.
 - **Native video input on M3** — `type: "video"` parts inline, with a hard 64 MB request body cap.
 - **Thinking mode toggle** — binary `disabled` / `adaptive` switch in the M3 picker dropdown.
 - **Use MiniMax for Copilot utility flows** — configure Agent helpers, titles, summaries, and the Source Control ✨ commit button through MiniMax.
@@ -62,11 +62,12 @@ On first activation, if `minimax.apiBaseUrl` is still at its default, the extens
 
 ## Models
 
-| Model                      | Context (spec / effective) | Native media input | Notes                                                                                                                        |
-| -------------------------- | -------------------------: | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| **MiniMax M3**             |        1,000,000 / 512,000 | ✅ image + video   | Top-tier coding; native video input (MP4 / AVI / MOV / MKV). Effective cap is 512K until the >512K tier is fully rolled out. |
-| **MiniMax M2.7**           |                    204,800 | —                  | Self-iterating, ~60 TPS; text and tool-call content blocks only.                                                             |
-| **MiniMax M2.7-highspeed** |                    204,800 | —                  | Same quality, ~100 TPS; text and tool-call content blocks only.                                                              |
+| Model                             | Context (spec / effective) | Native media input | Notes                                                                                                                                   |
+| --------------------------------- | -------------------------: | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **MiniMax M3.1 Flash (Preview)**  |        1,000,000 / 512,000 | ✅ image + video   | Post-trained M3 variant; shares M3's capabilities, pricing and the 512K safe default / 1M toggle.                                       |
+| **MiniMax M3**                    |        1,000,000 / 512,000 | ✅ image + video   | Top-tier coding; native video input (MP4 / AVI / MOV / MKV). Effective cap is 512K until the >512K tier is fully rolled out.            |
+| **MiniMax M2.7**                  |                    204,800 | —                  | Self-iterating, ~60 TPS; text and tool-call content blocks only.                                                                        |
+| **MiniMax M2.7-highspeed**        |                    204,800 | —                  | Same quality, ~100 TPS; text and tool-call content blocks only.                                                                         |
 
 Users with >512K access can run **MiniMax: Toggle M3 1M Context** to lift the cap (the command pops a modal warning about 1.5× billing before flipping the switch). The full spec is on the [Supported models page](https://platform.minimax.io/docs/guides/text-generation).
 
@@ -80,6 +81,7 @@ Prices are in **USD** (billed in USD for international users). The picker toolti
 
 | Model                                 | Input | Output | Cache read | Cache write |
 | ------------------------------------- | ----: | -----: | ---------: | ----------: |
+| **MiniMax M3.1 Flash (Preview)**      | $0.30 |  $1.20 |      $0.06 |           — |
 | **MiniMax M3 (≤512K input)**          | $0.30 |  $1.20 |      $0.06 |           — |
 | **MiniMax M3 (>512K input, limited)** | $0.60 |  $2.40 |      $0.12 |           — |
 | **MiniMax M2.7**                      | $0.30 |  $1.20 |      $0.06 |      $0.375 |
@@ -102,10 +104,10 @@ A Subscription Key covers language models plus speech / video / music / image en
 | Setting                                  | Default                                                 | Purpose                                                                                                                                                                                |
 | ---------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `minimax.apiBaseUrl`                     | _auto-picked_                                           | Anthropic-compatible base URL. Auto-picked on first activation; defaults to `https://api.minimax.io/anthropic`.                                                                        |
-| `minimax.visibleModels`                  | _all M-series_                                          | Restrict which models appear in the picker. Defaults to `MiniMax-M3 / MiniMax-M3-Priority / MiniMax-M2.7 / MiniMax-M2.7-highspeed`.                                                    |
+| `minimax.visibleModels`                  | _all M-series_                                          | Restrict which models appear in the picker. Defaults to `MiniMax-M3.1-Flash-Preview / MiniMax-M3 / MiniMax-M3-Priority / MiniMax-M2.7 / MiniMax-M2.7-highspeed`.                       |
 | `minimax.maxOutputTokens`                | `0`                                                     | Output cap. `0` lets the model decide. See `minimax.enableM31MContext` for the input/context window.                                                                                   |
 | `minimax.enableM31MContext`              | `false`                                                 | Lift M3 / M3-Priority from 512K to 1M context. Off by default; the toggle command pops a billing warning first.                                                                        |
-| `minimax.sampling`                       | `{}`                                                    | Per-model `temperature` / `topP` / `topK` / `frequencyPenalty` overrides. Keys: `MiniMax-M3`, `MiniMax-M3-Priority`, `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`.                         |
+| `minimax.sampling`                       | `{}`                                                    | Per-model `temperature` / `topP` / `topK` / `frequencyPenalty` overrides. Keys: `MiniMax-M3.1-Flash-Preview`, `MiniMax-M3`, `MiniMax-M3-Priority`, `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`.                         |
 | `minimax.experimental.modelDefPresets`   | `{}`                                                    | Per-model escape hatch for request body fields.                                                                                                                                        |
 | `minimax.debugMode`                      | `minimal`                                               | `minimal` / `metadata` / `verbose`.                                                                                                                                                    |
 | `minimax.modelIdOverrides`               | `{}`                                                    | Map picker IDs to API IDs (useful for proxies).                                                                                                                                        |
@@ -113,7 +115,7 @@ A Subscription Key covers language models plus speech / video / music / image en
 | `minimax.claudeCode.logPath`             | `~/.claude/projects`                                    | Root directory the ingester walks.                                                                                                                                                     |
 | `minimax.claudeCode.pollIntervalMs`      | `30000`                                                 | Scan interval in milliseconds. Clamped to `[5000, 600000]`.                                                                                                                            |
 | `minimax.experimental.stabilizeToolList` | `false`                                                 | Synthesise preflight tool calls to keep the upstream prompt cache warm. **Experimental.**                                                                                              |
-| `minimax.claudeCode.allowedModels`       | `MiniMax-M3 / M2.7 / M2.7-highspeed / M2.5 / M2.1 / M2` | Allowlist of model IDs counted in the Claude Code section of the dashboard. Claude Code may be talking to other Anthropic-compatible providers; only MiniMax-related rows are counted. |
+| `minimax.claudeCode.allowedModels`       | `MiniMax-M3.1-Flash-Preview / M3 / M2.7 / M2.7-highspeed / M2.5 / M2.1 / M2` | Allowlist of model IDs counted in the Claude Code section of the dashboard. Claude Code may be talking to other Anthropic-compatible providers; only MiniMax-related rows are counted. |
 
 ## Commands
 

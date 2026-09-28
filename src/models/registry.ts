@@ -196,6 +196,12 @@ export function pickPricingTable(baseUrl: string): Record<PricingKey, ModelPrici
  *
  * [pp]: https://platform.minimax.io/docs/guides/pricing-paygo
  *
+ * Note on M3.1-Flash-Preview: the post-trained M3 variant. It shares
+ * M3's full configuration — 1M official context with the same 512K
+ * safe default (lifted by the `minimax.enableM31MContext` toggle via
+ * the M3-family check in `getModels`), native image/video input, the
+ * thinking on/off dropdown, and the `m3` pricing row.
+ *
  * Note on M2.7: the official spec is 204,800 context. We do not split
  * it into input vs. output caps because the docs do not publish such a
  * split either. Earlier versions hardcoded `maxInputTokens: 196_608`
@@ -293,6 +299,36 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		extraReserved: ['service_tier'],
 	},
 	{
+		id: 'MiniMax-M3.1-Flash-Preview',
+		name: 'MiniMax M3.1 Flash (Preview)',
+		family: 'minimax',
+		version: '3.1-flash-preview',
+		detail: 'Post-trained M3 variant (1M context, 512K effective)',
+		contextLength: 1_000_000,
+		// M3.1-Flash-Preview is the post-trained M3 variant and shares
+		// M3's full configuration: same 512K safe default (lifted to 1M
+		// by the `minimax.enableM31MContext` toggle via the M3-family
+		// check in `getModels`), same native multimodal input, same
+		// thinking on/off dropdown, same pricing row. See the M3 entry
+		// above for the 512K vs 1M rationale.
+		maxInputTokens: 512_000,
+		// Display-only `0`, same picker-column rule as M3 — see the
+		// long comment on the M3 template.
+		maxOutputTokens: 0,
+		capabilities: {
+			toolCalling: MINIMAX_TOOLS_LIMIT,
+			imageInput: true,
+			videoInput: true,
+			thinking: true,
+		},
+		thinking: {
+			supportsBudget: false,
+			supportsAdaptive: true,
+		},
+		pricingKey: 'm3',
+		priceCategory: 'medium',
+	},
+	{
 		id: 'MiniMax-M2.7',
 		name: 'MiniMax M2.7',
 		family: 'minimax',
@@ -377,8 +413,10 @@ export function getModels(baseUrl: string = readConfiguredBaseUrl()): ModelDefin
 	// sales-granted >512K access). When the toggle is on we lift M3's
 	// `maxInputTokens` / `maxOutputTokens` to 1M so the VS Code
 	// "上下文窗口" indicator reflects what the user is opting into.
-	// The same logic applies to the priority variant (`MiniMax-M3-Priority`)
-	// so both entries stay in sync when the user lifts the context cap.
+	// The same logic applies to the other M3-family entries
+	// (`MiniMax-M3-Priority` and `MiniMax-M3.1-Flash-Preview`, the
+	// post-trained M3 variant) so all three stay in sync when the user
+	// lifts the context cap.
 	const m3Window = getM3ContextWindow();
 	return MODEL_TEMPLATES.map((t) => {
 		const { pricingKey, ...rest } = t;
@@ -397,7 +435,9 @@ export function getModels(baseUrl: string = readConfiguredBaseUrl()): ModelDefin
 			}
 			: { ...rest, pricing: table[pricingKey] };
 		const isM3Family =
-			t.id === 'MiniMax-M3' || t.id === 'MiniMax-M3-Priority';
+			t.id === 'MiniMax-M3' ||
+			t.id === 'MiniMax-M3-Priority' ||
+			t.id === 'MiniMax-M3.1-Flash-Preview';
 		// Lifting the picker cap to 1M only changes `maxInputTokens`.
 		// The picker **price column** still shows the ≤512K base rate
 		// (¥2.1 for standard M3, ¥3.15 for priority). The >512K

@@ -272,8 +272,10 @@ export function getConfiguredThinkingEffort(
 
 /**
  * Flip the `minimax.enableM31MContext` setting. The boolean controls
- * whether the **MiniMax-M3** entry in the model picker advertises the
- * safe 512K default (`false`) or the official 1M cap (`true`).
+ * whether the M3-family entries in the model picker (**MiniMax-M3**,
+ * **MiniMax-M3-Priority** and the post-trained
+ * **MiniMax-M3.1-Flash-Preview**) advertise the safe 512K default
+ * (`false`) or the official 1M cap (`true`).
  *
  * Going on is **destructive** in three ways:
  *

@@ -577,9 +577,10 @@ function enforceInlineAttachmentSizeLimits(converted: ConvertedConversation): vo
 }
 
 /**
- * Per-model request-body caps from the MiniMax Anthropic-API docs. All
- * picker models (M3, M2.7, M2.7-highspeed) accept inline media and are
- * subject to the 64 MB ceiling. The 32 MB fallback exists for callers
+ * Per-model request-body caps from the MiniMax Anthropic-API docs. The
+ * picker models that accept inline media (M3 family — including the
+ * post-trained M3.1-Flash-Preview variant — plus M2.7 / M2.7-highspeed)
+ * are subject to the 64 MB ceiling. The 32 MB fallback covers callers
  * that still point at historical models via `modelIdOverrides`.
  *
  * `modelId` is the *resolved* API model id (the value sent in the
@@ -595,6 +596,7 @@ function MAX_REQUEST_BODY_BYTES_FOR_MODEL(modelId: string): number {
 	// registry's `apiModelId`, so it does not need a separate branch.
 	if (
 		modelId === 'MiniMax-M3' ||
+		modelId === 'MiniMax-M3.1-Flash-Preview' ||
 		modelId === 'MiniMax-M2.7' ||
 		modelId === 'MiniMax-M2.7-highspeed'
 	) return 64 * 1024 * 1024;
@@ -602,10 +604,10 @@ function MAX_REQUEST_BODY_BYTES_FOR_MODEL(modelId: string): number {
 }
 
 /**
- * Per-attachment caps from the MiniMax Anthropic-API docs. All picker
- * models (M3, M2.7, M2.7-highspeed) accept inline media, so the
- * constants here are the single source of truth that the
- * `convert.ts` MIME table is sized against.
+ * Per-attachment caps from the MiniMax Anthropic-API docs. The picker
+ * models that accept inline media (M3, M2.7, M2.7-highspeed) share
+ * these caps, so the constants here are the single source of truth
+ * that the `convert.ts` MIME table is sized against.
  */
 const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_INLINE_VIDEO_BYTES = 50 * 1024 * 1024;
