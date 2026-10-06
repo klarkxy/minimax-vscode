@@ -7,6 +7,7 @@ import {
 	getClaudeCodeLogPath,
 } from '../config';
 import { toggleM31MContextEnabled } from '../provider/models';
+import { getModels } from '../models/registry';
 import { provideMiniMaxMcpServers, type MiniMaxMcpHandle } from './mcp';
 import { getBaseUrl } from '../config';
 import { resolvePlatformHost } from '../consts';

@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
 import { getClaudeCodeRoutingConfig, type ClaudeCodeRoutingConfig } from '../config';
+import { CONFIG_SECTION } from '../consts';
 import { t } from '../i18n';
 import type { KeyManager } from '../keyManager';
 import { logger } from '../logger';
+import { getModels } from '../models/registry';
 import { MANAGED_ENV_NAMES, buildManagedEnv, mergeEnvironmentVariables, sameEnv } from './env';
 import { probeExistingProxy, startProxy, type MiniMaxTarget, type RunningProxy } from './proxy';
 
@@ -296,6 +298,10 @@ export async function showClaudeCodeMenu(bridge: ClaudeCodeBridge): Promise<void
 			label: `$(settings-gear) ${t('claudeCode.menu.settings')}`,
 			run: () => vscode.commands.executeCommand('workbench.action.openSettings', 'minimax.claudeCode.routing'),
 		},
+		{
+			label: `$(debug-hash) ${t('claudeCode.menu.haikuModel')}`,
+			run: () => vscode.commands.executeCommand('minimax.claudeCode.selectHaikuModel'),
+		},
 		{ label: `$(key) ${t('claudeCode.menu.keys')}`, run: () => vscode.commands.executeCommand('minimax.manageApiKeys') },
 		{ label: `$(output) ${t('claudeCode.menu.logs')}`, run: () => vscode.commands.executeCommand('minimax.showLogs') },
 	];
@@ -304,6 +310,45 @@ export async function showClaudeCodeMenu(bridge: ClaudeCodeBridge): Promise<void
 		title: `MiniMax → Claude Code (${state.kind})`,
 	});
 	await picked?.run();
+}
+
+/**
+ * Pick which MiniMax model Claude Code's Haiku tier should be routed to
+ * (sets `minimax.claudeCode.routing.haikuModel`). Sources the model list
+ * from the registry so picker-only models (M3-Priority, M2.7-highspeed,
+ * …) are also offered; the empty/reset choice writes `""` so the
+ * `ANTHROPIC_DEFAULT_HAIKU_MODEL` override is dropped and Claude Code
+ * keeps Anthropic's own Haiku.
+ */
+export async function pickHaikuModel(): Promise<void> {
+	const current = getClaudeCodeRoutingConfig().models.haiku;
+	const models = getModels();
+	const isMatch = (id: string) => id === current;
+	const items: (vscode.QuickPickItem & { id: string })[] = [
+		{
+			id: '',
+			label: t('claudeCode.haikuPicker.resetLabel'),
+			detail: t('claudeCode.haikuPicker.resetDetail'),
+		},
+		...models.map((m) => ({
+			id: m.id,
+			label: m.name,
+			description: m.id,
+			detail: m.detail + (isMatch(m.id) ? `  —  ${t('claudeCode.haikuPicker.current')}` : ''),
+		})),
+	];
+	const picked = await vscode.window.showQuickPick(items, {
+		title: t('claudeCode.haikuPicker.title'),
+		placeHolder: t('claudeCode.haikuPicker.placeholder'),
+		ignoreFocusOut: true,
+		matchOnDescription: true,
+	});
+	if (!picked) return;
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	await config.update('claudeCode.routing.haikuModel', picked.id, vscode.ConfigurationTarget.Global);
+	if (picked.id) {
+		void vscode.window.showInformationMessage(t('claudeCode.haikuPicker.updated', picked.label));
+	}
 }
 
 export function setRoutingEnabled(enabled: boolean): Thenable<void> {

@@ -31,5 +31,6 @@
   "minimax.walkthrough.configureAdvanced.description": "在设置界面里调整 `minimax.visibleModels`、`minimax.maxTokens`、`minimax.debugMode` 和 `minimax.experimental.stabilizeToolList` 等选项。",
   "minimax.command.claudeCode.menu": "Claude Code 路由…",
   "minimax.command.claudeCode.enableRouting": "启用 Claude Code 路由",
-  "minimax.command.claudeCode.disableRouting": "停用 Claude Code 路由"
+  "minimax.command.claudeCode.disableRouting": "停用 Claude Code 路由",
+  "minimax.command.claudeCode.selectHaikuModel": "选择 Claude Code Haiku 模型"
 }

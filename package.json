@@ -130,6 +130,11 @@
         "category": "MiniMax"
       },
       {
+        "command": "minimax.claudeCode.selectHaikuModel",
+        "title": "%minimax.command.claudeCode.selectHaikuModel%",
+        "category": "MiniMax"
+      },
+      {
         "command": "minimax.manageApiKeys",
         "title": "%minimax.command.manageApiKeys%",
         "category": "MiniMax"
@@ -339,9 +344,9 @@
         },
         "minimax.claudeCode.routing.haikuModel": {
           "type": "string",
-          "default": "MiniMax-M3-Priority",
+          "default": "MiniMax-M3",
           "scope": "application",
-          "markdownDescription": "MiniMax model Claude Code uses for its **Haiku** tier (background tasks, Explore subagents, `/model haiku`). Sets `ANTHROPIC_DEFAULT_HAIKU_MODEL`. The proxy rewrites the alias back to the upstream `apiModelId` and injects the extra fields the gateway needs (e.g. `service_tier: \"priority\"`). Empty = keep Anthropic's Haiku."
+          "markdownDescription": "MiniMax model Claude Code uses for its **Haiku** tier (background tasks, Explore subagents, `/model haiku`). Sets `ANTHROPIC_DEFAULT_HAIKU_MODEL`. The proxy rewrites picker aliases (e.g. `MiniMax-M3-Priority`) back to the upstream `apiModelId` and injects the extra fields the gateway needs (`service_tier: \"priority\"`). Empty = keep Anthropic's Haiku. Use the **MiniMax: Select Claude Code Haiku Model** command to pick from the model picker instead of typing the id."
         },
         "minimax.claudeCode.routing.sonnetModel": {
           "type": "string",

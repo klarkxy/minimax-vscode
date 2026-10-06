@@ -254,6 +254,13 @@ const zh: Translations = {
 	'claudeCode.menu.settings': '路由设置（模型 / 端口）',
 	'claudeCode.menu.keys': '管理 API Key',
 	'claudeCode.menu.logs': '查看日志',
+	'claudeCode.menu.haikuModel': '选择 Claude Code Haiku 模型',
+	'claudeCode.haikuPicker.title': '选择 Claude Code Haiku 使用的模型',
+	'claudeCode.haikuPicker.placeholder': '设置 `minimax.claudeCode.routing.haikuModel`',
+	'claudeCode.haikuPicker.current': '当前已选中',
+	'claudeCode.haikuPicker.resetLabel': '（使用 Anthropic 默认 Haiku）',
+	'claudeCode.haikuPicker.resetDetail': '将 `minimax.claudeCode.routing.haikuModel` 设为空字符串',
+	'claudeCode.haikuPicker.updated': '已将 Claude Code Haiku 模型设置为 {0}。请新建（或重启）Claude Code 会话以生效。',
 };
 
 const en: Translations = {
@@ -490,6 +497,13 @@ const en: Translations = {
 	'claudeCode.menu.settings': 'Routing settings (models / port)',
 	'claudeCode.menu.keys': 'Manage API keys',
 	'claudeCode.menu.logs': 'Show logs',
+	'claudeCode.menu.haikuModel': 'Pick Claude Code Haiku model',
+	'claudeCode.haikuPicker.title': 'Pick the model for Claude Code Haiku',
+	'claudeCode.haikuPicker.placeholder': 'Sets `minimax.claudeCode.routing.haikuModel`',
+	'claudeCode.haikuPicker.current': 'Currently selected',
+	'claudeCode.haikuPicker.resetLabel': '(use Anthropic’s default Haiku)',
+	'claudeCode.haikuPicker.resetDetail': 'Clears `minimax.claudeCode.routing.haikuModel`',
+	'claudeCode.haikuPicker.updated': 'Claude Code Haiku model set to {0}. Start a new (or restart an open) Claude Code session to apply.',
 
 };
 
