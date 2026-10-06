@@ -171,6 +171,34 @@ export function getStabilizeToolListEnabled(): boolean {
 	return config.get<boolean>('experimental.stabilizeToolList', false);
 }
 
+export interface ClaudeCodeRoutingConfig {
+	enabled: boolean;
+	port: number;
+	passthroughUrl: string;
+	models: { haiku: string; sonnet: string; opus: string };
+}
+
+/**
+ * Settings for the Claude Code routing proxy (`minimax.claudeCode.routing.*`).
+ * The port is clamped to the published `[1024, 65535]` range and falls
+ * back to `4000` for hand-edited garbage.
+ */
+export function getClaudeCodeRoutingConfig(): ClaudeCodeRoutingConfig {
+	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+	const port = config.get<number>('claudeCode.routing.port', 4000);
+	const passthroughUrl = config.get<string>('claudeCode.routing.passthroughUrl', '').trim();
+	return {
+		enabled: config.get<boolean>('claudeCode.routing.enabled', true),
+		port: Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : 4000,
+		passthroughUrl: passthroughUrl || 'https://api.anthropic.com',
+		models: {
+			haiku: config.get<string>('claudeCode.routing.haikuModel', 'MiniMax-M3'),
+			sonnet: config.get<string>('claudeCode.routing.sonnetModel', ''),
+			opus: config.get<string>('claudeCode.routing.opusModel', ''),
+		},
+	};
+}
+
 /**
  * Whether the usage dashboard should also ingest token usage from
  * Claude Code CLI / the Claude Code VSCode extension. Reads

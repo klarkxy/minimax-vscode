@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { registerClaudeCodeBridge } from '../claudeCode';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import { MiniMaxChatProvider } from '../provider';
@@ -70,6 +71,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// provider's API call layer never runs (e.g. user only uses
 	// Claude Code CLI / Claude Code VSCode extension).
 	setClaudeCodeIngest(context);
+	// Route Claude Code's model overrides (by default the Haiku tier)
+	// through the local MiniMax proxy. Independent of Copilot Chat.
+	registerClaudeCodeBridge(context, getKeyManager());
 	registerActionUrls(context);
 
 	// Register the MiniMax Web Search MCP server definition provider

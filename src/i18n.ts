@@ -239,6 +239,21 @@ const zh: Translations = {
 	// Claude Code (JSONL log ingest)
 	'claudeCode.folderMissing': '找不到 Claude Code 日志目录：{0}',
 	'claudeCode.showUsageEmpty': '暂无 Claude Code 用量记录。请运行 Claude Code CLI 或 Claude Code VSCode 扩展产生一些会话。',
+
+	// Claude Code routing proxy
+	'claudeCode.missingKey': '未配置 MiniMax API Key。请在 VS Code 命令面板运行 "MiniMax: 添加 API Key"。',
+	'claudeCode.portBusy': 'MiniMax：端口 {0} 被其他程序占用，Claude Code 路由已关闭。请修改 `minimax.claudeCode.routing.port`。（{1}）',
+	'claudeCode.envApplied': 'MiniMax：新的 Claude Code 会话将使用 {0}。请新建会话（或重启已打开的会话）以生效。',
+	'claudeCode.envRemoved': 'MiniMax：已移除 Claude Code 路由。请重启已打开的 Claude Code 会话以直连 Anthropic。',
+	'claudeCode.terminalDescription': 'MiniMax：将 Claude Code 的模型覆盖路由到 MiniMax',
+	'claudeCode.status.owner': 'MiniMax → Claude Code：本窗口在端口 {0} 运行路由代理。\n{1}',
+	'claudeCode.status.shared': 'MiniMax → Claude Code：路由代理（端口 {0}）由另一个 VS Code 窗口运行。\n{1}',
+	'claudeCode.status.noKey': 'MiniMax → Claude Code：请先添加 API Key 以启用路由。',
+	'claudeCode.menu.enable': '启用 Claude Code 路由',
+	'claudeCode.menu.disable': '停用 Claude Code 路由',
+	'claudeCode.menu.settings': '路由设置（模型 / 端口）',
+	'claudeCode.menu.keys': '管理 API Key',
+	'claudeCode.menu.logs': '查看日志',
 };
 
 const en: Translations = {
@@ -460,6 +475,21 @@ const en: Translations = {
 	// Claude Code (JSONL log ingest)
 	'claudeCode.folderMissing': 'Could not find the Claude Code log directory: {0}',
 	'claudeCode.showUsageEmpty': 'No Claude Code usage recorded yet. Run the Claude Code CLI or the Claude Code VSCode extension to generate some sessions.',
+
+	// Claude Code routing proxy
+	'claudeCode.missingKey': 'MiniMax API key is not configured. Run "MiniMax: Add API Key" from the VS Code command palette.',
+	'claudeCode.portBusy': 'MiniMax: port {0} is used by another program, so Claude Code routing is off. Change `minimax.claudeCode.routing.port`. ({1})',
+	'claudeCode.envApplied': 'MiniMax: new Claude Code sessions will use {0}. Start a new session (or restart open ones) to apply.',
+	'claudeCode.envRemoved': 'MiniMax: Claude Code routing removed. Restart open Claude Code sessions to talk to Anthropic directly again.',
+	'claudeCode.terminalDescription': 'MiniMax: routes Claude Code model overrides to MiniMax',
+	'claudeCode.status.owner': 'MiniMax → Claude Code: this window runs the routing proxy on port {0}.\n{1}',
+	'claudeCode.status.shared': 'MiniMax → Claude Code: the routing proxy (port {0}) runs in another VS Code window.\n{1}',
+	'claudeCode.status.noKey': 'MiniMax → Claude Code: add an API key to enable routing.',
+	'claudeCode.menu.enable': 'Enable Claude Code routing',
+	'claudeCode.menu.disable': 'Disable Claude Code routing',
+	'claudeCode.menu.settings': 'Routing settings (models / port)',
+	'claudeCode.menu.keys': 'Manage API keys',
+	'claudeCode.menu.logs': 'Show logs',
 
 };
 

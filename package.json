@@ -113,6 +113,21 @@
         "category": "MiniMax"
       },
       {
+        "command": "minimax.claudeCode.menu",
+        "title": "%minimax.command.claudeCode.menu%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.claudeCode.enableRouting",
+        "title": "%minimax.command.claudeCode.enableRouting%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.claudeCode.disableRouting",
+        "title": "%minimax.command.claudeCode.disableRouting%",
+        "category": "MiniMax"
+      },
+      {
         "command": "minimax.manageApiKeys",
         "title": "%minimax.command.manageApiKeys%",
         "category": "MiniMax"
@@ -305,6 +320,44 @@
             },
             "additionalProperties": false
           }
+        },
+        "minimax.claudeCode.routing.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Route Claude Code's model overrides to MiniMax. Starts a local proxy on `127.0.0.1` and injects `ANTHROPIC_BASE_URL` plus the `ANTHROPIC_DEFAULT_*_MODEL` overrides into new Claude Code sessions (via `claudeCode.environmentVariables` and VS Code terminals). Requests for MiniMax models use your MiniMax API key; every other request passes through unchanged to Anthropic with your own Claude login. Turn off (or run **MiniMax: Disable Claude Code Routing**) before uninstalling."
+        },
+        "minimax.claudeCode.routing.port": {
+          "type": "integer",
+          "default": 4000,
+          "minimum": 1024,
+          "maximum": 65535,
+          "scope": "application",
+          "markdownDescription": "Local port of the Claude Code routing proxy. Several VS Code windows share one proxy; when the owning window closes, another one takes over."
+        },
+        "minimax.claudeCode.routing.haikuModel": {
+          "type": "string",
+          "default": "MiniMax-M3",
+          "scope": "application",
+          "markdownDescription": "MiniMax model Claude Code uses for its **Haiku** tier (background tasks, Explore subagents, `/model haiku`). Sets `ANTHROPIC_DEFAULT_HAIKU_MODEL`. Empty = keep Anthropic's Haiku."
+        },
+        "minimax.claudeCode.routing.sonnetModel": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "markdownDescription": "MiniMax model Claude Code uses for its **Sonnet** tier. Sets `ANTHROPIC_DEFAULT_SONNET_MODEL`. Empty (default) = keep Anthropic's Sonnet."
+        },
+        "minimax.claudeCode.routing.opusModel": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "markdownDescription": "MiniMax model Claude Code uses for its **Opus** tier. Sets `ANTHROPIC_DEFAULT_OPUS_MODEL`. Empty (default) = keep Anthropic's Opus."
+        },
+        "minimax.claudeCode.routing.passthroughUrl": {
+          "type": "string",
+          "default": "https://api.anthropic.com",
+          "scope": "application",
+          "markdownDescription": "Where the proxy forwards non-MiniMax requests (with the caller's own credentials)."
         },
         "minimax.dashboard.includeClaudeCode": {
           "type": "boolean",
