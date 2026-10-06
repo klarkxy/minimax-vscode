@@ -14,7 +14,36 @@
   Run Claude Code's <b>Haiku</b> tier on <b>MiniMax M3</b> — keep your own Claude login for everything else.
 </p>
 
-> Fork of [klarkxy/minimax-vscode](https://github.com/klarkxy/minimax-vscode) (MiniMax Copilot). The Copilot Chat provider below still works; this fork adds Claude Code routing.
+## About this fork
+
+This is a fork of **[klarkxy/minimax-vscode](https://github.com/klarkxy/minimax-vscode)** ("MiniMax Copilot"), which registers MiniMax models in GitHub Copilot Chat. All of the original Copilot Chat features are kept and still work (see [Features](#features)).
+
+**Why it exists:** Claude Code sends a large share of its traffic to its cheapest tier, **Haiku**: background tasks, session titles, Explore and other subagents, and anything you run with `/model haiku`. This fork moves that tier onto a **MiniMax Token Plan** without touching anything else. Sonnet and Opus keep running on your own Claude subscription or API login, so subagent-heavy workflows spend MiniMax quota instead of Anthropic quota. The upstream extension only targets Copilot Chat and has no way to do this.
+
+**What this fork adds on top of upstream:**
+
+- A local routing proxy plus Claude Code environment injection ([Claude Code routing](#claude-code-routing)).
+- MiniMax tokens used through Claude Code show up in the usage dashboard.
+- A [benchmark](#benchmark-m3-as-claude-codes-haiku-tier) checking that M3 can fully replace Haiku as a Claude Code subagent model.
+
+## Quick start (Claude Code)
+
+1. **Install.** This fork is not the extension on the upstream Marketplace listing. Build and install it from source:
+
+   ```bash
+   git clone https://github.com/rzfzr/minimax-vscode && cd minimax-vscode
+   npm ci
+   npm run package:dev            # → dist/minimax-claude-code-<version>.vsix
+   code --install-extension dist/minimax-claude-code-<version>.vsix
+   ```
+
+   Uninstall the original `klarkxy.minimax-vscode-copilot` first, because both register the same `minimax.*` commands.
+
+2. **Add your key.** Run **MiniMax: Add API Key** from the command palette and paste a MiniMax Token Plan key. The China or Global endpoint is detected automatically.
+3. **Start a new Claude Code session**, either in the Claude Code extension or with `claude` in a VS Code terminal. Sessions that were already open keep their old environment.
+4. **Check that routing works.** The `MiniMax CC` status bar item should show the proxy as running. After a Haiku-tier request (for example an Explore subagent, or `/model haiku`), **MiniMax: Show Logs** prints `[ClaudeCode] POST /v1/messages model=MiniMax-M3 → MiniMax`, and the tokens show up in the **Usage Dashboard** `claude` tab.
+
+GitHub Copilot Chat is **not** required for Claude Code routing. You only need it for the Copilot Chat models described in [Getting Started](#getting-started).
 
 ## Claude Code routing
 
@@ -51,6 +80,73 @@ Notes:
 - Provisioning without the input box: put the key in the user setting `minimax.apiKey`; on activation it is moved into SecretStorage and the setting is cleared.
 - MiniMax tokens used through Claude Code show up in the **Usage Dashboard**'s `claude` tab.
 
+## Benchmark: M3 as Claude Code's Haiku tier
+
+This benchmark asks whether `MiniMax-M3`, routed through this extension, can **fully replace** Haiku as a Claude Code subagent model. That means two things: it has to produce correct results, and it has to behave the same way inside the harness (tool calling, Read-before-Edit, following constraints and report formats). It also checks whether Claude Code's reasoning-effort setting changes anything for M3.
+
+### Setup
+
+- **Date and versions:** run on 2026-10-06 with Claude Code 2.1.289 (VS Code extension, Windows 11).
+- **Configurations compared:**
+  - Sonnet 5.5 at `--effort low`, which is the baseline and goes to Anthropic.
+  - `haiku` → M3 at `--effort low`.
+  - `haiku` → M3 at `--effort high`.
+  - Three in-session subagents (`Agent` tool, `model: haiku`) that inherit the parent session's effort (high).
+- **How the runs were made:** the three configurations ran as headless `claude -p` sessions. The Agent tool has no per-subagent effort setting, and agent definitions are not reloaded mid-session.
+- **Same harness for every run:** the same allowed tools (`Read, Grep, Glob, Edit, Bash`) and the Agent tool disabled, to match a subagent's toolset. Each session also had its own logging relay in front of the proxy to record what was sent upstream.
+- **Grading:** every answer was checked against the source by hand, and every bug fix was re-run.
+
+| Task                         | What it tests                                                                                                                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **T1** Code questions        | Four read-only questions about this repo, answered as JSON only, with file:line citations. One trap: the docs said "11 reserved keys", but the code skips 10.            |
+| **T2** Bug fix               | Fix 4 planted bugs in `lib.js` without changing the spec file `lib.test.js`, then run the tests. Trap: sorting the input in place breaks a "does not mutate input" test. |
+| **T3** Run tests, trace code | Run the proxy unit tests, then answer 5 routing and port-conflict questions in a fixed markdown format with citations.                                                   |
+
+### Results
+
+| Configuration           | T1 (4 questions)      | T2 (bug fix)     | T3 (5 questions) | Followed the output format?           | Time T1 / T2 / T3 |
+| ----------------------- | --------------------- | ---------------- | ---------------- | ------------------------------------- | ----------------- |
+| Sonnet 5.5, low         | 4/4                   | 12/12 tests pass | 5/5              | ✗ T1: prose before "JSON only" answer | 22 / 13 / 13 s    |
+| M3, low                 | **4/4**, best notes   | 12/12 tests pass | 5/5              | ✗ T3: went over the 2-sentence limit  | 62 / 80 / 24 s    |
+| M3, high                | 3/4 (missed the trap) | 12/12 tests pass | 5/5              | ~ T1: JSON wrapped in a code fence    | 48 / 106 / 41 s   |
+| M3, in-session subagent | 3/4 (missed the trap) | 12/12 tests pass | 5/5              | ✓                                     | 53 / 73 / 35 s    |
+
+**Tool calling:** M3 works as a drop-in replacement.
+
+- **No failures:** across all M3 runs there were zero malformed tool calls, zero permission denials and zero writes outside allowed paths. The spec file was never modified, and the repo was left clean.
+- **Dedicated tools:** M3 always read a file before editing it, used `Edit` for changes and `Grep`/`Glob` for search, and often ran several tools in parallel (7 of 10 tool-using turns in one run).
+- **Sonnet deviated more:** at low effort it rewrote `lib.js` with a Python script run through `Bash`, without using Read or Edit.
+- **M3 quirks:**
+  - **Inflated bug count:** one M3 run broke a test with its first edit, caught it on the test run and fixed it, then reported its own regression as a fifth "bug".
+  - **Trusting the docs:** two M3 runs accepted the docs' "11 reserved keys" after finding a secondary mechanism, instead of searching further.
+
+**Speed:** M3 was about 2–8× slower in wall-clock time than Sonnet at low effort on these tasks. This is the main practical cost.
+
+**Background calls:** Claude Code also sends some background requests to the Haiku tier, such as session-title generation with a `json_schema` output format. With routing on, those go to M3 even in Sonnet sessions, and all of them returned HTTP 200.
+
+### Reasoning effort has no effect on M3
+
+- **What reaches MiniMax:** Claude Code sends effort as `output_config.effort: "low" | "high"` together with `thinking: { type: "adaptive" }`, and the proxy forwards the body unchanged.
+- **Controlled test:** the same multi-step probability problem was sent directly to M3 three times each with effort `low`, `high` and unset:
+
+  | Effort | Output tokens | Correct answers |
+  | ------ | ------------: | :-------------: |
+  | low    |       806–976 |       3/3       |
+  | high   |      752–1201 |       3/3       |
+  | unset  |       826–873 |       3/3       |
+
+  Latency was also the same within noise.
+
+- **In the agent runs:** high effort did not produce more thinking (T2: 15.2k thinking characters at low vs 9.3k at high) or better answers.
+
+In practice, Claude Code's `/effort` setting does nothing for the Haiku tier when it runs on M3. M3's only real reasoning switch is turning thinking off (`thinking: { type: "disabled" }`).
+
+### Caveats
+
+- There is one run per cell, so the score differences between the M3 configurations are within noise. The tool-calling behaviour and the speed gap were consistent across every run.
+- The dollar costs Claude Code reports for the M3 sessions use Claude's own price table. They do not reflect what MiniMax actually bills.
+- Headless `claude -p` sessions use the main-session system prompt rather than the subagent one. The three in-session `Agent` subagents ran the real subagent path and agree with the headless results.
+
 ## Features
 
 - **M3.1-Flash-Preview / M3 / M2.7 / M2.7-highspeed in the Copilot Chat model picker** with pricing in the tooltip. M3 accepts native image and video input; M2.7 models are text / tool-call only on the Anthropic-compatible API.
@@ -72,6 +168,8 @@ Notes:
 
 ## Getting Started
 
+This section covers the **Copilot Chat** models inherited from upstream. For Claude Code routing, see [Quick start (Claude Code)](#quick-start-claude-code).
+
 ### Prerequisites
 
 - **VS Code 1.111.0+**
@@ -81,7 +179,7 @@ Notes:
 
 ### Installation
 
-1. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode-copilot) (or build a `.vsix` from source with `npm run package`).
+1. Install this fork from a `.vsix` as described in [Quick start (Claude Code)](#quick-start-claude-code). The [Marketplace listing](https://marketplace.visualstudio.com/items?itemName=klarkxy.minimax-vscode-copilot) is the original upstream extension, which has no Claude Code routing.
 2. Run **MiniMax: Add API Key** from the command palette, give it a name, and paste your Token Plan key. The extension auto-detects China vs Global and stores the key in SecretStorage. Use **MiniMax: Manage API Keys** to add more, switch, rename, or delete.
 3. Open Copilot Chat, pick **MiniMax M3** (or M2.7 / M2.7-highspeed).
 4. On VS Code 1.128+, run **MiniMax: Set Copilot's Utility Models** before using Agent mode with MiniMax. Choose a MiniMax model, keep both utility slots selected, then reload Copilot Chat.
