@@ -56,6 +56,34 @@ export function isMiniMaxModelId(model: string): boolean {
 	return /^minimax/i.test(model.trim());
 }
 
+/**
+ * MiniMax picker aliases that share an upstream `apiModelId` and need
+ * an extra request field (currently only `service_tier`) to be sent
+ * to the gateway. Used to keep Claude Code's
+ * `ANTHROPIC_DEFAULT_HAIKU_MODEL=MiniMax-M3-Priority` actually landing
+ * on the priority tier: the proxy rewrites the picker alias back to
+ * the shared upstream ID and injects the missing field.
+ */
+export const MINIMAX_ALIAS_OVERRIDES: Readonly<Record<string, { apiModelId: string; extra: Record<string, unknown> }>> = {
+	'MiniMax-M3-Priority': { apiModelId: 'MiniMax-M3', extra: { service_tier: 'priority' } },
+};
+
+/** Rewrite a Claude Code model id back to the upstream id + merge the
+ *  required `extra` fields. Returns the body unchanged if no override
+ *  matches. Mutates `body` in place. */
+export function applyAliasOverride(body: Record<string, unknown>, model: string): void {
+	const override = MINIMAX_ALIAS_OVERRIDES[model];
+	if (!override) {
+		return;
+	}
+	body.model = override.apiModelId;
+	for (const [key, value] of Object.entries(override.extra)) {
+		if (body[key] === undefined) {
+			body[key] = value;
+		}
+	}
+}
+
 /** RFC 7230 hop-by-hop headers plus the ones we recompute. */
 const HOP_BY_HOP = new Set([
 	'connection',
@@ -205,7 +233,24 @@ export function createProxyHandler(
 			}
 			const headers = filterHeaders(req.headers, STRIP_FOR_MINIMAX);
 			headers['x-api-key'] = target.apiKey;
-			logger?.info(`[ClaudeCode] ${req.method} ${pathAndQuery} model=${model} → MiniMax`);
+			// MiniMax picker aliases (e.g. `MiniMax-M3-Priority`) share an
+			// upstream `apiModelId` and need `service_tier: "priority"` to
+			// land on the priority tier. Rewriting the body here keeps
+			// Claude Code's `ANTHROPIC_DEFAULT_HAIKU_MODEL` setting usable
+			// without a second registry-aware path.
+			let upstreamModel = model;
+			if (body.length > 0) {
+				try {
+					const parsed = JSON.parse(body.toString('utf8')) as Record<string, unknown>;
+					applyAliasOverride(parsed, model);
+					upstreamModel = typeof parsed.model === 'string' ? parsed.model : model;
+					body = Buffer.from(JSON.stringify(parsed), 'utf8');
+				} catch {
+					// extractModel already validated JSON above; this is
+					// belt-and-braces, ignore.
+				}
+			}
+			logger?.info(`[ClaudeCode] ${req.method} ${pathAndQuery} model=${model} → MiniMax as ${upstreamModel}`);
 			forward(req, res, joinUrl(target.baseUrl, pathAndQuery), headers, body, logger);
 			return;
 		}

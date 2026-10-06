@@ -339,9 +339,9 @@
         },
         "minimax.claudeCode.routing.haikuModel": {
           "type": "string",
-          "default": "MiniMax-M3",
+          "default": "MiniMax-M3-Priority",
           "scope": "application",
-          "markdownDescription": "MiniMax model Claude Code uses for its **Haiku** tier (background tasks, Explore subagents, `/model haiku`). Sets `ANTHROPIC_DEFAULT_HAIKU_MODEL`. Empty = keep Anthropic's Haiku."
+          "markdownDescription": "MiniMax model Claude Code uses for its **Haiku** tier (background tasks, Explore subagents, `/model haiku`). Sets `ANTHROPIC_DEFAULT_HAIKU_MODEL`. The proxy rewrites the alias back to the upstream `apiModelId` and injects the extra fields the gateway needs (e.g. `service_tier: \"priority\"`). Empty = keep Anthropic's Haiku."
         },
         "minimax.claudeCode.routing.sonnetModel": {
           "type": "string",

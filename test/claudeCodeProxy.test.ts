@@ -5,7 +5,9 @@ import * as assert from 'node:assert/strict';
 import * as http from 'node:http';
 
 import {
+	MINIMAX_ALIAS_OVERRIDES,
 	PROXY_HEALTH_PATH,
+	applyAliasOverride,
 	extractModel,
 	isMiniMaxModelId,
 	joinUrl,
@@ -83,6 +85,28 @@ describe('proxy helpers', () => {
 			'https://api.minimax.io/anthropic/v1/messages?beta=true',
 		);
 	});
+
+	it('rewrites MiniMax-M3-Priority alias to upstream id and injects service_tier', () => {
+		const body: Record<string, unknown> = { model: 'MiniMax-M3-Priority', messages: [] };
+		applyAliasOverride(body, 'MiniMax-M3-Priority');
+		assert.deepEqual(body, { model: 'MiniMax-M3', messages: [], service_tier: 'priority' });
+	});
+
+	it('does not overwrite a caller-provided service_tier', () => {
+		const body: Record<string, unknown> = { model: 'MiniMax-M3-Priority', service_tier: 'standard' };
+		applyAliasOverride(body, 'MiniMax-M3-Priority');
+		assert.equal(body.service_tier, 'standard');
+	});
+
+	it('leaves non-aliased MiniMax models untouched', () => {
+		const body: Record<string, unknown> = { model: 'MiniMax-M3', messages: [] };
+		applyAliasOverride(body, 'MiniMax-M3');
+		assert.deepEqual(body, { model: 'MiniMax-M3', messages: [] });
+	});
+
+	it('exposes the alias override table', () => {
+		assert.equal(MINIMAX_ALIAS_OVERRIDES['MiniMax-M3-Priority']?.apiModelId, 'MiniMax-M3');
+	});
 });
 
 describe('routing proxy', () => {
@@ -127,6 +151,14 @@ describe('routing proxy', () => {
 		assert.equal(seen.headers['anthropic-beta'], undefined);
 		assert.equal(seen.headers['anthropic-version'], '2023-06-01');
 		assert.deepEqual(JSON.parse(seen.body), { model: 'MiniMax-M3', messages: [] });
+	});
+
+	it('rewrites MiniMax-M3-Priority alias to upstream id and injects service_tier', async () => {
+		const res = await post(proxy, '/v1/messages', { model: 'MiniMax-M3-Priority', messages: [] });
+		assert.equal(res.status, 200);
+		assert.equal(res.headers['x-upstream'], 'minimax');
+		const seen = minimaxSeen.at(-1)!;
+		assert.deepEqual(JSON.parse(seen.body), { model: 'MiniMax-M3', messages: [], service_tier: 'priority' });
 	});
 
 	it('passes other models through untouched, credentials included', async () => {
