@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.0.0 — 2026-10-06
+
+### Added — Claude Code routing (fork: MiniMax Claude Code)
+
+- **Local routing proxy for Claude Code.** The extension starts a proxy on `127.0.0.1:4000` and injects `ANTHROPIC_BASE_URL` + `ANTHROPIC_DEFAULT_HAIKU_MODEL=MiniMax-M3` into new Claude Code sessions (`claudeCode.environmentVariables` and VS Code terminals). Requests for `MiniMax-*` models go to MiniMax with the extension's key; all other traffic passes through to Anthropic with the user's own credentials. Configurable per tier under `minimax.claudeCode.routing.*`; status bar item and enable/disable commands.
+- **Import an API key from `minimax.apiKey`.** A key in the user setting is moved into SecretStorage on activation and the plaintext setting is cleared.
+- Renamed to **MiniMax Claude Code** (`rzfzr.minimax-claude-code`).
+
 ## 2.6.0 — 2026-09-28
 
 ### Added — M3.1 Flash (Preview)
