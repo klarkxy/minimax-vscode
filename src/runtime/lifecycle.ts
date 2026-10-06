@@ -45,6 +45,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		logger.warn('[MiniMax] Legacy key migration failed', error);
 	}
 
+	// A key pasted into the `minimax.apiKey` setting is moved into
+	// SecretStorage. Fire-and-forget: the region probe hits the network,
+	// and every consumer (provider, Claude Code bridge) re-reads the pool
+	// on its change event.
+	void getKeyManager()
+		.importApiKeyFromSetting()
+		.then((entry) => {
+			if (entry) {
+				logger.info(`[MiniMax] Imported API key from settings into SecretStorage as "${entry.name}".`);
+			}
+		})
+		.catch((error) => logger.warn('[MiniMax] Importing API key from settings failed', error));
+
 	// One-time cleanup of memento keys left behind by the removed
 	// Codex / OpenCode ingesters. The modules and their constants are
 	// gone, but users who previously enabled those sources still carry

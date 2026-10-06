@@ -311,6 +311,11 @@ export const workspace = {
 			}
 			return defaultValue;
 		},
+		// Every seeded value is treated as a user-level (global) value.
+		inspect: <T>(key: string): { key: string; globalValue?: T } => ({
+			key: `${section}.${key}`,
+			globalValue: mockConfig[`${section}.${key}`] as T | undefined,
+		}),
 		update: async (key: string, value: unknown, _target?: unknown): Promise<void> => {
 			// Mirror the real VS Code behaviour: writes land in
 			// `mockConfig` so subsequent `get()` calls see them. Tests
