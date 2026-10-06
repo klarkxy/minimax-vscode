@@ -9,6 +9,8 @@ import { probeExistingProxy, startProxy, type MiniMaxTarget, type RunningProxy }
 /** How often a window that does not own the shared proxy checks whether it can take over. */
 const TAKEOVER_INTERVAL_MS = 5_000;
 
+const CLAUDE_CODE_EXTENSION_ID = 'anthropic.claude-code';
+
 export type BridgeState =
 	| { kind: 'off'; reason: 'disabled' | 'noKey' }
 	/** This window serves the proxy. */
@@ -183,7 +185,13 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 			}
 		}
 
-		// Claude Code extension sessions.
+		// Claude Code extension sessions. Only a window that actually loads
+		// the Claude Code extension writes its setting: elsewhere (e.g. a
+		// window where it is disabled) the key is unregistered and VS Code
+		// silently drops the write.
+		if (!vscode.extensions.getExtension(CLAUDE_CODE_EXTENSION_ID)) {
+			return;
+		}
 		const claudeConfig = vscode.workspace.getConfiguration('claudeCode');
 		const existing = claudeConfig.inspect<unknown[]>('environmentVariables')?.globalValue ?? [];
 		const merged = mergeEnvironmentVariables(Array.isArray(existing) ? existing : [], desired);
@@ -193,9 +201,15 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 		try {
 			await claudeConfig.update('environmentVariables', merged, vscode.ConfigurationTarget.Global);
 		} catch (error) {
-			// The setting is only registered while the Claude Code extension
-			// is installed; terminals still get the env above.
+			// Terminals still get the env above.
 			logger.warn('[ClaudeCode] Could not update claudeCode.environmentVariables', error);
+			return;
+		}
+		const persisted = vscode.workspace.getConfiguration('claudeCode').inspect<unknown[]>('environmentVariables');
+		if (!sameEnv(persisted?.globalValue ?? [], merged)) {
+			logger.warn(
+				`[ClaudeCode] claudeCode.environmentVariables did not persist (user value now ${JSON.stringify(persisted?.globalValue)})`,
+			);
 			return;
 		}
 		const tiers = describeTiers(cfg);
