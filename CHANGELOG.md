@@ -1,12 +1,13 @@
 # Changelog
 
-## 3.0.0 — 2026-10-06
+## Unreleased
 
-### Added — Claude Code routing (fork: MiniMax Claude Code)
+### Added — Claude Code routing (opt-in)
 
-- **Local routing proxy for Claude Code.** The extension starts a proxy on `127.0.0.1:4000` and injects `ANTHROPIC_BASE_URL` + `ANTHROPIC_DEFAULT_HAIKU_MODEL=MiniMax-M3` into new Claude Code sessions (`claudeCode.environmentVariables` and VS Code terminals). Requests for `MiniMax-*` models go to MiniMax with the extension's key; all other traffic passes through to Anthropic with the user's own credentials. Configurable per tier under `minimax.claudeCode.routing.*`; status bar item and enable/disable commands.
-- **Import an API key from `minimax.apiKey`.** A key in the user setting is moved into SecretStorage on activation and the plaintext setting is cleared.
-- Renamed to **MiniMax Claude Code** (`rzfzr.minimax-claude-code`).
+- **Route Claude Code model tiers to MiniMax.** New `minimax.claudeCode.routing.*` settings, off by default. When enabled (**MiniMax: Enable Claude Code Routing**), the extension starts a local proxy on `127.0.0.1:4000` and sets `ANTHROPIC_BASE_URL` plus the configured `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL` for new Claude Code sessions started from VS Code (`claudeCode.environmentVariables` and VS Code terminals). Requests for `MiniMax-*` models go to MiniMax with the active key from the existing key pool; all other traffic passes through with the user's own Claude credentials, to their previous `ANTHROPIC_BASE_URL` or to `api.anthropic.com`. The Haiku tier defaults to `MiniMax-M3`; **MiniMax: Pick Claude Code Haiku Model** picks another one, and `MiniMax-M3-Priority` is rewritten to `MiniMax-M3` + `service_tier: "priority"`. A `MiniMax CC` status bar item shows the proxy state. Copilot Chat models are unchanged and work alongside it with the same key.
+- **The user's Claude Code settings are preserved.** Only the variables routing needs are written; the values they replace are recorded and restored exactly when routing is turned off, or when the extension stops (so Claude Code is never left pointing at a dead local port after the window closes or the extension is disabled / uninstalled). Nothing is written while routing is off or no key is set.
+- **One proxy per VS Code installation and profile.** Windows that share keys and settings share the proxy, which resolves the key, region and passthrough upstream per request; a proxy from another installation, profile or older build is detected via its health endpoint and never used.
+- **Import an API key from `minimax.apiKey`.** A key written into the user setting is moved into SecretStorage on activation and the plaintext setting is cleared.
 
 ## 2.6.0 — 2026-09-28
 

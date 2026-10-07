@@ -26,7 +26,7 @@
   "minimax.walkthrough.configureUtilityModels.title": "启用 BYOK Agent 模式",
   "minimax.walkthrough.configureUtilityModels.description": "VS Code 1.128+ 在 Agent 主模型为 BYOK 时要求配置 utility model。运行 **MiniMax: 设置 Copilot 工具模型**，选择一个 MiniMax 模型，并保留两个 utility 槽的默认勾选。",
   "minimax.walkthrough.pickInChat.title": "在 Copilot Chat 里选择 MiniMax",
-  "minimax.walkthrough.pickInChat.description": "打开 Copilot Chat，点击模型下拉框，切换到一个 **MiniMax** 模型。在用 MiniMax 模型发出第一条消息之前，Copilot Chat 的 token 计数会一直是 0—这是 Copilot 的设计，不是 bug。可以打开 **MiniMax: 打开用量面板** 来确认 provider 是否正常响应。",
+  "minimax.walkthrough.pickInChat.description": "打开 Copilot Chat，点击模型下拉框，切换到一个 **MiniMax** 模型。在用 MiniMax 模型发出第一条消息之前，Copilot Chat 的 token 计数会一直是 0\u2014这是 Copilot 的设计，不是 bug。可以打开 **MiniMax: 打开用量面板** 来确认 provider 是否正常响应。",
   "minimax.walkthrough.configureAdvanced.title": "调整高级设置",
   "minimax.walkthrough.configureAdvanced.description": "在设置界面里调整 `minimax.visibleModels`、`minimax.maxTokens`、`minimax.debugMode` 和 `minimax.experimental.stabilizeToolList` 等选项。",
   "minimax.command.claudeCode.menu": "Claude Code 路由…",

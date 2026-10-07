@@ -1,19 +1,19 @@
 {
-  "name": "minimax-claude-code",
-  "displayName": "MiniMax Claude Code",
-  "description": "Use MiniMax M3 inside Claude Code: a local proxy routes Claude Code's Haiku tier (configurable per tier) to MiniMax with your Token Plan API key, while every other model keeps using your own Claude login. Also registers MiniMax models in GitHub Copilot Chat.",
-  "version": "3.0.0",
-  "publisher": "rzfzr",
+  "name": "minimax-vscode-copilot",
+  "displayName": "Minimax VScode Copilot",
+  "description": "Language model provider for GitHub Copilot in VS Code: use MiniMax M3.1-Flash-Preview / M3 / M2.7 / M2.7-highspeed models for programming with a Token Plan API key over the Anthropic-compatible API. Optionally routes Claude Code model tiers to MiniMax through a local proxy with the same key. Does not add speech, video, or image generation APIs.",
+  "version": "2.6.0",
+  "publisher": "klarkxy",
   "license": "SATA-2.1",
   "icon": "icon/icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/rzfzr/minimax-vscode"
+    "url": "https://github.com/klarkxy/minimax-vscode"
   },
   "bugs": {
-    "url": "https://github.com/rzfzr/minimax-vscode/issues"
+    "url": "https://github.com/klarkxy/minimax-vscode/issues"
   },
-  "homepage": "https://github.com/rzfzr/minimax-vscode#readme",
+  "homepage": "https://github.com/klarkxy/minimax-vscode#readme",
   "main": "./out/extension.js",
   "changelog": "CHANGELOG.md",
   "engines": {
