@@ -1,11 +1,26 @@
+import { randomUUID } from 'node:crypto';
 import * as vscode from 'vscode';
 import { getClaudeCodeRoutingConfig, type ClaudeCodeRoutingConfig } from '../config';
-import { CONFIG_SECTION } from '../consts';
+import {
+	CLAUDE_CODE_ENV_ANNOUNCED_KEY,
+	CLAUDE_CODE_ENV_OWNERSHIP_KEY,
+	CLAUDE_CODE_PROXY_SCOPE_KEY,
+	CONFIG_SECTION,
+} from '../consts';
 import { t } from '../i18n';
 import type { KeyManager } from '../keyManager';
 import { logger } from '../logger';
 import { getModels } from '../models/registry';
-import { MANAGED_ENV_NAMES, buildManagedEnv, mergeEnvironmentVariables, sameEnv } from './env';
+import {
+	MANAGED_ENV_NAMES,
+	adoptUnrecordedEntries,
+	buildManagedEnv,
+	planEnvironmentVariables,
+	proxyUrlForPort,
+	resolvePassthroughUrl,
+	sameEnv,
+	type EnvOwnership,
+} from './env';
 import { probeExistingProxy, startProxy, type MiniMaxTarget, type RunningProxy } from './proxy';
 
 /** How often a window that does not own the shared proxy checks whether it can take over. */
@@ -17,28 +32,47 @@ export type BridgeState =
 	| { kind: 'off'; reason: 'disabled' | 'noKey' }
 	/** This window serves the proxy. */
 	| { kind: 'owner'; port: number }
-	/** Another VS Code window serves the proxy; this one stands by. */
+	/** Another VS Code window with the same keys and settings serves the proxy; this one stands by. */
 	| { kind: 'shared'; port: number }
-	/** The port is held by something that is not our proxy. */
+	/** The port is held by something this window must not route through. */
 	| { kind: 'error'; port: number; message: string };
+
+/**
+ * `apply` follows the routing settings; `release` hands the env back
+ * because this window's proxy is about to stop.
+ */
+type EnvWriteReason = 'apply' | 'release';
 
 /**
  * Wires the routing proxy into Claude Code:
  *  - runs the proxy (or stands by while another window runs it),
- *  - injects `ANTHROPIC_BASE_URL` + model overrides into new Claude Code
- *    sessions via `claudeCode.environmentVariables` and into VS Code
- *    terminals via the extension's environment variable collection.
+ *  - while routing is on and a proxy is up, sets `ANTHROPIC_BASE_URL` +
+ *    model overrides for new Claude Code sessions via
+ *    `claudeCode.environmentVariables` and for VS Code terminals via the
+ *    extension's environment variable collection.
+ *
+ * The user's own values for those variables are recorded before they are
+ * replaced and put back when routing is turned off or the proxy stops
+ * (see `planEnvironmentVariables`). Nothing is written while routing is
+ * off unless something this extension wrote has to be restored.
+ *
+ * Windows share one proxy only when it reports the same scope id, i.e.
+ * it reads the same key pool and settings; it resolves the key, region
+ * and passthrough upstream per request from those shared stores, so it
+ * does not matter which of those windows started it.
  *
  * Injection is scoped to VS Code on purpose: a standalone `claude` CLI
  * outside VS Code never points at a proxy that may not be running.
  */
 export class ClaudeCodeBridge implements vscode.Disposable {
 	private proxy?: RunningProxy;
-	private proxySignature?: string;
 	private takeoverTimer?: ReturnType<typeof setInterval>;
+	/** pid of the proxy this window watches while it does not own the port. */
+	private watchedPid?: number;
 	private state: BridgeState = { kind: 'off', reason: 'disabled' };
 	private queue: Promise<void> = Promise.resolve();
 	private disposed = false;
+	private shutdownPromise?: Promise<void>;
 	private readonly statusItem: vscode.StatusBarItem;
 	private readonly subscriptions: vscode.Disposable[] = [];
 
@@ -46,12 +80,19 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 		private readonly context: vscode.ExtensionContext,
 		private readonly keyManager: KeyManager,
 	) {
+		// Terminal env follows the proxy's lifetime: VS Code must not
+		// restore it into terminals before this extension runs again.
+		context.environmentVariableCollection.persistent = false;
 		this.statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 61);
 		this.statusItem.command = 'minimax.claudeCode.menu';
 		this.subscriptions.push(
 			this.statusItem,
 			vscode.workspace.onDidChangeConfiguration((e) => {
 				if (e.affectsConfiguration('minimax.claudeCode.routing')) {
+					void this.refresh();
+				} else if (e.affectsConfiguration('claudeCode.environmentVariables') && this.state.kind === 'owner') {
+					// Re-assert routing after a hand edit (kept as the restore
+					// value) or after a closing window released the env.
 					void this.refresh();
 				}
 			}),
@@ -82,21 +123,20 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 			// started before the switch keep working until they restart.
 			this.stopTakeoverTimer();
 			this.setState({ kind: 'off', reason: cfg.enabled ? 'noKey' : 'disabled' });
-			await this.writeEnv({}, cfg);
+			await this.writeEnv({}, cfg, 'apply');
 			return;
 		}
 		await this.ensureProxy(cfg);
 		if (this.state.kind === 'error') {
-			// Never point Claude Code at a port some other program owns.
-			await this.writeEnv({}, cfg);
+			// Never point Claude Code at a port we cannot vouch for.
+			await this.writeEnv({}, cfg, 'apply');
 			return;
 		}
-		await this.writeEnv(buildManagedEnv(`http://127.0.0.1:${cfg.port}`, cfg.models), cfg);
+		await this.writeEnv(buildManagedEnv(proxyUrlForPort(cfg.port), cfg.models), cfg, 'apply');
 	}
 
 	private async ensureProxy(cfg: ClaudeCodeRoutingConfig): Promise<void> {
-		const signature = `${cfg.port}|${cfg.passthroughUrl}`;
-		if (this.proxy && this.proxySignature === signature) {
+		if (this.proxy?.port === cfg.port) {
 			this.setState({ kind: 'owner', port: cfg.port });
 			return;
 		}
@@ -104,31 +144,47 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 		try {
 			this.proxy = await startProxy({
 				port: cfg.port,
-				passthroughBaseUrl: cfg.passthroughUrl,
+				resolvePassthrough: () => this.resolvePassthrough(cfg.port),
 				resolveMiniMax: () => this.resolveTarget(),
+				scope: () => this.scopeId(),
 				missingKeyMessage: t('claudeCode.missingKey'),
 				logger,
 			});
-			this.proxySignature = signature;
 			this.stopTakeoverTimer();
 			this.setState({ kind: 'owner', port: cfg.port });
-			logger.info(`[ClaudeCode] Routing proxy listening on ${this.proxy.url} (passthrough ${cfg.passthroughUrl})`);
+			logger.info(
+				`[ClaudeCode] Routing proxy listening on ${this.proxy.url} (passthrough ${this.resolvePassthrough(cfg.port)})`,
+			);
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
-			if (code === 'EADDRINUSE' && (await probeExistingProxy(cfg.port))) {
-				this.setState({ kind: 'shared', port: cfg.port });
-				this.startTakeoverTimer(cfg.port);
-				logger.info(`[ClaudeCode] Port ${cfg.port} is served by another VS Code window; standing by.`);
-				return;
+			if (code === 'EADDRINUSE') {
+				const health = await probeExistingProxy(cfg.port);
+				if (health && health.scope === this.scopeId()) {
+					this.setState({ kind: 'shared', port: cfg.port });
+					this.watch(cfg.port, health.pid);
+					logger.info(`[ClaudeCode] Port ${cfg.port} is served by another VS Code window (pid ${health.pid}); standing by.`);
+					return;
+				}
+				if (health) {
+					// A MiniMax proxy serving other keys / settings: keep
+					// watching so routing resumes once it goes away.
+					this.watch(cfg.port, health.pid);
+					this.fail(cfg.port, t('claudeCode.portForeign', cfg.port, health.pid), error);
+					return;
+				}
 			}
-			const message = error instanceof Error ? error.message : String(error);
-			const wasError = this.state.kind === 'error' && this.state.port === cfg.port;
 			this.stopTakeoverTimer();
-			this.setState({ kind: 'error', port: cfg.port, message });
-			logger.error(`[ClaudeCode] Could not start routing proxy on port ${cfg.port}`, error);
-			if (!wasError) {
-				void vscode.window.showErrorMessage(t('claudeCode.portBusy', cfg.port, message));
-			}
+			const message = error instanceof Error ? error.message : String(error);
+			this.fail(cfg.port, t('claudeCode.portBusy', cfg.port, message), error);
+		}
+	}
+
+	private fail(port: number, message: string, error: unknown): void {
+		const repeated = this.state.kind === 'error' && this.state.port === port && this.state.message === message;
+		this.setState({ kind: 'error', port, message });
+		logger.error(`[ClaudeCode] Could not start routing proxy on port ${port}: ${message}`, error);
+		if (!repeated) {
+			void vscode.window.showErrorMessage(message);
 		}
 	}
 
@@ -140,14 +196,40 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 		return { apiKey, baseUrl: await this.keyManager.getActiveApiBaseUrl() };
 	}
 
-	private startTakeoverTimer(port: number): void {
-		if (this.takeoverTimer) {
-			return;
+	private resolvePassthrough(port: number): string {
+		return resolvePassthroughUrl(getClaudeCodeRoutingConfig().passthroughUrl, this.readOwnership(), port);
+	}
+
+	/** Random id shared by every window reading this extension's global state. */
+	private scopeId(): string {
+		let id = this.context.globalState.get<string>(CLAUDE_CODE_PROXY_SCOPE_KEY);
+		if (!id) {
+			id = randomUUID();
+			void this.context.globalState.update(CLAUDE_CODE_PROXY_SCOPE_KEY, id);
 		}
+		return id;
+	}
+
+	/**
+	 * Poll the proxy another process serves on `port`: take over when it
+	 * goes away, and re-converge when a different window took it over (or,
+	 * for a foreign proxy, once it turns out to share our scope).
+	 */
+	private watch(port: number, pid: number): void {
+		this.stopTakeoverTimer();
+		this.watchedPid = pid;
 		this.takeoverTimer = setInterval(() => {
-			void probeExistingProxy(port).then((alive) => {
-				if (!alive && !this.disposed) {
+			void probeExistingProxy(port).then((health) => {
+				if (this.disposed || this.watchedPid === undefined) {
+					return;
+				}
+				if (!health) {
 					logger.info(`[ClaudeCode] Proxy owner on port ${port} went away; taking over.`);
+					void this.refresh();
+				} else if (
+					health.pid !== this.watchedPid ||
+					(this.state.kind === 'error' && health.scope === this.scopeId())
+				) {
 					void this.refresh();
 				}
 			});
@@ -155,6 +237,7 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 	}
 
 	private stopTakeoverTimer(): void {
+		this.watchedPid = undefined;
 		if (this.takeoverTimer) {
 			clearInterval(this.takeoverTimer);
 			this.takeoverTimer = undefined;
@@ -164,16 +247,36 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 	private async stopProxy(): Promise<void> {
 		const proxy = this.proxy;
 		this.proxy = undefined;
-		this.proxySignature = undefined;
 		if (proxy) {
 			await proxy.close();
 			logger.info('[ClaudeCode] Routing proxy stopped');
 		}
 	}
 
-	private async writeEnv(desired: Record<string, string>, cfg: ClaudeCodeRoutingConfig): Promise<void> {
-		// Terminals: only touch variables whose value actually changes so
-		// VS Code does not flag every terminal as stale on each refresh.
+	private readOwnership(): EnvOwnership {
+		const stored = this.context.globalState.get<EnvOwnership>(CLAUDE_CODE_ENV_OWNERSHIP_KEY);
+		return stored && typeof stored === 'object' ? stored : {};
+	}
+
+	private async saveOwnership(owned: EnvOwnership): Promise<void> {
+		if (sameEnv([this.readOwnership()], [owned])) {
+			return;
+		}
+		await this.context.globalState.update(
+			CLAUDE_CODE_ENV_OWNERSHIP_KEY,
+			Object.keys(owned).length > 0 ? owned : undefined,
+		);
+	}
+
+	private async writeEnv(
+		desired: Record<string, string>,
+		cfg: ClaudeCodeRoutingConfig,
+		reason: EnvWriteReason,
+	): Promise<void> {
+		// Terminals: the collection is an overlay VS Code applies on top of
+		// the user's own environment, so deleting an entry restores theirs.
+		// Only touch variables whose value actually changes so VS Code does
+		// not flag every terminal as stale on each refresh.
 		const collection = this.context.environmentVariableCollection;
 		collection.description = t('claudeCode.terminalDescription');
 		for (const name of MANAGED_ENV_NAMES) {
@@ -195,31 +298,67 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 			return;
 		}
 		const claudeConfig = vscode.workspace.getConfiguration('claudeCode');
-		const existing = claudeConfig.inspect<unknown[]>('environmentVariables')?.globalValue ?? [];
-		const merged = mergeEnvironmentVariables(Array.isArray(existing) ? existing : [], desired);
-		if (sameEnv(existing, merged)) {
+		const raw = claudeConfig.inspect<unknown[]>('environmentVariables')?.globalValue;
+		const existing = Array.isArray(raw) ? raw : [];
+		const stored = this.readOwnership();
+		const plan = planEnvironmentVariables(existing, desired, {
+			...adoptUnrecordedEntries(existing, cfg.port),
+			...stored,
+		});
+
+		// Record what is about to be replaced before writing, keeping the
+		// records being released until the write lands: whichever way a
+		// failed write leaves the setting, the next pass can still restore.
+		await this.saveOwnership({ ...stored, ...plan.owned });
+		const wrote = !sameEnv(existing, plan.entries);
+		if (wrote) {
+			try {
+				// An empty list is removed rather than left behind as `[]`.
+				await claudeConfig.update(
+					'environmentVariables',
+					plan.entries.length > 0 ? plan.entries : undefined,
+					vscode.ConfigurationTarget.Global,
+				);
+			} catch (error) {
+				// Terminals still get the env above.
+				logger.warn('[ClaudeCode] Could not update claudeCode.environmentVariables', error);
+				return;
+			}
+			const persisted = vscode.workspace.getConfiguration('claudeCode').inspect<unknown[]>('environmentVariables');
+			if (!sameEnv(persisted?.globalValue ?? [], plan.entries)) {
+				logger.warn(
+					`[ClaudeCode] claudeCode.environmentVariables did not persist (user value now ${JSON.stringify(persisted?.globalValue)})`,
+				);
+				return;
+			}
+		}
+		await this.saveOwnership(plan.owned);
+
+		if (plan.userEdits.length > 0) {
+			const names = plan.userEdits.join(', ');
+			logger.info(`[ClaudeCode] Kept hand-edited ${names} as the value to restore when routing is turned off`);
+			void vscode.window.showInformationMessage(t('claudeCode.envUserEdit', names));
+		}
+		if (!wrote) {
 			return;
 		}
-		try {
-			await claudeConfig.update('environmentVariables', merged, vscode.ConfigurationTarget.Global);
-		} catch (error) {
-			// Terminals still get the env above.
-			logger.warn('[ClaudeCode] Could not update claudeCode.environmentVariables', error);
+		if (reason === 'release') {
+			// Not a user-visible change: the env comes back as soon as a
+			// proxy runs again, without another notification.
+			logger.info('[ClaudeCode] Released routing env (proxy stopping)');
 			return;
 		}
-		const persisted = vscode.workspace.getConfiguration('claudeCode').inspect<unknown[]>('environmentVariables');
-		if (!sameEnv(persisted?.globalValue ?? [], merged)) {
-			logger.warn(
-				`[ClaudeCode] claudeCode.environmentVariables did not persist (user value now ${JSON.stringify(persisted?.globalValue)})`,
-			);
-			return;
-		}
-		const tiers = describeTiers(cfg);
 		if (Object.keys(desired).length > 0) {
+			const tiers = describeTiers(cfg);
 			logger.info(`[ClaudeCode] Injected routing env: ${tiers}`);
-			void vscode.window.showInformationMessage(t('claudeCode.envApplied', tiers));
+			const signature = JSON.stringify(desired);
+			if (this.context.globalState.get<string>(CLAUDE_CODE_ENV_ANNOUNCED_KEY) !== signature) {
+				await this.context.globalState.update(CLAUDE_CODE_ENV_ANNOUNCED_KEY, signature);
+				void vscode.window.showInformationMessage(t('claudeCode.envApplied', tiers));
+			}
 		} else {
-			logger.info('[ClaudeCode] Removed routing env');
+			logger.info('[ClaudeCode] Restored the Claude Code env from before routing');
+			await this.context.globalState.update(CLAUDE_CODE_ENV_ANNOUNCED_KEY, undefined);
 			void vscode.window.showInformationMessage(t('claudeCode.envRemoved'));
 		}
 	}
@@ -249,23 +388,45 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 				break;
 			case 'error':
 				item.text = '$(error) MiniMax CC';
-				item.tooltip = t('claudeCode.portBusy', state.port, state.message);
+				item.tooltip = state.message;
 				break;
 		}
 		item.show();
 	}
 
-	dispose(): void {
-		if (this.disposed) {
-			return;
-		}
+	/**
+	 * Stop routing in this window. The window serving the proxy first hands
+	 * Claude Code's env back, so nothing is left pointing at a port that is
+	 * about to close; a standby window re-injects it when it takes over the
+	 * port, and the next activation re-injects it otherwise. Best effort: if
+	 * the host is killed before the write lands, the next activation
+	 * reconciles (and restores, if routing is off by then).
+	 */
+	shutdown(): Promise<void> {
+		this.shutdownPromise ??= this.doShutdown();
+		return this.shutdownPromise;
+	}
+
+	private async doShutdown(): Promise<void> {
 		this.disposed = true;
 		this.stopTakeoverTimer();
-		// Another window (if any) takes over within TAKEOVER_INTERVAL_MS.
-		void this.stopProxy();
 		for (const d of this.subscriptions) {
 			d.dispose();
 		}
+		await this.queue;
+		if (!this.proxy) {
+			return;
+		}
+		try {
+			await this.writeEnv({}, getClaudeCodeRoutingConfig(), 'release');
+		} catch (error) {
+			logger.warn('[ClaudeCode] Could not release the Claude Code env', error);
+		}
+		await this.stopProxy();
+	}
+
+	dispose(): void {
+		void this.shutdown();
 	}
 }
 

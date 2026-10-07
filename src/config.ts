@@ -174,6 +174,7 @@ export function getStabilizeToolListEnabled(): boolean {
 export interface ClaudeCodeRoutingConfig {
 	enabled: boolean;
 	port: number;
+	/** Empty = automatic; see `resolvePassthroughUrl` in `claudeCode/env.ts`. */
 	passthroughUrl: string;
 	models: { haiku: string; sonnet: string; opus: string };
 }
@@ -186,11 +187,10 @@ export interface ClaudeCodeRoutingConfig {
 export function getClaudeCodeRoutingConfig(): ClaudeCodeRoutingConfig {
 	const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
 	const port = config.get<number>('claudeCode.routing.port', 4000);
-	const passthroughUrl = config.get<string>('claudeCode.routing.passthroughUrl', '').trim();
 	return {
-		enabled: config.get<boolean>('claudeCode.routing.enabled', true),
+		enabled: config.get<boolean>('claudeCode.routing.enabled', false),
 		port: Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : 4000,
-		passthroughUrl: passthroughUrl || 'https://api.anthropic.com',
+		passthroughUrl: config.get<string>('claudeCode.routing.passthroughUrl', '').trim(),
 		models: {
 			haiku: config.get<string>('claudeCode.routing.haikuModel', 'MiniMax-M3'),
 			sonnet: config.get<string>('claudeCode.routing.sonnetModel', ''),

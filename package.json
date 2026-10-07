@@ -330,9 +330,9 @@
         },
         "minimax.claudeCode.routing.enabled": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "scope": "application",
-          "markdownDescription": "Route Claude Code's model overrides to MiniMax. Starts a local proxy on `127.0.0.1` and injects `ANTHROPIC_BASE_URL` plus the `ANTHROPIC_DEFAULT_*_MODEL` overrides into new Claude Code sessions (via `claudeCode.environmentVariables` and VS Code terminals). Requests for MiniMax models use your MiniMax API key; every other request passes through unchanged to Anthropic with your own Claude login. Turn off (or run **MiniMax: Disable Claude Code Routing**) before uninstalling."
+          "markdownDescription": "Route Claude Code's model overrides to MiniMax (opt-in). Starts a local proxy on `127.0.0.1` and, while it runs, sets `ANTHROPIC_BASE_URL` plus the configured `ANTHROPIC_DEFAULT_*_MODEL` overrides for new Claude Code sessions (via `claudeCode.environmentVariables` and VS Code terminals). Any values you had for those variables are saved and put back when routing is turned off or the extension stops; variables for tiers left empty are never touched. Requests for MiniMax models use your MiniMax API key; every other request passes through unchanged with your own Claude login."
         },
         "minimax.claudeCode.routing.port": {
           "type": "integer",
@@ -340,7 +340,7 @@
           "minimum": 1024,
           "maximum": 65535,
           "scope": "application",
-          "markdownDescription": "Local port of the Claude Code routing proxy. Several VS Code windows share one proxy; when the owning window closes, another one takes over."
+          "markdownDescription": "Local port of the Claude Code routing proxy. VS Code windows of the same installation and profile share one proxy (they share the same keys and settings); when the owning window closes, another one takes over. A proxy from a different installation or profile on this port is never used: pick a different port there."
         },
         "minimax.claudeCode.routing.haikuModel": {
           "type": "string",
@@ -362,9 +362,9 @@
         },
         "minimax.claudeCode.routing.passthroughUrl": {
           "type": "string",
-          "default": "https://api.anthropic.com",
+          "default": "",
           "scope": "application",
-          "markdownDescription": "Where the proxy forwards non-MiniMax requests (with the caller's own credentials)."
+          "markdownDescription": "Where the proxy forwards non-MiniMax requests (with the caller's own credentials). Empty (default) = the `ANTHROPIC_BASE_URL` you had in `claudeCode.environmentVariables` before routing was turned on, or `https://api.anthropic.com` if there was none."
         },
         "minimax.dashboard.includeClaudeCode": {
           "type": "boolean",

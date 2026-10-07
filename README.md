@@ -40,14 +40,15 @@ This is a fork of **[klarkxy/minimax-vscode](https://github.com/klarkxy/minimax-
    Uninstall the original `klarkxy.minimax-vscode-copilot` first, because both register the same `minimax.*` commands.
 
 2. **Add your key.** Run **MiniMax: Add API Key** from the command palette and paste a MiniMax Token Plan key. The China or Global endpoint is detected automatically.
-3. **Start a new Claude Code session**, either in the Claude Code extension or with `claude` in a VS Code terminal. Sessions that were already open keep their old environment.
-4. **Check that routing works.** The `MiniMax CC` status bar item should show the proxy as running. After a Haiku-tier request (for example an Explore subagent, or `/model haiku`), **MiniMax: Show Logs** prints `[ClaudeCode] POST /v1/messages model=MiniMax-M3 → MiniMax`, and the tokens show up in the **Usage Dashboard** `claude` tab.
+3. **Turn routing on.** Run **MiniMax: Enable Claude Code Routing**. Routing is opt-in; nothing in your Claude Code settings changes until you do this.
+4. **Start a new Claude Code session**, either in the Claude Code extension or with `claude` in a VS Code terminal. Sessions that were already open keep their old environment.
+5. **Check that routing works.** The `MiniMax CC` status bar item should show the proxy as running. After a Haiku-tier request (for example an Explore subagent, or `/model haiku`), **MiniMax: Show Logs** prints `[ClaudeCode] POST /v1/messages model=MiniMax-M3 → MiniMax`, and the tokens show up in the **Usage Dashboard** `claude` tab.
 
 GitHub Copilot Chat is **not** required for Claude Code routing. You only need it for the Copilot Chat models described in [Getting Started](#getting-started).
 
 ## Claude Code routing
 
-Add your MiniMax Token Plan key once (**MiniMax: Add API Key**) and the extension:
+Add your MiniMax Token Plan key (**MiniMax: Add API Key**) and turn routing on (**MiniMax: Enable Claude Code Routing**). The extension then:
 
 1. Starts a local proxy on `http://127.0.0.1:4000`.
 2. Injects into every **new** Claude Code session started from VS Code (the Claude Code extension via `claudeCode.environmentVariables`, and `claude` run in VS Code terminals):
@@ -59,26 +60,37 @@ Add your MiniMax Token Plan key once (**MiniMax: Add API Key**) and the extensio
    }
    ```
 
-3. Routes each request by its `model`: `MiniMax-*` models go to MiniMax with your key; everything else (Opus, Sonnet, OAuth/usage endpoints) is passed through byte-for-byte to `api.anthropic.com` with **your own** Claude credentials.
+3. Routes each request by its `model`: `MiniMax-*` models go to MiniMax with your key; everything else (Opus, Sonnet, OAuth/usage endpoints) is passed through byte-for-byte with **your own** Claude credentials, to the `ANTHROPIC_BASE_URL` you had before (if any) or to `api.anthropic.com`.
 
 No `ANTHROPIC_AUTH_TOKEN` is set — it would replace your Claude subscription login on every request. The proxy adds the MiniMax key itself.
 
-| Setting                                                | Default                     |                                                                                                                   |
-| ------------------------------------------------------ | --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `minimax.claudeCode.routing.enabled`                   | `true`                      | Master switch (also: **MiniMax: Enable / Disable Claude Code Routing**, or the `MiniMax CC` status bar item).     |
-| `minimax.claudeCode.routing.haikuModel`                | `MiniMax-M3`                | Model for the Haiku tier (background tasks, Explore subagents, `/model haiku`). Empty = Anthropic Haiku.          |
-| `minimax.claudeCode.routing.sonnetModel` / `opusModel` | empty                       | Optional overrides for the other tiers.                                                                           |
-| `minimax.claudeCode.routing.port`                      | `4000`                      | Proxy port. Multiple VS Code windows share one proxy; another window takes over within 5 s when the owner closes. |
-| `minimax.claudeCode.routing.passthroughUrl`            | `https://api.anthropic.com` | Upstream for non-MiniMax traffic.                                                                                 |
+| Setting                                                | Default      |                                                                                                                   |
+| ------------------------------------------------------ | ------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `minimax.claudeCode.routing.enabled`                   | `false`      | Master switch (also: **MiniMax: Enable / Disable Claude Code Routing**, or the `MiniMax CC` status bar item).     |
+| `minimax.claudeCode.routing.haikuModel`                | `MiniMax-M3` | Model for the Haiku tier (background tasks, Explore subagents, `/model haiku`). Empty = Anthropic Haiku.          |
+| `minimax.claudeCode.routing.sonnetModel` / `opusModel` | empty        | Optional overrides for the other tiers.                                                                           |
+| `minimax.claudeCode.routing.port`                      | `4000`       | Proxy port. Multiple VS Code windows share one proxy; another window takes over within 5 s when the owner closes. |
+| `minimax.claudeCode.routing.passthroughUrl`            | empty        | Upstream for non-MiniMax traffic. Empty = your previous `ANTHROPIC_BASE_URL`, else `https://api.anthropic.com`.   |
 
 Notes:
 
 - Changes apply to **new** Claude Code sessions; restart open ones.
 - A standalone `claude` outside VS Code is never redirected, so it never depends on the proxy being up.
-- Run **MiniMax: Disable Claude Code Routing** before uninstalling, otherwise `claudeCode.environmentVariables` keeps pointing at the (now stopped) proxy.
 - Claude Code prints a one-time note that `MiniMax-M3` is not in its model catalog and assumes a 200K context window; that is expected.
 - Provisioning without the input box: put the key in the user setting `minimax.apiKey`; on activation it is moved into SecretStorage and the setting is cleared.
 - MiniMax tokens used through Claude Code show up in the **Usage Dashboard**'s `claude` tab.
+
+How your Claude Code settings are handled:
+
+- Only the variables routing needs are written: `ANTHROPIC_BASE_URL` and the tiers you set a model for. A tier left empty is not touched, so your own `ANTHROPIC_DEFAULT_OPUS_MODEL` (for example) stays as it is. Other entries in `claudeCode.environmentVariables` are never modified.
+- Before a variable is replaced, its previous value is saved. Turning routing off puts it back, or removes the variable if you had none. If you edit a routed variable while routing is on, your edit becomes the value that is put back later.
+- With routing off, or with no API key, the extension does not write to your Claude Code settings at all (except to restore values it changed earlier).
+- Claude Code is only pointed at the proxy while a proxy is running. When the window running the proxy closes, or the extension is disabled or uninstalled, the previous values are restored first. Another open window takes over the proxy and re-applies routing; otherwise the next VS Code start does. If VS Code is killed before the restore finishes, the next start fixes it.
+
+Multiple windows:
+
+- VS Code windows of the same installation and profile share one proxy. They also share the same API keys and settings, and the proxy reads the active key, region and passthrough upstream for every request, so it does not matter which window started it.
+- A MiniMax proxy from a different installation (e.g. VS Code Insiders next to Stable), a different profile, or an older build of this extension is identified through its health check and never used, because it would answer with that instance's keys and settings. Routing stays off in that window until the other proxy goes away; set a different `minimax.claudeCode.routing.port` there to run both.
 
 ## Benchmark: M3 as Claude Code's Haiku tier
 

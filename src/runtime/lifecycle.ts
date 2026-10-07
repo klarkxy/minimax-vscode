@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { registerClaudeCodeBridge } from '../claudeCode';
+import { registerClaudeCodeBridge, type ClaudeCodeBridge } from '../claudeCode';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import { MiniMaxChatProvider } from '../provider';
@@ -19,6 +19,7 @@ import { registerMiniMaxMcpProvider } from './mcp';
 import { showWelcomeIfNeeded } from './welcome';
 
 let activeProvider: MiniMaxChatProvider | undefined;
+let claudeCodeBridge: ClaudeCodeBridge | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	setCommandContext(context);
@@ -86,7 +87,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	setClaudeCodeIngest(context);
 	// Route Claude Code's model overrides (by default the Haiku tier)
 	// through the local MiniMax proxy. Independent of Copilot Chat.
-	registerClaudeCodeBridge(context, getKeyManager());
+	claudeCodeBridge = registerClaudeCodeBridge(context, getKeyManager());
 	registerActionUrls(context);
 
 	// Register the MiniMax Web Search MCP server definition provider
@@ -149,11 +150,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export async function deactivate(): Promise<void> {
 	try {
+		// Hand Claude Code's env back before the proxy stops, so it is not
+		// left pointing at a dead localhost port (e.g. on disable/uninstall).
+		await claudeCodeBridge?.shutdown();
 		await activeProvider?.prepareForDeactivate();
 	} catch (error) {
 		logger.warn(t('extension.deactivateFailed'), error);
 	} finally {
 		activeProvider = undefined;
+		claudeCodeBridge = undefined;
 		logger.info('Extension deactivated');
 		logger.dispose();
 	}

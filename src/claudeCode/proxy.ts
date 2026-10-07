@@ -22,6 +22,14 @@ import * as https from 'node:https';
 export const PROXY_HEALTH_PATH = '/__minimax/health';
 export const PROXY_ID = 'minimax-claude-code-proxy';
 
+/** What the health endpoint reports about the process serving the port. */
+export interface ProxyHealth {
+	pid: number;
+	/** Identifies the key pool / settings store the proxy serves from;
+	 *  absent on proxies from builds that predate it. */
+	scope?: string;
+}
+
 export interface MiniMaxTarget {
 	apiKey: string;
 	/** Anthropic-compatible base, e.g. `https://api.minimax.io/anthropic`. */
@@ -36,10 +44,13 @@ export interface ProxyLogger {
 export interface ClaudeCodeProxyOptions {
 	port: number;
 	host?: string;
-	/** Where non-MiniMax traffic goes, e.g. `https://api.anthropic.com`. */
-	passthroughBaseUrl: string;
+	/** Where non-MiniMax traffic goes, e.g. `https://api.anthropic.com`.
+	 *  Resolved per request, like the MiniMax target. */
+	resolvePassthrough: () => string;
 	/** Resolved per request so key / region switches apply immediately. */
 	resolveMiniMax: () => Promise<MiniMaxTarget | undefined>;
+	/** Reported by the health endpoint; see `ProxyHealth.scope`. */
+	scope?: () => string;
 	/** Message returned to Claude Code when no MiniMax key is configured. */
 	missingKeyMessage?: string;
 	isMiniMaxModel?: (model: string) => boolean;
@@ -199,7 +210,7 @@ export function createProxyHandler(
 	return async (req, res) => {
 		const pathAndQuery = req.url ?? '/';
 		if (req.method === 'GET' && pathAndQuery.split('?')[0] === PROXY_HEALTH_PATH) {
-			const payload = JSON.stringify({ id: PROXY_ID, pid: process.pid });
+			const payload = JSON.stringify({ id: PROXY_ID, pid: process.pid, scope: options.scope?.() });
 			res.writeHead(200, { 'content-type': 'application/json' });
 			res.end(payload);
 			return;
@@ -258,7 +269,7 @@ export function createProxyHandler(
 		forward(
 			req,
 			res,
-			joinUrl(options.passthroughBaseUrl, pathAndQuery),
+			joinUrl(options.resolvePassthrough(), pathAndQuery),
 			filterHeaders(req.headers),
 			body,
 			logger,
@@ -295,21 +306,38 @@ export function startProxy(options: ClaudeCodeProxyOptions): Promise<RunningProx
 	});
 }
 
-/** True when `port` is served by a MiniMax proxy (possibly another window's). */
-export function probeExistingProxy(port: number, host = '127.0.0.1', timeoutMs = 1500): Promise<boolean> {
+/** Identity of the MiniMax proxy serving `port` (possibly another window's),
+ *  or `undefined` when nothing, or something else, answers there. */
+export function probeExistingProxy(
+	port: number,
+	host = '127.0.0.1',
+	timeoutMs = 1500,
+): Promise<ProxyHealth | undefined> {
 	return new Promise((resolve) => {
 		const req = http.get({ host, port, path: PROXY_HEALTH_PATH, timeout: timeoutMs }, (res) => {
 			const chunks: Buffer[] = [];
 			res.on('data', (c: Buffer) => chunks.push(c));
 			res.on('end', () => {
 				try {
-					resolve((JSON.parse(Buffer.concat(chunks).toString('utf8')) as { id?: string }).id === PROXY_ID);
+					const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+						id?: string;
+						pid?: unknown;
+						scope?: unknown;
+					};
+					if (body.id !== PROXY_ID) {
+						resolve(undefined);
+						return;
+					}
+					resolve({
+						pid: typeof body.pid === 'number' ? body.pid : 0,
+						scope: typeof body.scope === 'string' ? body.scope : undefined,
+					});
 				} catch {
-					resolve(false);
+					resolve(undefined);
 				}
 			});
 		});
 		req.on('timeout', () => req.destroy());
-		req.on('error', () => resolve(false));
+		req.on('error', () => resolve(undefined));
 	});
 }

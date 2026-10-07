@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import type { KeyManager } from '../keyManager';
 import { ClaudeCodeBridge, pickHaikuModel, setRoutingEnabled, showClaudeCodeMenu } from './bridge';
 
+export type { ClaudeCodeBridge };
+
 /** Start Claude Code routing and register its commands. */
 export function registerClaudeCodeBridge(context: vscode.ExtensionContext, keyManager: KeyManager): ClaudeCodeBridge {
 	const bridge = new ClaudeCodeBridge(context, keyManager);

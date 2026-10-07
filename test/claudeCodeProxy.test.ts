@@ -116,14 +116,17 @@ describe('routing proxy', () => {
 	let minimax: { url: string; server: http.Server };
 	let proxy: RunningProxy;
 	let apiKey: string | undefined = 'mm-secret';
+	let passthrough: string;
 
 	before(async () => {
 		anthropic = await fakeUpstream('anthropic', anthropicSeen);
 		minimax = await fakeUpstream('minimax', minimaxSeen);
+		passthrough = anthropic.url;
 		proxy = await startProxy({
 			port: 0,
-			passthroughBaseUrl: anthropic.url,
+			resolvePassthrough: () => passthrough,
 			resolveMiniMax: async () => (apiKey ? { apiKey, baseUrl: `${minimax.url}/anthropic` } : undefined),
+			scope: () => 'scope-a',
 			missingKeyMessage: 'no key',
 		});
 	});
@@ -176,6 +179,17 @@ describe('routing proxy', () => {
 		assert.equal(seen.headers['x-api-key'], undefined);
 	});
 
+	it('resolves the passthrough upstream per request', async () => {
+		passthrough = `${minimax.url}/gateway`;
+		try {
+			const res = await post(proxy, '/v1/messages', { model: 'claude-opus-4-1' });
+			assert.equal(res.headers['x-upstream'], 'minimax');
+			assert.equal(minimaxSeen.at(-1)!.path, '/gateway/v1/messages');
+		} finally {
+			passthrough = anthropic.url;
+		}
+	});
+
 	it('passes non-JSON / bodiless requests through', async () => {
 		const status = await new Promise<number>((resolve) => {
 			http.get(`${proxy.url}/api/oauth/usage`, (res) => {
@@ -201,16 +215,16 @@ describe('routing proxy', () => {
 		}
 	});
 
-	it('serves the health endpoint and is detectable by probeExistingProxy', async () => {
-		assert.equal(await probeExistingProxy(proxy.port), true);
-		assert.equal(await probeExistingProxy(Number(new URL(anthropic.url).port)), false);
+	it('serves the health endpoint and is identified by probeExistingProxy', async () => {
+		assert.deepEqual(await probeExistingProxy(proxy.port), { pid: process.pid, scope: 'scope-a' });
+		assert.equal(await probeExistingProxy(Number(new URL(anthropic.url).port)), undefined);
 		assert.equal(minimaxSeen.some((s) => s.path.includes(PROXY_HEALTH_PATH)), false);
 	});
 
 	it('returns 502 when the upstream is unreachable', async () => {
 		const dead = await startProxy({
 			port: 0,
-			passthroughBaseUrl: 'http://127.0.0.1:1',
+			resolvePassthrough: () => 'http://127.0.0.1:1',
 			resolveMiniMax: async () => undefined,
 		});
 		try {
