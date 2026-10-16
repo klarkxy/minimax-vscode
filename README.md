@@ -70,7 +70,7 @@ It uses the same API key pool as the Copilot Chat models, so one key can serve C
 To turn it on, add a key (**MiniMax: Add API Key**) and run **MiniMax: Enable Claude Code Routing**. The extension then:
 
 1. Starts a local proxy on `http://127.0.0.1:4000`.
-2. Sets these variables for every **new** Claude Code session started from VS Code (the Claude Code extension via `claudeCode.environmentVariables`, and `claude` run in VS Code terminals):
+2. Sets these variables for every **new** Claude Code session started from that VS Code window (Claude Code extension sessions, and `claude` run in its terminals):
 
    ```json
    {
@@ -83,12 +83,14 @@ To turn it on, add a key (**MiniMax: Add API Key**) and run **MiniMax: Enable Cl
 
 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` are never set, because they would replace your Claude login on every request. The proxy adds the MiniMax key itself. Changes apply to **new** Claude Code sessions; restart open ones. A standalone `claude` outside VS Code is never redirected.
 
-How your Claude Code settings are handled:
+How your environment and settings are handled:
 
-- Only `ANTHROPIC_BASE_URL` and the tiers you set a model for are written. A tier left empty is not touched, so your own `ANTHROPIC_DEFAULT_OPUS_MODEL` (for example) stays as it is, and other entries in `claudeCode.environmentVariables` are never modified.
-- Before a variable is replaced, its previous value is saved. Turning routing off puts it back, or removes the variable if you had none. If you edit a routed variable while routing is on, your edit becomes the value that is put back later.
-- With routing off, or with no API key, the extension does not write to your Claude Code settings (except to restore values it changed earlier).
-- Claude Code is only pointed at the proxy while a proxy is running. When the window running the proxy closes, or the extension is disabled or uninstalled, the previous values are restored first. Another open window takes over the proxy and re-applies routing; otherwise the next VS Code start does.
+- The variables are set in the window's extension host process (Claude Code copies its environment into each session it starts) and in its terminals, never in a settings file. They exist only while that window runs, so Claude Code is never left pointing at a dead port, and nobody else sees them.
+- Only `ANTHROPIC_BASE_URL` and the tiers you set a model for are set. A tier left empty is not touched, so your own `ANTHROPIC_DEFAULT_OPUS_MODEL` (for example) stays as it is. Turning routing off, or disabling the extension, puts back the values the window started with.
+- `claudeCode.environmentVariables` is applied on top of that environment, so your own entries there for these variables win over routing; the extension warns when that happens. Use `minimax.claudeCode.routing.passthroughUrl` for a custom gateway instead.
+- Earlier versions wrote routing into `claudeCode.environmentVariables`; those entries are removed (and your previous values restored) on the next start.
+
+**Shared remote accounts.** `claudeCode.environmentVariables` is a machine setting, so over Remote-SSH it is stored on the server and applies to everyone using that account. That is why routing no longer goes there: when several people share one remote login, only the windows that turned routing on are routed.
 
 Multiple windows share one proxy as long as they belong to the same VS Code installation and profile (and therefore the same API keys and settings). The proxy reads the active key, region and passthrough upstream on every request, so it does not matter which window started it. A MiniMax proxy from another installation (e.g. Insiders next to Stable), another profile or an older build of this extension is recognised through its health check and never used. Set a different `minimax.claudeCode.routing.port` there to run both.
 
@@ -153,7 +155,7 @@ A Subscription Key covers language models plus speech / video / music / image en
 | `minimax.claudeCode.routing.haikuModel`                | `MiniMax-M3`                                                                 | MiniMax model for Claude Code's Haiku tier. Empty = Anthropic's Haiku.                                                                                                                       |
 | `minimax.claudeCode.routing.sonnetModel` / `opusModel` | empty                                                                        | Optional MiniMax models for the Sonnet / Opus tiers. Empty = Anthropic's model.                                                                                                              |
 | `minimax.claudeCode.routing.port`                      | `4000`                                                                       | Proxy port, shared by the windows of one installation and profile.                                                                                                                           |
-| `minimax.claudeCode.routing.passthroughUrl`            | empty                                                                        | Upstream for non-MiniMax traffic. Empty = your previous `ANTHROPIC_BASE_URL`, else `https://api.anthropic.com`.                                                                              |
+| `minimax.claudeCode.routing.passthroughUrl`            | empty                                                                        | Upstream for non-MiniMax traffic. Empty = the `ANTHROPIC_BASE_URL` VS Code started with, else `https://api.anthropic.com`.                                                                   |
 | `minimax.claudeCode.allowedModels`                     | `MiniMax-M3.1-Flash-Preview / M3 / M2.7 / M2.7-highspeed / M2.5 / M2.1 / M2` | Allowlist of model IDs counted in the Claude Code section of the dashboard. Claude Code may be talking to other Anthropic-compatible providers; only MiniMax-related rows are counted.       |
 
 ## Commands

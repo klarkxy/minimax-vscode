@@ -332,7 +332,7 @@
           "type": "boolean",
           "default": false,
           "scope": "application",
-          "markdownDescription": "Route Claude Code's model overrides to MiniMax (opt-in). Starts a local proxy on `127.0.0.1` and, while it runs, sets `ANTHROPIC_BASE_URL` plus the configured `ANTHROPIC_DEFAULT_*_MODEL` overrides for new Claude Code sessions (via `claudeCode.environmentVariables` and VS Code terminals). Any values you had for those variables are saved and put back when routing is turned off or the extension stops; variables for tiers left empty are never touched. Requests for MiniMax models use your MiniMax API key; every other request passes through unchanged with your own Claude login."
+          "markdownDescription": "Route Claude Code's model overrides to MiniMax (opt-in). Starts a local proxy on `127.0.0.1` and, while it runs, sets `ANTHROPIC_BASE_URL` plus the configured `ANTHROPIC_DEFAULT_*_MODEL` overrides for new Claude Code sessions started from this window (its extension host and terminals; never written to a settings file, so other people sharing a remote account are not affected). Values you had for those variables are put back when routing is turned off or the extension stops; variables for tiers left empty are never touched. Requests for MiniMax models use your MiniMax API key; every other request passes through unchanged with your own Claude login."
         },
         "minimax.claudeCode.routing.port": {
           "type": "integer",
@@ -364,7 +364,7 @@
           "type": "string",
           "default": "",
           "scope": "application",
-          "markdownDescription": "Where the proxy forwards non-MiniMax requests (with the caller's own credentials). Empty (default) = the `ANTHROPIC_BASE_URL` you had in `claudeCode.environmentVariables` before routing was turned on, or `https://api.anthropic.com` if there was none."
+          "markdownDescription": "Where the proxy forwards non-MiniMax requests (with the caller's own credentials). Empty (default) = the `ANTHROPIC_BASE_URL` VS Code's extension host started with, or `https://api.anthropic.com` if there was none."
         },
         "minimax.dashboard.includeClaudeCode": {
           "type": "boolean",

@@ -220,10 +220,10 @@ export const CLAUDE_CODE_USAGE_STATS_KEY = 'minimax-vscode.claudeCodeUsageStats'
  *  Code log ingester. JSON blob — see `src/dashboard/claudeCodeIngest.ts`. */
 export const CLAUDE_CODE_INGEST_CURSOR_KEY = 'minimax-vscode.claudeCodeIngestCursor';
 
-/** memento key for the `claudeCode.environmentVariables` entries the
- *  routing bridge currently holds, with the user's values from before.
- *  `EnvOwnership` JSON — see `src/claudeCode/env.ts`. Shared by every
- *  window so whichever one turns routing off can restore them. */
+/** memento key for the `claudeCode.environmentVariables` entries older
+ *  builds of the routing bridge wrote, with the user's values from before.
+ *  `EnvOwnership` JSON — see `src/claudeCode/env.ts`. Read only to restore
+ *  them; current builds never write the setting. */
 export const CLAUDE_CODE_ENV_OWNERSHIP_KEY = 'minimax-vscode.claudeCodeEnvOwnership';
 
 /** memento key for the routing env the user was last told about, so

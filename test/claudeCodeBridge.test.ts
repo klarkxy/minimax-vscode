@@ -1,8 +1,10 @@
-// Tests for ClaudeCodeBridge (src/claudeCode/bridge.ts): what it writes to
-// `claudeCode.environmentVariables` as routing is turned on / off, when the
+// Tests for ClaudeCodeBridge (src/claudeCode/bridge.ts): what it sets on the
+// extension host's `process.env` as routing is turned on / off, when the
 // window shuts down, and when several windows share (or must not share)
-// one proxy port. Each bridge plays one VS Code window; `mockConfig` plays
-// the user's settings.json and FakeGlobalState the extension's memento.
+// one proxy port; and how it cleans up the `claudeCode.environmentVariables`
+// entries older builds wrote. Each bridge plays one VS Code window;
+// `mockConfig` plays the settings and FakeGlobalState the extension's memento
+// (one per person: it lives on the VS Code client).
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import * as assert from 'node:assert/strict';
@@ -11,6 +13,7 @@ import * as net from 'node:net';
 import * as vscode from 'vscode';
 
 import { ClaudeCodeBridge } from '../src/claudeCode/bridge';
+import { MANAGED_ENV_NAMES } from '../src/claudeCode/env';
 import { mockConfig, mockState } from './helpers/vscodeMock';
 
 class FakeGlobalState {
@@ -64,11 +67,7 @@ function freePort(): Promise<number> {
 }
 
 const ENV = 'claudeCode.environmentVariables';
-const USER_ENV = [
-	{ name: 'FOO', value: '1' },
-	{ name: 'ANTHROPIC_BASE_URL', value: 'https://gateway.example' },
-	{ name: 'ANTHROPIC_DEFAULT_OPUS_MODEL', value: 'claude-opus-custom' },
-];
+const USER_ENV = [{ name: 'FOO', value: '1' }];
 
 let port: number;
 /** Every bridge a test creates; shut down afterwards so a failed assertion
@@ -76,6 +75,7 @@ let port: number;
 const bridges: ClaudeCodeBridge[] = [];
 const extensions = vscode.extensions as unknown as { getExtension: (id: string) => unknown };
 const originalGetExtension = extensions.getExtension;
+let savedEnv: Record<string, string | undefined>;
 
 beforeEach(async () => {
 	mockState.reset();
@@ -83,72 +83,134 @@ beforeEach(async () => {
 	mockConfig['minimax.claudeCode.routing.port'] = port;
 	mockConfig[ENV] = structuredClone(USER_ENV);
 	extensions.getExtension = (id: string) => (id === 'anthropic.claude-code' ? {} : undefined);
+	savedEnv = {};
+	for (const name of MANAGED_ENV_NAMES) {
+		savedEnv[name] = process.env[name];
+		delete process.env[name];
+	}
 });
 
 afterEach(async () => {
 	extensions.getExtension = originalGetExtension;
 	await Promise.all(bridges.splice(0).map((b) => b.shutdown()));
+	for (const name of MANAGED_ENV_NAMES) {
+		if (savedEnv[name] === undefined) {
+			delete process.env[name];
+		} else {
+			process.env[name] = savedEnv[name];
+		}
+	}
 });
 
 function enable(on: boolean): void {
 	mockConfig['minimax.claudeCode.routing.enabled'] = on;
 }
 
-const routedEnv = () => [
-	{ name: 'FOO', value: '1' },
-	{ name: 'ANTHROPIC_BASE_URL', value: `http://127.0.0.1:${port}` },
-	{ name: 'ANTHROPIC_DEFAULT_OPUS_MODEL', value: 'claude-opus-custom' },
-	{ name: 'ANTHROPIC_DEFAULT_HAIKU_MODEL', value: 'MiniMax-M3' },
-];
+function managedEnv(): Record<string, string> {
+	const env: Record<string, string> = {};
+	for (const name of MANAGED_ENV_NAMES) {
+		if (process.env[name] !== undefined) {
+			env[name] = process.env[name]!;
+		}
+	}
+	return env;
+}
 
-describe('ClaudeCodeBridge settings handling', () => {
-	it('is opt-in: with routing off it neither writes settings nor starts a proxy', async () => {
+function post(url: string, body: unknown): Promise<{ status: number; body: string }> {
+	return new Promise((resolve, reject) => {
+		const req = http.request(url, { method: 'POST' }, (res) => {
+			const chunks: Buffer[] = [];
+			res.on('data', (c: Buffer) => chunks.push(c));
+			res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
+		});
+		req.on('error', reject);
+		req.end(JSON.stringify(body));
+	});
+}
+
+describe('ClaudeCodeBridge env handling', () => {
+	it('is opt-in: with routing off it sets nothing and starts no proxy', async () => {
 		const { bridge, collection } = newWindow(new FakeGlobalState());
 		await bridge.refresh();
 		assert.deepEqual(mockConfig[ENV], USER_ENV);
+		assert.deepEqual(managedEnv(), {});
 		assert.equal(bridge.currentState.kind, 'off');
 		assert.equal(collection.vars.size, 0);
 		assert.equal(collection.persistent, false);
-		await bridge.shutdown();
+		assert.equal(await isListening(port), false);
 	});
 
-	it('leaves the user env alone when routing is on but there is no API key', async () => {
+	it('sets nothing when routing is on but there is no API key', async () => {
 		enable(true);
 		const { bridge } = newWindow(new FakeGlobalState(), null);
 		await bridge.refresh();
-		assert.deepEqual(mockConfig[ENV], USER_ENV);
+		assert.deepEqual(managedEnv(), {});
 		assert.deepEqual(bridge.currentState, { kind: 'off', reason: 'noKey' });
-		await bridge.shutdown();
 	});
 
-	it('injects only routed variables and restores the previous values when turned off', async () => {
+	it('routes through this process env only and restores it when turned off', async () => {
+		process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = 'claude-opus-custom';
 		enable(true);
 		const { bridge, collection } = newWindow(new FakeGlobalState());
 		await bridge.refresh();
 		assert.deepEqual(bridge.currentState, { kind: 'owner', port });
-		assert.deepEqual(mockConfig[ENV], routedEnv());
-		assert.equal(collection.vars.get('ANTHROPIC_BASE_URL')?.value, `http://127.0.0.1:${port}`);
+
+		const env = managedEnv();
+		assert.equal(env.ANTHROPIC_BASE_URL, `http://127.0.0.1:${port}`);
+		assert.equal(env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'MiniMax-M3');
+		assert.equal(env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'claude-opus-custom', 'unrouted tiers are left alone');
+		assert.equal(collection.vars.get('ANTHROPIC_BASE_URL')?.value, env.ANTHROPIC_BASE_URL);
+		assert.deepEqual(mockConfig[ENV], USER_ENV, 'the shared setting is never written');
 		assert.equal(mockState.informationMessages.length, 1);
 
 		enable(false);
 		await bridge.refresh();
-		assert.deepEqual(mockConfig[ENV], USER_ENV);
+		assert.deepEqual(managedEnv(), { ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-custom' });
 		assert.equal(collection.vars.size, 0);
-		await bridge.shutdown();
+		assert.equal(mockState.informationMessages.length, 2);
 	});
 
-	it('removes the setting entirely when the user had none', async () => {
-		delete mockConfig[ENV];
+	it('forwards non-MiniMax traffic to the base URL the process inherited', async () => {
+		const seen: string[] = [];
+		const gateway = http.createServer((req, res) => {
+			seen.push(req.url ?? '');
+			res.end('ok');
+		});
+		await new Promise<void>((resolve) => gateway.listen(0, '127.0.0.1', resolve));
+		process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${(gateway.address() as net.AddressInfo).port}/prefix`;
 		enable(true);
 		const { bridge } = newWindow(new FakeGlobalState());
-		await bridge.refresh();
-		enable(false);
-		await bridge.refresh();
-		assert.equal(ENV in mockConfig, false);
-		await bridge.shutdown();
+		try {
+			await bridge.refresh();
+			const res = await post(`${process.env.ANTHROPIC_BASE_URL}/v1/messages`, { model: 'claude-sonnet-x' });
+			assert.equal(res.status, 200);
+			assert.deepEqual(seen, ['/prefix/v1/messages']);
+		} finally {
+			gateway.close();
+		}
 	});
 
-	it('cleans up entries written by builds that did not record ownership', async () => {
+	it('removes entries older builds wrote to the setting, restoring recorded originals', async () => {
+		const state = new FakeGlobalState();
+		await state.update('minimax-vscode.claudeCodeEnvOwnership', {
+			ANTHROPIC_BASE_URL: { original: 'https://gateway.example', injected: `http://127.0.0.1:${port}` },
+			ANTHROPIC_DEFAULT_HAIKU_MODEL: { injected: 'MiniMax-M3' },
+		});
+		mockConfig[ENV] = [
+			{ name: 'FOO', value: '1' },
+			{ name: 'ANTHROPIC_BASE_URL', value: `http://127.0.0.1:${port}` },
+			{ name: 'ANTHROPIC_DEFAULT_HAIKU_MODEL', value: 'MiniMax-M3' },
+		];
+		const { bridge } = newWindow(state);
+		await bridge.refresh();
+		assert.deepEqual(mockConfig[ENV], [
+			{ name: 'FOO', value: '1' },
+			{ name: 'ANTHROPIC_BASE_URL', value: 'https://gateway.example' },
+		]);
+		assert.equal(state.get('minimax-vscode.claudeCodeEnvOwnership'), undefined);
+	});
+
+	it('removes unrecorded entries pointing at the proxy, e.g. in another person\'s window', async () => {
 		mockConfig[ENV] = [
 			{ name: 'ANTHROPIC_BASE_URL', value: `http://127.0.0.1:${port}` },
 			{ name: 'ANTHROPIC_DEFAULT_HAIKU_MODEL', value: 'MiniMax-M3' },
@@ -156,36 +218,17 @@ describe('ClaudeCodeBridge settings handling', () => {
 		const { bridge } = newWindow(new FakeGlobalState());
 		await bridge.refresh();
 		assert.equal(ENV in mockConfig, false);
-		await bridge.shutdown();
 	});
 
-	it('forwards non-MiniMax traffic to the base URL it replaced', async () => {
-		const seen: string[] = [];
-		const gateway = http.createServer((req, res) => {
-			seen.push(req.url ?? '');
-			res.end('ok');
-		});
-		await new Promise<void>((resolve) => gateway.listen(0, '127.0.0.1', resolve));
-		const gatewayUrl = `http://127.0.0.1:${(gateway.address() as net.AddressInfo).port}/prefix`;
-		mockConfig[ENV] = [{ name: 'ANTHROPIC_BASE_URL', value: gatewayUrl }];
+	it('warns once when the setting overrides a routed variable', async () => {
+		mockConfig[ENV] = [{ name: 'ANTHROPIC_BASE_URL', value: 'https://gateway.example' }];
 		enable(true);
 		const { bridge } = newWindow(new FakeGlobalState());
-		try {
-			await bridge.refresh();
-			const status = await new Promise<number>((resolve, reject) => {
-				const req = http.request(`http://127.0.0.1:${port}/v1/messages`, { method: 'POST' }, (res) => {
-					res.resume();
-					resolve(res.statusCode ?? 0);
-				});
-				req.on('error', reject);
-				req.end(JSON.stringify({ model: 'claude-sonnet-x' }));
-			});
-			assert.equal(status, 200);
-			assert.deepEqual(seen, ['/prefix/v1/messages']);
-		} finally {
-			await bridge.shutdown();
-			gateway.close();
-		}
+		await bridge.refresh();
+		await bridge.refresh();
+		assert.equal(mockState.warningMessages.length, 1);
+		assert.match(mockState.warningMessages[0], /ANTHROPIC_BASE_URL/);
+		assert.deepEqual(mockConfig[ENV], [{ name: 'ANTHROPIC_BASE_URL', value: 'https://gateway.example' }]);
 	});
 });
 
@@ -195,21 +238,20 @@ describe('ClaudeCodeBridge lifecycle', () => {
 		const state = new FakeGlobalState();
 		const first = newWindow(state);
 		await first.bridge.refresh();
+		const routed = managedEnv();
 		assert.equal(mockState.informationMessages.length, 1);
 
 		await first.bridge.shutdown();
-		assert.deepEqual(mockConfig[ENV], USER_ENV, 'no dead localhost URL left behind');
+		assert.deepEqual(managedEnv(), {}, 'no dead localhost URL left behind');
 		assert.equal(await isListening(port), false);
 
 		const next = newWindow(state);
 		await next.bridge.refresh();
-		assert.deepEqual(mockConfig[ENV], routedEnv());
+		assert.deepEqual(managedEnv(), routed);
 		assert.equal(mockState.informationMessages.length, 1, 'same env is not announced twice');
-		await next.bridge.shutdown();
-		assert.deepEqual(mockConfig[ENV], USER_ENV);
 	});
 
-	it('shares the proxy with a window of the same scope, which does not release on shutdown', async () => {
+	it('shares the proxy with a window of the same person, which leaves it running on shutdown', async () => {
 		enable(true);
 		const state = new FakeGlobalState();
 		const owner = newWindow(state);
@@ -219,28 +261,20 @@ describe('ClaudeCodeBridge lifecycle', () => {
 		assert.deepEqual(standby.bridge.currentState, { kind: 'shared', port });
 
 		await standby.bridge.shutdown();
-		assert.deepEqual(mockConfig[ENV], routedEnv(), 'the owner is still serving');
-		assert.equal(await isListening(port), true);
+		assert.equal(await isListening(port), true, 'the owner is still serving');
 		await owner.bridge.shutdown();
-		assert.deepEqual(mockConfig[ENV], USER_ENV);
+		assert.equal(await isListening(port), false);
 	});
 
-	it('refuses a proxy that serves another key pool / settings store', async () => {
+	it('refuses a proxy started by someone else (another scope)', async () => {
 		enable(true);
 		const other = newWindow(new FakeGlobalState());
-		await other.bridge.refresh();
-
-		// This window has its own memento (another install / profile) and
-		// its own settings, modelled here by not touching settings.json.
-		extensions.getExtension = () => undefined;
 		const self = newWindow(new FakeGlobalState());
+		await other.bridge.refresh();
 		await self.bridge.refresh();
 		assert.equal(self.bridge.currentState.kind, 'error');
 		assert.match((self.bridge.currentState as { message: string }).message, /another MiniMax routing proxy/);
 		assert.equal(self.collection.vars.size, 0, 'terminals are not pointed at the foreign proxy');
-
-		await self.bridge.shutdown();
-		await other.bridge.shutdown();
 	});
 });
 

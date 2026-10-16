@@ -3,6 +3,15 @@ import { isMiniMaxModelId } from './proxy';
 /**
  * Environment variables the bridge injects into Claude Code sessions.
  *
+ * They are set on the extension host's own `process.env` (which Claude
+ * Code copies when it spawns a session) and on the terminal overlay, so
+ * they reach only the sessions of the VS Code window that set them. They
+ * are never written to `claudeCode.environmentVariables`: that setting is
+ * machine-scoped, so over Remote-SSH it lands in the server's shared
+ * remote settings, where it reached other people logged into the same
+ * account and outlived the proxy it pointed at. Older builds wrote it;
+ * the ownership helpers below only exist to clean that up.
+ *
  * Only `ANTHROPIC_BASE_URL` and the per-tier model overrides are
  * managed. `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` are deliberately
  * NOT set: they would replace the user's own Claude credentials on every
@@ -64,6 +73,50 @@ export function buildManagedEnv(proxyUrl: string, models: ClaudeCodeModelOverrid
 
 export function proxyUrlForPort(port: number): string {
 	return `http://127.0.0.1:${port}`;
+}
+
+/** The managed variables as the extension host inherited them. */
+export function pickManagedEnv(env: NodeJS.ProcessEnv): Record<string, string | undefined> {
+	const picked: Record<string, string | undefined> = {};
+	for (const name of MANAGED_ENV_NAMES) {
+		picked[name] = env[name];
+	}
+	return picked;
+}
+
+/**
+ * Point `env` (the extension host's `process.env`) at `desired`; managed
+ * names not in `desired` go back to their `inherited` value. Returns
+ * whether anything changed.
+ */
+export function applyManagedEnv(
+	env: NodeJS.ProcessEnv,
+	desired: Readonly<Record<string, string>>,
+	inherited: Readonly<Record<string, string | undefined>>,
+): boolean {
+	let changed = false;
+	for (const name of MANAGED_ENV_NAMES) {
+		const want = desired[name] ?? inherited[name];
+		if (env[name] === want) {
+			continue;
+		}
+		changed = true;
+		if (want === undefined) {
+			delete env[name];
+		} else {
+			env[name] = want;
+		}
+	}
+	return changed;
+}
+
+/**
+ * Names in `desired` that `claudeCode.environmentVariables` also sets.
+ * Claude Code applies that setting on top of the inherited env, so the
+ * user's own entries there win over routing.
+ */
+export function shadowedNames(entries: readonly unknown[], desired: Readonly<Record<string, string>>): string[] {
+	return MANAGED_ENV_NAMES.filter((name) => desired[name] !== undefined && lastIndexOf(entries, name) >= 0);
 }
 
 /** True when `url` points at a loopback listener on `port` (i.e. at the proxy itself). */
@@ -189,15 +242,15 @@ export function planEnvironmentVariables(
 
 /**
  * Upstream for non-MiniMax traffic: the explicit setting, else the
- * `ANTHROPIC_BASE_URL` the user had before routing replaced it (so a
- * corporate gateway or another local router keeps receiving Claude
- * traffic), else Anthropic. Never the proxy itself.
+ * `ANTHROPIC_BASE_URL` the extension host inherited (so a corporate
+ * gateway or another local router keeps receiving Claude traffic), else
+ * Anthropic. Never the proxy itself.
  */
-export function resolvePassthroughUrl(configured: string, ownership: Readonly<EnvOwnership>, port: number): string {
+export function resolvePassthroughUrl(configured: string, inherited: string | undefined, port: number): string {
 	if (configured) {
 		return configured;
 	}
-	const original = ownership.ANTHROPIC_BASE_URL?.original?.trim();
+	const original = inherited?.trim();
 	if (original && !isProxyUrl(original, port)) {
 		return original;
 	}

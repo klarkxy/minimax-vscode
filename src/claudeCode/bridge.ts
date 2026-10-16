@@ -14,11 +14,14 @@ import { getModels } from '../models/registry';
 import {
 	MANAGED_ENV_NAMES,
 	adoptUnrecordedEntries,
+	applyManagedEnv,
 	buildManagedEnv,
+	pickManagedEnv,
 	planEnvironmentVariables,
 	proxyUrlForPort,
 	resolvePassthroughUrl,
 	sameEnv,
+	shadowedNames,
 	type EnvOwnership,
 } from './env';
 import { probeExistingProxy, startProxy, type MiniMaxTarget, type RunningProxy } from './proxy';
@@ -47,22 +50,19 @@ type EnvWriteReason = 'apply' | 'release';
  * Wires the routing proxy into Claude Code:
  *  - runs the proxy (or stands by while another window runs it),
  *  - while routing is on and a proxy is up, sets `ANTHROPIC_BASE_URL` +
- *    model overrides for new Claude Code sessions via
- *    `claudeCode.environmentVariables` and for VS Code terminals via the
- *    extension's environment variable collection.
+ *    model overrides on this extension host's `process.env` (Claude Code
+ *    copies it into every session it spawns) and on the terminal overlay.
  *
- * The user's own values for those variables are recorded before they are
- * replaced and put back when routing is turned off or the proxy stops
- * (see `planEnvironmentVariables`). Nothing is written while routing is
- * off unless something this extension wrote has to be restored.
+ * Both are per window and die with it, so other people logged into the
+ * same (shared) remote account never see them and nothing is left
+ * pointing at a dead port.
+ * `claudeCode.environmentVariables` is only touched to remove what older
+ * builds wrote there (see `env.ts`).
  *
  * Windows share one proxy only when it reports the same scope id, i.e.
- * it reads the same key pool and settings; it resolves the key, region
- * and passthrough upstream per request from those shared stores, so it
- * does not matter which of those windows started it.
- *
- * Injection is scoped to VS Code on purpose: a standalone `claude` CLI
- * outside VS Code never points at a proxy that may not be running.
+ * it reads the same key pool and settings; it resolves
+ * the key, region and passthrough upstream per request from those shared
+ * stores, so it does not matter which of those windows started it.
  */
 export class ClaudeCodeBridge implements vscode.Disposable {
 	private proxy?: RunningProxy;
@@ -75,6 +75,10 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 	private shutdownPromise?: Promise<void>;
 	private readonly statusItem: vscode.StatusBarItem;
 	private readonly subscriptions: vscode.Disposable[] = [];
+	/** The managed variables as this extension host started with them. */
+	private readonly inherited = pickManagedEnv(process.env);
+	/** Last `shadowedNames` result the user was warned about. */
+	private shadowWarning = '';
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
@@ -88,11 +92,10 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 		this.subscriptions.push(
 			this.statusItem,
 			vscode.workspace.onDidChangeConfiguration((e) => {
-				if (e.affectsConfiguration('minimax.claudeCode.routing')) {
-					void this.refresh();
-				} else if (e.affectsConfiguration('claudeCode.environmentVariables') && this.state.kind === 'owner') {
-					// Re-assert routing after a hand edit (kept as the restore
-					// value) or after a closing window released the env.
+				if (
+					e.affectsConfiguration('minimax.claudeCode.routing') ||
+					e.affectsConfiguration('claudeCode.environmentVariables')
+				) {
 					void this.refresh();
 				}
 			}),
@@ -197,7 +200,11 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 	}
 
 	private resolvePassthrough(port: number): string {
-		return resolvePassthroughUrl(getClaudeCodeRoutingConfig().passthroughUrl, this.readOwnership(), port);
+		return resolvePassthroughUrl(
+			getClaudeCodeRoutingConfig().passthroughUrl,
+			this.inherited.ANTHROPIC_BASE_URL,
+			port,
+		);
 	}
 
 	/** Random id shared by every window reading this extension's global state. */
@@ -290,62 +297,19 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 			}
 		}
 
-		// Claude Code extension sessions. Only a window that actually loads
-		// the Claude Code extension writes its setting: elsewhere (e.g. a
-		// window where it is disabled) the key is unregistered and VS Code
-		// silently drops the write.
-		if (!vscode.extensions.getExtension(CLAUDE_CODE_EXTENSION_ID)) {
-			return;
-		}
-		const claudeConfig = vscode.workspace.getConfiguration('claudeCode');
-		const raw = claudeConfig.inspect<unknown[]>('environmentVariables')?.globalValue;
-		const existing = Array.isArray(raw) ? raw : [];
-		const stored = this.readOwnership();
-		const plan = planEnvironmentVariables(existing, desired, {
-			...adoptUnrecordedEntries(existing, cfg.port),
-			...stored,
-		});
+		// Claude Code extension sessions spawned from this window.
+		const changed = applyManagedEnv(process.env, desired, this.inherited);
 
-		// Record what is about to be replaced before writing, keeping the
-		// records being released until the write lands: whichever way a
-		// failed write leaves the setting, the next pass can still restore.
-		await this.saveOwnership({ ...stored, ...plan.owned });
-		const wrote = !sameEnv(existing, plan.entries);
-		if (wrote) {
-			try {
-				// An empty list is removed rather than left behind as `[]`.
-				await claudeConfig.update(
-					'environmentVariables',
-					plan.entries.length > 0 ? plan.entries : undefined,
-					vscode.ConfigurationTarget.Global,
-				);
-			} catch (error) {
-				// Terminals still get the env above.
-				logger.warn('[ClaudeCode] Could not update claudeCode.environmentVariables', error);
-				return;
-			}
-			const persisted = vscode.workspace.getConfiguration('claudeCode').inspect<unknown[]>('environmentVariables');
-			if (!sameEnv(persisted?.globalValue ?? [], plan.entries)) {
-				logger.warn(
-					`[ClaudeCode] claudeCode.environmentVariables did not persist (user value now ${JSON.stringify(persisted?.globalValue)})`,
-				);
-				return;
-			}
-		}
-		await this.saveOwnership(plan.owned);
-
-		if (plan.userEdits.length > 0) {
-			const names = plan.userEdits.join(', ');
-			logger.info(`[ClaudeCode] Kept hand-edited ${names} as the value to restore when routing is turned off`);
-			void vscode.window.showInformationMessage(t('claudeCode.envUserEdit', names));
-		}
-		if (!wrote) {
-			return;
-		}
 		if (reason === 'release') {
 			// Not a user-visible change: the env comes back as soon as a
 			// proxy runs again, without another notification.
-			logger.info('[ClaudeCode] Released routing env (proxy stopping)');
+			if (changed) {
+				logger.info('[ClaudeCode] Released routing env (proxy stopping)');
+			}
+			return;
+		}
+		await this.cleanUpSetting(desired, cfg);
+		if (!changed) {
 			return;
 		}
 		if (Object.keys(desired).length > 0) {
@@ -361,6 +325,49 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 			await this.context.globalState.update(CLAUDE_CODE_ENV_ANNOUNCED_KEY, undefined);
 			void vscode.window.showInformationMessage(t('claudeCode.envRemoved'));
 		}
+	}
+
+	/**
+	 * Remove the routing entries older builds wrote to the machine-scoped
+	 * `claudeCode.environmentVariables` (restoring the user's values), and
+	 * warn when the user's own entries there override routing. Only a
+	 * window that loads Claude Code can do this: elsewhere the key is
+	 * unregistered and VS Code silently drops the write.
+	 */
+	private async cleanUpSetting(desired: Record<string, string>, cfg: ClaudeCodeRoutingConfig): Promise<void> {
+		if (!vscode.extensions.getExtension(CLAUDE_CODE_EXTENSION_ID)) {
+			return;
+		}
+		const claudeConfig = vscode.workspace.getConfiguration('claudeCode');
+		const raw = claudeConfig.inspect<unknown[]>('environmentVariables')?.globalValue;
+		let existing = Array.isArray(raw) ? raw : [];
+		const held = { ...adoptUnrecordedEntries(existing, cfg.port), ...this.readOwnership() };
+		if (Object.keys(held).length > 0) {
+			const plan = planEnvironmentVariables(existing, {}, held);
+			if (!sameEnv(existing, plan.entries)) {
+				try {
+					// An empty list is removed rather than left behind as `[]`.
+					await claudeConfig.update(
+						'environmentVariables',
+						plan.entries.length > 0 ? plan.entries : undefined,
+						vscode.ConfigurationTarget.Global,
+					);
+				} catch (error) {
+					logger.warn('[ClaudeCode] Could not clean up claudeCode.environmentVariables', error);
+					return;
+				}
+				logger.info('[ClaudeCode] Removed the routing env an older version wrote to claudeCode.environmentVariables');
+				existing = plan.entries;
+			}
+			await this.saveOwnership({});
+		}
+
+		const shadowed = shadowedNames(existing, desired).join(', ');
+		if (shadowed && shadowed !== this.shadowWarning) {
+			logger.warn(`[ClaudeCode] claudeCode.environmentVariables sets ${shadowed}, which overrides routing`);
+			void vscode.window.showWarningMessage(t('claudeCode.envShadowed', shadowed));
+		}
+		this.shadowWarning = shadowed;
 	}
 
 	private setState(state: BridgeState): void {
@@ -395,12 +402,10 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 	}
 
 	/**
-	 * Stop routing in this window. The window serving the proxy first hands
-	 * Claude Code's env back, so nothing is left pointing at a port that is
-	 * about to close; a standby window re-injects it when it takes over the
-	 * port, and the next activation re-injects it otherwise. Best effort: if
-	 * the host is killed before the write lands, the next activation
-	 * reconciles (and restores, if routing is off by then).
+	 * Stop routing in this window: hand this extension host's env back
+	 * (it may outlive the extension, e.g. on an update or disable), then
+	 * close the proxy if this window serves it. A standby window takes
+	 * over the port within a few seconds.
 	 */
 	shutdown(): Promise<void> {
 		this.shutdownPromise ??= this.doShutdown();
@@ -414,9 +419,6 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 			d.dispose();
 		}
 		await this.queue;
-		if (!this.proxy) {
-			return;
-		}
 		try {
 			await this.writeEnv({}, getClaudeCodeRoutingConfig(), 'release');
 		} catch (error) {

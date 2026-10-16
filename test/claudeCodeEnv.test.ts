@@ -5,11 +5,14 @@ import * as assert from 'node:assert/strict';
 
 import {
 	adoptUnrecordedEntries,
+	applyManagedEnv,
 	buildManagedEnv,
 	isProxyUrl,
+	pickManagedEnv,
 	planEnvironmentVariables,
 	resolvePassthroughUrl,
 	sameEnv,
+	shadowedNames,
 } from '../src/claudeCode/env';
 import { describeTiers } from '../src/claudeCode/bridge';
 
@@ -141,17 +144,42 @@ describe('adoptUnrecordedEntries', () => {
 });
 
 describe('resolvePassthroughUrl', () => {
-	const owned = { ANTHROPIC_BASE_URL: { original: 'https://gateway.example', injected: PROXY } };
-
-	it('prefers the explicit setting, then the replaced base URL, then Anthropic', () => {
-		assert.equal(resolvePassthroughUrl('https://explicit', owned, 4000), 'https://explicit');
-		assert.equal(resolvePassthroughUrl('', owned, 4000), 'https://gateway.example');
-		assert.equal(resolvePassthroughUrl('', {}, 4000), 'https://api.anthropic.com');
+	it('prefers the explicit setting, then the inherited base URL, then Anthropic', () => {
+		assert.equal(resolvePassthroughUrl('https://explicit', 'https://gateway.example', 4000), 'https://explicit');
+		assert.equal(resolvePassthroughUrl('', 'https://gateway.example', 4000), 'https://gateway.example');
+		assert.equal(resolvePassthroughUrl('', undefined, 4000), 'https://api.anthropic.com');
 	});
 
 	it('never passes through to the proxy itself', () => {
-		const loop = { ANTHROPIC_BASE_URL: { original: 'http://localhost:4000/', injected: PROXY } };
-		assert.equal(resolvePassthroughUrl('', loop, 4000), 'https://api.anthropic.com');
+		assert.equal(resolvePassthroughUrl('', 'http://localhost:4000/abc', 4000), 'https://api.anthropic.com');
+	});
+});
+
+describe('applyManagedEnv', () => {
+	it('sets the desired variables and puts inherited ones back afterwards', () => {
+		const env: NodeJS.ProcessEnv = { PATH: '/bin', ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-custom' };
+		const inherited = pickManagedEnv(env);
+		const desired = { ...ROUTED, ANTHROPIC_DEFAULT_OPUS_MODEL: 'MiniMax-M3' };
+
+		assert.equal(applyManagedEnv(env, desired, inherited), true);
+		assert.deepEqual(env, { PATH: '/bin', ...desired });
+		assert.equal(applyManagedEnv(env, desired, inherited), false, 'idempotent');
+
+		assert.equal(applyManagedEnv(env, {}, inherited), true);
+		assert.deepEqual(env, { PATH: '/bin', ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-custom' });
+		assert.equal('ANTHROPIC_BASE_URL' in env, false);
+	});
+});
+
+describe('shadowedNames', () => {
+	it('lists routed variables the setting also sets', () => {
+		const entries = [
+			{ name: 'FOO', value: '1' },
+			{ name: 'ANTHROPIC_BASE_URL', value: 'https://gateway.example' },
+			{ name: 'ANTHROPIC_DEFAULT_OPUS_MODEL', value: 'claude-opus-custom' },
+		];
+		assert.deepEqual(shadowedNames(entries, ROUTED), ['ANTHROPIC_BASE_URL']);
+		assert.deepEqual(shadowedNames(entries, {}), []);
 	});
 });
 

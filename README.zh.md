@@ -58,7 +58,7 @@
 开启方法：添加 Key（**MiniMax: 添加 API Key**），然后运行 **MiniMax: 启用 Claude Code 路由**。扩展会：
 
 1. 在 `http://127.0.0.1:4000` 启动本地代理；
-2. 为从 VS Code 启动的**新** Claude Code 会话设置以下变量（Claude Code 扩展通过 `claudeCode.environmentVariables`，VS Code 终端里的 `claude` 通过终端环境变量）：
+2. 为从该 VS Code 窗口启动的**新** Claude Code 会话设置以下变量（Claude Code 扩展会话，以及该窗口终端里的 `claude`）：
 
    ```json
    {
@@ -71,12 +71,14 @@
 
 扩展从不设置 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`（它们会在每个请求上覆盖你的 Claude 登录），MiniMax Key 由代理自行添加。修改只对**新**的 Claude Code 会话生效，已打开的会话需要重启。VS Code 之外单独运行的 `claude` 不会被重定向。
 
-对 Claude Code 设置的处理：
+对环境变量和设置的处理：
 
-- 只写入 `ANTHROPIC_BASE_URL` 和你设置了模型的档位。留空的档位不会被改动，例如你自己的 `ANTHROPIC_DEFAULT_OPUS_MODEL` 保持不变；`claudeCode.environmentVariables` 中的其他条目也从不修改。
-- 替换某个变量前会先保存它原来的值。关闭路由时恢复原值；如果原来没有该变量，则将其删除。路由开启期间如果你手动修改了被路由的变量，你的修改会成为之后恢复的值。
-- 路由关闭或没有 API Key 时，扩展不会写入你的 Claude Code 设置（恢复它之前改过的值除外）。
-- 只有代理在运行时，Claude Code 才会指向代理。运行代理的窗口关闭、或扩展被停用 / 卸载时，会先恢复原来的值。其他打开的窗口会接管代理并重新应用路由；否则在下次启动 VS Code 时重新应用。
+- 变量设置在窗口的扩展宿主进程中（Claude Code 启动会话时会复制其环境）以及该窗口的终端中，从不写入设置文件。它们只在该窗口运行期间存在，因此 Claude Code 不会指向已关闭的端口，其他人也看不到。
+- 只设置 `ANTHROPIC_BASE_URL` 和你设置了模型的档位。留空的档位不会被改动，例如你自己的 `ANTHROPIC_DEFAULT_OPUS_MODEL` 保持不变。关闭路由或停用扩展时，恢复窗口启动时的值。
+- `claudeCode.environmentVariables` 会覆盖在该环境之上，因此你在其中为这些变量设置的条目优先于路由，扩展会对此发出警告。自定义网关请改用 `minimax.claudeCode.routing.passthroughUrl`。
+- 旧版本会把路由写入 `claudeCode.environmentVariables`；下次启动时会删除这些条目（并恢复你之前的值）。
+
+**共享远程账号。** `claudeCode.environmentVariables` 是机器级设置，通过 Remote-SSH 时保存在服务器上，对使用该账号的所有人生效。因此路由不再写入其中：多人共用一个远程登录时，只有开启了路由的窗口会被路由。
 
 同一 VS Code 安装和配置文件（因而使用相同 API Key 与设置）下的多个窗口共享一个代理。代理在每个请求时读取当前 Key、区域和转发上游，因此由哪个窗口启动并不重要。来自其他安装（例如 Insiders 与 Stable 并存）、其他配置文件或旧版本扩展的 MiniMax 代理会通过健康检查识别出来，不会被使用；如需同时运行，请在那边修改 `minimax.claudeCode.routing.port`。
 
@@ -141,7 +143,7 @@ Claude Code 会提示一次 `MiniMax-M3` 不在其模型目录中并按 200K 上
 | `minimax.claudeCode.routing.haikuModel`                | `MiniMax-M3`                                            | Claude Code Haiku 档位使用的 MiniMax 模型。留空 = 使用 Anthropic 的 Haiku。                                                                                                        |
 | `minimax.claudeCode.routing.sonnetModel` / `opusModel` | 空                                                      | Sonnet / Opus 档位可选的 MiniMax 模型。留空 = 使用 Anthropic 的模型。                                                                                                              |
 | `minimax.claudeCode.routing.port`                      | `4000`                                                  | 代理端口，同一安装和配置文件下的窗口共享。                                                                                                                                         |
-| `minimax.claudeCode.routing.passthroughUrl`            | 空                                                      | 非 MiniMax 请求的上游。留空 = 你之前的 `ANTHROPIC_BASE_URL`，否则为 `https://api.anthropic.com`。                                                                                  |
+| `minimax.claudeCode.routing.passthroughUrl`            | 空                                                      | 非 MiniMax 请求的上游。留空 = VS Code 启动时的 `ANTHROPIC_BASE_URL`，否则为 `https://api.anthropic.com`。                                                                          |
 | `minimax.claudeCode.allowedModels`                     | `MiniMax-M3 / M2.7 / M2.7-highspeed / M2.5 / M2.1 / M2` | Claude Code JSONL 接入的模型白名单。Claude Code 可能跟其他 Anthropic 兼容 provider 通信，这里只统计 MiniMax 相关行。                                                               |
 
 ## 命令
