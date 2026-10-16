@@ -75,6 +75,11 @@ export function proxyUrlForPort(port: number): string {
 	return `http://127.0.0.1:${port}`;
 }
 
+/** Base URL Claude Code is given: the proxy plus the path secret it requires. */
+export function proxyBaseUrl(port: number, secret: string): string {
+	return `${proxyUrlForPort(port)}/${secret}`;
+}
+
 /** The managed variables as the extension host inherited them. */
 export function pickManagedEnv(env: NodeJS.ProcessEnv): Record<string, string | undefined> {
 	const picked: Record<string, string | undefined> = {};

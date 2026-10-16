@@ -230,11 +230,12 @@ export const CLAUDE_CODE_ENV_OWNERSHIP_KEY = 'minimax-vscode.claudeCodeEnvOwners
  *  re-injecting the same env after a restart does not toast again. */
 export const CLAUDE_CODE_ENV_ANNOUNCED_KEY = 'minimax-vscode.claudeCodeEnvAnnounced';
 
-/** memento key for the random id a routing proxy reports from its health
- *  endpoint. Windows that share this memento share the key pool, so they
- *  can share one proxy; a proxy with another id (other VS Code install or
- *  profile) is never used. */
-export const CLAUDE_CODE_PROXY_SCOPE_KEY = 'minimax-vscode.claudeCodeProxyScope';
+/** memento key for the routing proxy's path secret. The memento lives on
+ *  the VS Code client, so over Remote-SSH it is per person even when the
+ *  remote account is shared. Windows that share it share the key pool and
+ *  one proxy (which reports a hash of it from its health endpoint); a
+ *  proxy with another secret is never used. */
+export const CLAUDE_CODE_PROXY_SECRET_KEY = 'minimax-vscode.claudeCodeProxySecret';
 
 
 // ---- Claude Code log ingest defaults ----

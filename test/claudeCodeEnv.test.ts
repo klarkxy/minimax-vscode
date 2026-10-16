@@ -10,6 +10,7 @@ import {
 	isProxyUrl,
 	pickManagedEnv,
 	planEnvironmentVariables,
+	proxyBaseUrl,
 	resolvePassthroughUrl,
 	sameEnv,
 	shadowedNames,
@@ -180,6 +181,13 @@ describe('shadowedNames', () => {
 		];
 		assert.deepEqual(shadowedNames(entries, ROUTED), ['ANTHROPIC_BASE_URL']);
 		assert.deepEqual(shadowedNames(entries, {}), []);
+	});
+});
+
+describe('proxyBaseUrl', () => {
+	it('puts the secret in the path, where isProxyUrl still recognises it', () => {
+		assert.equal(proxyBaseUrl(4000, 'abc'), 'http://127.0.0.1:4000/abc');
+		assert.equal(isProxyUrl(proxyBaseUrl(4000, 'abc'), 4000), true);
 	});
 });
 

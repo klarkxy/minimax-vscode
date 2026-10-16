@@ -1,10 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import * as vscode from 'vscode';
 import { getClaudeCodeRoutingConfig, type ClaudeCodeRoutingConfig } from '../config';
 import {
 	CLAUDE_CODE_ENV_ANNOUNCED_KEY,
 	CLAUDE_CODE_ENV_OWNERSHIP_KEY,
-	CLAUDE_CODE_PROXY_SCOPE_KEY,
+	CLAUDE_CODE_PROXY_SECRET_KEY,
 	CONFIG_SECTION,
 } from '../consts';
 import { t } from '../i18n';
@@ -18,7 +18,7 @@ import {
 	buildManagedEnv,
 	pickManagedEnv,
 	planEnvironmentVariables,
-	proxyUrlForPort,
+	proxyBaseUrl,
 	resolvePassthroughUrl,
 	sameEnv,
 	shadowedNames,
@@ -55,12 +55,14 @@ type EnvWriteReason = 'apply' | 'release';
  *
  * Both are per window and die with it, so other people logged into the
  * same (shared) remote account never see them and nothing is left
- * pointing at a dead port.
+ * pointing at a dead port. The base URL carries the proxy's path secret,
+ * which lives in this user's global state (kept on the VS Code client,
+ * not on the remote), so only their own windows can use the proxy.
  * `claudeCode.environmentVariables` is only touched to remove what older
  * builds wrote there (see `env.ts`).
  *
- * Windows share one proxy only when it reports the same scope id, i.e.
- * it reads the same key pool and settings; it resolves
+ * Windows share one proxy only when it reports the same scope (a hash of
+ * the secret), i.e. it reads the same key pool and settings; it resolves
  * the key, region and passthrough upstream per request from those shared
  * stores, so it does not matter which of those windows started it.
  */
@@ -135,7 +137,7 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 			await this.writeEnv({}, cfg, 'apply');
 			return;
 		}
-		await this.writeEnv(buildManagedEnv(proxyUrlForPort(cfg.port), cfg.models), cfg, 'apply');
+		await this.writeEnv(buildManagedEnv(proxyBaseUrl(cfg.port, this.secret()), cfg.models), cfg, 'apply');
 	}
 
 	private async ensureProxy(cfg: ClaudeCodeRoutingConfig): Promise<void> {
@@ -150,7 +152,9 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 				resolvePassthrough: () => this.resolvePassthrough(cfg.port),
 				resolveMiniMax: () => this.resolveTarget(),
 				scope: () => this.scopeId(),
+				secret: this.secret(),
 				missingKeyMessage: t('claudeCode.missingKey'),
+				forbiddenMessage: t('claudeCode.forbidden'),
 				logger,
 			});
 			this.stopTakeoverTimer();
@@ -207,14 +211,20 @@ export class ClaudeCodeBridge implements vscode.Disposable {
 		);
 	}
 
-	/** Random id shared by every window reading this extension's global state. */
-	private scopeId(): string {
-		let id = this.context.globalState.get<string>(CLAUDE_CODE_PROXY_SCOPE_KEY);
-		if (!id) {
-			id = randomUUID();
-			void this.context.globalState.update(CLAUDE_CODE_PROXY_SCOPE_KEY, id);
+	/** Random proxy path secret shared by every window reading this
+	 *  extension's global state. */
+	private secret(): string {
+		let secret = this.context.globalState.get<string>(CLAUDE_CODE_PROXY_SECRET_KEY);
+		if (!secret) {
+			secret = randomBytes(24).toString('base64url');
+			void this.context.globalState.update(CLAUDE_CODE_PROXY_SECRET_KEY, secret);
 		}
-		return id;
+		return secret;
+	}
+
+	/** What the health endpoint reports: identifies the secret without revealing it. */
+	private scopeId(): string {
+		return createHash('sha256').update(this.secret()).digest('hex').slice(0, 32);
 	}
 
 	/**

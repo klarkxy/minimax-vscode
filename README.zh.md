@@ -62,10 +62,12 @@
 
    ```json
    {
-   	"ANTHROPIC_BASE_URL": "http://127.0.0.1:4000",
+   	"ANTHROPIC_BASE_URL": "http://127.0.0.1:4000/<secret>",
    	"ANTHROPIC_DEFAULT_HAIKU_MODEL": "MiniMax-M3"
    }
    ```
+
+   `<secret>` 是代理要求每个请求都携带的随机路径，保存在你的 VS Code 配置文件中，由你的各个窗口共享。
 
 3. 按请求的 `model` 分流：`MiniMax-*` 用你的 Key 发往 MiniMax；其余请求（Opus、Sonnet、OAuth / 用量接口）使用**你自己的** Claude 凭据原样转发到你之前配置的 `ANTHROPIC_BASE_URL`（如有），否则转发到 `api.anthropic.com`。
 
@@ -78,7 +80,7 @@
 - `claudeCode.environmentVariables` 会覆盖在该环境之上，因此你在其中为这些变量设置的条目优先于路由，扩展会对此发出警告。自定义网关请改用 `minimax.claudeCode.routing.passthroughUrl`。
 - 旧版本会把路由写入 `claudeCode.environmentVariables`；下次启动时会删除这些条目（并恢复你之前的值）。
 
-**共享远程账号。** `claudeCode.environmentVariables` 是机器级设置，通过 Remote-SSH 时保存在服务器上，对使用该账号的所有人生效。因此路由不再写入其中：多人共用一个远程登录时，只有开启了路由的窗口会被路由。
+**共享远程账号。** `claudeCode.environmentVariables` 是机器级设置，通过 Remote-SSH 时保存在服务器上，对使用该账号的所有人生效。因此路由不再写入其中：多人共用一个远程登录时，只有开启了路由的窗口会被路由；代理会拒绝不带 secret 的请求（HTTP 403），即使服务器上的所有进程都能访问代理端口，其他人的会话也无法使用你的 MiniMax Key。
 
 同一 VS Code 安装和配置文件（因而使用相同 API Key 与设置）下的多个窗口共享一个代理。代理在每个请求时读取当前 Key、区域和转发上游，因此由哪个窗口启动并不重要。来自其他安装（例如 Insiders 与 Stable 并存）、其他配置文件或旧版本扩展的 MiniMax 代理会通过健康检查识别出来，不会被使用；如需同时运行，请在那边修改 `minimax.claudeCode.routing.port`。
 

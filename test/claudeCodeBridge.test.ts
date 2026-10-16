@@ -148,7 +148,7 @@ describe('ClaudeCodeBridge env handling', () => {
 		assert.deepEqual(bridge.currentState, { kind: 'off', reason: 'noKey' });
 	});
 
-	it('routes through this process env only and restores it when turned off', async () => {
+	it('routes through this process env only, behind a secret, and restores it when turned off', async () => {
 		process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = 'claude-opus-custom';
 		enable(true);
 		const { bridge, collection } = newWindow(new FakeGlobalState());
@@ -156,7 +156,7 @@ describe('ClaudeCodeBridge env handling', () => {
 		assert.deepEqual(bridge.currentState, { kind: 'owner', port });
 
 		const env = managedEnv();
-		assert.equal(env.ANTHROPIC_BASE_URL, `http://127.0.0.1:${port}`);
+		assert.match(env.ANTHROPIC_BASE_URL, new RegExp(`^http://127\\.0\\.0\\.1:${port}/[\\w-]{32}$`));
 		assert.equal(env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'MiniMax-M3');
 		assert.equal(env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'claude-opus-custom', 'unrouted tiers are left alone');
 		assert.equal(collection.vars.get('ANTHROPIC_BASE_URL')?.value, env.ANTHROPIC_BASE_URL);
@@ -168,6 +168,15 @@ describe('ClaudeCodeBridge env handling', () => {
 		assert.deepEqual(managedEnv(), { ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-custom' });
 		assert.equal(collection.vars.size, 0);
 		assert.equal(mockState.informationMessages.length, 2);
+	});
+
+	it('refuses requests without the secret, e.g. from someone else on a shared server', async () => {
+		enable(true);
+		const { bridge } = newWindow(new FakeGlobalState());
+		await bridge.refresh();
+		const refused = await post(`http://127.0.0.1:${port}/v1/messages`, { model: 'MiniMax-M3' });
+		assert.equal(refused.status, 403);
+		assert.equal(JSON.parse(refused.body).error.type, 'permission_error');
 	});
 
 	it('forwards non-MiniMax traffic to the base URL the process inherited', async () => {
@@ -247,7 +256,7 @@ describe('ClaudeCodeBridge lifecycle', () => {
 
 		const next = newWindow(state);
 		await next.bridge.refresh();
-		assert.deepEqual(managedEnv(), routed);
+		assert.deepEqual(managedEnv(), routed, 'same secret across windows of one person');
 		assert.equal(mockState.informationMessages.length, 1, 'same env is not announced twice');
 	});
 
@@ -266,7 +275,7 @@ describe('ClaudeCodeBridge lifecycle', () => {
 		assert.equal(await isListening(port), false);
 	});
 
-	it('refuses a proxy started by someone else (another scope)', async () => {
+	it('refuses a proxy started by someone else (another secret)', async () => {
 		enable(true);
 		const other = newWindow(new FakeGlobalState());
 		const self = newWindow(new FakeGlobalState());

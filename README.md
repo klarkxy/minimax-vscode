@@ -74,10 +74,12 @@ To turn it on, add a key (**MiniMax: Add API Key**) and run **MiniMax: Enable Cl
 
    ```json
    {
-   	"ANTHROPIC_BASE_URL": "http://127.0.0.1:4000",
+   	"ANTHROPIC_BASE_URL": "http://127.0.0.1:4000/<secret>",
    	"ANTHROPIC_DEFAULT_HAIKU_MODEL": "MiniMax-M3"
    }
    ```
+
+   `<secret>` is a random path the proxy requires on every request; it is kept in your VS Code profile and shared by your windows.
 
 3. Routes each request by its `model`. `MiniMax-*` models go to MiniMax with your key. Everything else (Opus, Sonnet, OAuth / usage endpoints) is passed through unchanged with **your own** Claude credentials, to the `ANTHROPIC_BASE_URL` you had before (if any) or to `api.anthropic.com`.
 
@@ -90,9 +92,9 @@ How your environment and settings are handled:
 - `claudeCode.environmentVariables` is applied on top of that environment, so your own entries there for these variables win over routing; the extension warns when that happens. Use `minimax.claudeCode.routing.passthroughUrl` for a custom gateway instead.
 - Earlier versions wrote routing into `claudeCode.environmentVariables`; those entries are removed (and your previous values restored) on the next start.
 
-**Shared remote accounts.** `claudeCode.environmentVariables` is a machine setting, so over Remote-SSH it is stored on the server and applies to everyone using that account. That is why routing no longer goes there: when several people share one remote login, only the windows that turned routing on are routed.
+**Shared remote accounts.** `claudeCode.environmentVariables` is a machine setting, so over Remote-SSH it is stored on the server and applies to everyone using that account. That is why routing no longer goes there: when several people share one remote login, only the windows that turned routing on are routed, and the proxy refuses requests without its secret (HTTP 403), so nobody else's sessions can use your MiniMax key, even though the proxy port is reachable by every process on the server.
 
-Multiple windows share one proxy as long as they belong to the same VS Code installation and profile (and therefore the same API keys and settings). The proxy reads the active key, region and passthrough upstream on every request, so it does not matter which window started it. A MiniMax proxy from another installation (e.g. Insiders next to Stable), another profile or an older build of this extension is recognised through its health check and never used. Set a different `minimax.claudeCode.routing.port` there to run both.
+Multiple windows share one proxy as long as they belong to the same VS Code installation and profile (and therefore the same API keys, settings and secret). The proxy reads the active key, region and passthrough upstream on every request, so it does not matter which window started it. A MiniMax proxy from another installation (e.g. Insiders next to Stable), another profile or an older build of this extension is recognised through its health check and never used. Set a different `minimax.claudeCode.routing.port` there to run both.
 
 Claude Code prints a one-time note that `MiniMax-M3` is not in its model catalog and assumes a 200K context window; that is expected.
 
