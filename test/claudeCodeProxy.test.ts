@@ -13,6 +13,7 @@ import {
 	joinUrl,
 	probeExistingProxy,
 	startProxy,
+	stripSecret,
 	type RunningProxy,
 } from '../src/claudeCode/proxy';
 
@@ -102,6 +103,14 @@ describe('proxy helpers', () => {
 		const body: Record<string, unknown> = { model: 'MiniMax-M3', messages: [] };
 		applyAliasOverride(body, 'MiniMax-M3');
 		assert.deepEqual(body, { model: 'MiniMax-M3', messages: [] });
+	});
+
+	it('strips the secret prefix only when it is a whole path segment', () => {
+		assert.equal(stripSecret('/s3cr3t/v1/messages?beta=true', 's3cr3t'), '/v1/messages?beta=true');
+		assert.equal(stripSecret('/s3cr3t', 's3cr3t'), '/');
+		assert.equal(stripSecret('/s3cr3t?x=1', 's3cr3t'), '/?x=1');
+		assert.equal(stripSecret('/s3cr3tX/v1/messages', 's3cr3t'), undefined);
+		assert.equal(stripSecret('/v1/messages', 's3cr3t'), undefined);
 	});
 
 	it('exposes the alias override table', () => {
@@ -219,6 +228,36 @@ describe('routing proxy', () => {
 		assert.deepEqual(await probeExistingProxy(proxy.port), { pid: process.pid, scope: 'scope-a' });
 		assert.equal(await probeExistingProxy(Number(new URL(anthropic.url).port)), undefined);
 		assert.equal(minimaxSeen.some((s) => s.path.includes(PROXY_HEALTH_PATH)), false);
+	});
+
+	it('only serves requests that carry its secret', async () => {
+		const guarded = await startProxy({
+			port: 0,
+			resolvePassthrough: () => passthrough,
+			resolveMiniMax: async () => ({ apiKey: 'mm-secret', baseUrl: `${minimax.url}/anthropic` }),
+			scope: () => 'scope-b',
+			secret: 's3cr3t',
+		});
+		try {
+			const before = minimaxSeen.length + anthropicSeen.length;
+			for (const path of ['/v1/messages', '/wrong/v1/messages', '/s3cr3tX/v1/messages']) {
+				const refused = await post(guarded, path, { model: 'MiniMax-M3', messages: [] });
+				assert.equal(refused.status, 403, path);
+				assert.equal(JSON.parse(refused.body).error.type, 'permission_error');
+			}
+			assert.equal(minimaxSeen.length + anthropicSeen.length, before, 'nothing reached an upstream');
+
+			const routed = await post(guarded, '/s3cr3t/v1/messages', { model: 'MiniMax-M3', messages: [] });
+			assert.equal(routed.status, 200);
+			assert.equal(minimaxSeen.at(-1)!.path, '/anthropic/v1/messages');
+			const passed = await post(guarded, '/s3cr3t/v1/messages', { model: 'claude-x' });
+			assert.equal(passed.status, 200);
+			assert.equal(anthropicSeen.at(-1)!.path, '/v1/messages');
+
+			assert.deepEqual(await probeExistingProxy(guarded.port), { pid: process.pid, scope: 'scope-b' });
+		} finally {
+			await guarded.close();
+		}
 	});
 
 	it('returns 502 when the upstream is unreachable', async () => {

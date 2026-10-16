@@ -13,6 +13,12 @@ import * as https from 'node:https';
  * subscription OAuth token), so the non-overridden models keep working
  * exactly as before.
  *
+ * The port is reachable by every process on the machine, including other
+ * people's sessions on a shared server. With `secret` set, only requests
+ * under `/<secret>/…` are served (Claude Code is given the secret as part
+ * of `ANTHROPIC_BASE_URL`); anything else is refused, so nobody else can
+ * spend the MiniMax key or have their traffic routed by accident.
+ *
  * Pure Node — no `vscode` import — so it can be unit-tested and run
  * standalone.
  */
@@ -49,8 +55,13 @@ export interface ClaudeCodeProxyOptions {
 	resolvePassthrough: () => string;
 	/** Resolved per request so key / region switches apply immediately. */
 	resolveMiniMax: () => Promise<MiniMaxTarget | undefined>;
-	/** Reported by the health endpoint; see `ProxyHealth.scope`. */
+	/** Reported by the health endpoint; see `ProxyHealth.scope`. Must not
+	 *  reveal `secret`. */
 	scope?: () => string;
+	/** Path prefix every proxied request must carry; see the module doc. */
+	secret?: string;
+	/** Message returned for a request without the secret. */
+	forbiddenMessage?: string;
 	/** Message returned to Claude Code when no MiniMax key is configured. */
 	missingKeyMessage?: string;
 	isMiniMaxModel?: (model: string) => boolean;
@@ -154,6 +165,20 @@ export function extractModel(body: Buffer): string | undefined {
 	}
 }
 
+/** `pathAndQuery` with the `/<secret>` prefix removed, or `undefined`
+ *  when it does not carry it. */
+export function stripSecret(pathAndQuery: string, secret: string): string | undefined {
+	const prefix = `/${secret}`;
+	if (!pathAndQuery.startsWith(prefix)) {
+		return undefined;
+	}
+	const rest = pathAndQuery.slice(prefix.length);
+	if (rest === '' || rest.startsWith('?')) {
+		return `/${rest}`;
+	}
+	return rest.startsWith('/') ? rest : undefined;
+}
+
 function sendError(res: http.ServerResponse, status: number, type: string, message: string): void {
 	if (res.headersSent) {
 		res.destroy();
@@ -208,11 +233,24 @@ export function createProxyHandler(
 	const logger = options.logger;
 
 	return async (req, res) => {
-		const pathAndQuery = req.url ?? '/';
-		if (req.method === 'GET' && pathAndQuery.split('?')[0] === PROXY_HEALTH_PATH) {
+		const rawPath = req.url ?? '/';
+		if (req.method === 'GET' && rawPath.split('?')[0] === PROXY_HEALTH_PATH) {
 			const payload = JSON.stringify({ id: PROXY_ID, pid: process.pid, scope: options.scope?.() });
 			res.writeHead(200, { 'content-type': 'application/json' });
 			res.end(payload);
+			return;
+		}
+
+		const pathAndQuery = options.secret ? stripSecret(rawPath, options.secret) : rawPath;
+		if (pathAndQuery === undefined) {
+			logger?.warn(`[ClaudeCode] Refused ${req.method} ${rawPath.split('?')[0]}: missing proxy secret`);
+			req.resume();
+			sendError(
+				res,
+				403,
+				'permission_error',
+				options.forbiddenMessage ?? 'This MiniMax routing proxy belongs to another VS Code session.',
+			);
 			return;
 		}
 
