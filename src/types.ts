@@ -188,6 +188,12 @@ export interface ModelPricing {
 
 export type PriceCategory = 'low' | 'medium' | 'high' | 'very_high';
 
+/** `output_config.effort` levels accepted by MiniMax-M3.1-Flash. */
+export const REASONING_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORT_LEVELS)[number];
+/** Upstream default when `output_config.effort` is omitted. */
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'max';
+
 export interface ModelDefinition {
 	id: string;
 	/**
@@ -236,7 +242,12 @@ export interface ModelDefinition {
 	};
 	thinking: {
 		supportsBudget: boolean;
+		/** `thinking.type` can be switched between `adaptive` and `disabled` (M3). */
 		supportsAdaptive: boolean;
+		/** Thinking is always on and its depth is tuned with
+		 *  `output_config.effort` (M3.1-Flash). Mutually exclusive with
+		 *  `supportsAdaptive`: such a model returns 400 for `disabled`. */
+		supportsEffort?: boolean;
 	};
 	pricing: ModelPricing;
 	/**

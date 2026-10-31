@@ -24,9 +24,17 @@ export const isChineseLocale = isChineseLocaleShared;
  * `localizeModelPricing()` based on the user's `minimax.apiBaseUrl` and
  * `vscode.env.language`.
  */
-type PricingKey = 'm3' | 'm3Large' | 'm3Priority' | 'm3LargePriority' | 'm27' | 'm27Highspeed';
+type PricingKey = 'm31Flash' | 'm3' | 'm3Large' | 'm3Priority' | 'm3LargePriority' | 'm27' | 'm27Highspeed';
 
 const PRICING_CNY: Record<PricingKey, ModelPricing> = {
+	/** M3.1-Flash — flat rate across the whole 1M context (no >512K tier). */
+	m31Flash: {
+		input: 1,
+		output: 4,
+		cacheRead: 0.1,
+		cacheWrite: null,
+		currency: 'CNY',
+	},
 	/** M3 in the standard ≤512K tier (永久五折后). */
 	m3: {
 		input: 2.1,
@@ -88,6 +96,13 @@ const PRICING_CNY: Record<PricingKey, ModelPricing> = {
 };
 
 const PRICING_USD: Record<PricingKey, ModelPricing> = {
+	m31Flash: {
+		input: 0.15,
+		output: 0.6,
+		cacheRead: 0.015,
+		cacheWrite: null,
+		currency: 'USD',
+	},
 	m3: {
 		input: 0.3,
 		output: 1.2,
@@ -196,11 +211,16 @@ export function pickPricingTable(baseUrl: string): Record<PricingKey, ModelPrici
  *
  * [pp]: https://platform.minimax.io/docs/guides/pricing-paygo
  *
- * Note on M3.1-Flash-Preview: the post-trained M3 variant. It shares
- * M3's full configuration — 1M official context with the same 512K
- * safe default (lifted by the `minimax.enableM31MContext` toggle via
- * the M3-family check in `getModels`), native image/video input, the
- * thinking on/off dropdown, and the `m3` pricing row.
+ * Note on M3.1-Flash: the GA successor of `MiniMax-M3.1-Flash-Preview`
+ * (old ids are migrated by `runtime/legacyModelIds.ts`). It differs
+ * from M3 in three ways, per the Anthropic-API docs:
+ *   - Thinking is always on; `thinking: { type: "disabled" }` returns
+ *     400. Depth is tuned with `output_config.effort` (low … max,
+ *     default max), surfaced as a picker dropdown.
+ *   - Pricing is flat across the whole 1M window (no >512K tier), so
+ *     the picker advertises 1M by default and the M3 1M toggle does
+ *     not apply to it.
+ *   - Its own `m31Flash` pricing row.
  *
  * Note on M2.7: the official spec is 204,800 context. We do not split
  * it into input vs. output caps because the docs do not publish such a
@@ -299,19 +319,15 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		extraReserved: ['service_tier'],
 	},
 	{
-		id: 'MiniMax-M3.1-Flash-Preview',
-		name: 'MiniMax M3.1 Flash (Preview)',
+		id: 'MiniMax-M3.1-Flash',
+		name: 'MiniMax M3.1 Flash',
 		family: 'minimax',
-		version: '3.1-flash-preview',
-		detail: 'Post-trained M3 variant (1M context, 512K effective)',
+		version: '3.1-flash',
+		detail: 'Multimodal frontier coding model with tunable thinking depth (1M context)',
 		contextLength: 1_000_000,
-		// M3.1-Flash-Preview is the post-trained M3 variant and shares
-		// M3's full configuration: same 512K safe default (lifted to 1M
-		// by the `minimax.enableM31MContext` toggle via the M3-family
-		// check in `getModels`), same native multimodal input, same
-		// thinking on/off dropdown, same pricing row. See the M3 entry
-		// above for the 512K vs 1M rationale.
-		maxInputTokens: 512_000,
+		// Flat pricing over the whole window, so the full 1M is the
+		// default; the M3 1M toggle does not touch this entry.
+		maxInputTokens: 1_000_000,
 		// Display-only `0`, same picker-column rule as M3 — see the
 		// long comment on the M3 template.
 		maxOutputTokens: 0,
@@ -323,10 +339,11 @@ const MODEL_TEMPLATES: ModelTemplate[] = [
 		},
 		thinking: {
 			supportsBudget: false,
-			supportsAdaptive: true,
+			supportsAdaptive: false,
+			supportsEffort: true,
 		},
-		pricingKey: 'm3',
-		priceCategory: 'medium',
+		pricingKey: 'm31Flash',
+		priceCategory: 'low',
 	},
 	{
 		id: 'MiniMax-M2.7',
@@ -413,10 +430,8 @@ export function getModels(baseUrl: string = readConfiguredBaseUrl()): ModelDefin
 	// sales-granted >512K access). When the toggle is on we lift M3's
 	// `maxInputTokens` / `maxOutputTokens` to 1M so the VS Code
 	// "上下文窗口" indicator reflects what the user is opting into.
-	// The same logic applies to the other M3-family entries
-	// (`MiniMax-M3-Priority` and `MiniMax-M3.1-Flash-Preview`, the
-	// post-trained M3 variant) so all three stay in sync when the user
-	// lifts the context cap.
+	// The same logic applies to `MiniMax-M3-Priority` so both stay in
+	// sync. `MiniMax-M3.1-Flash` is billed flat and always advertises 1M.
 	const m3Window = getM3ContextWindow();
 	return MODEL_TEMPLATES.map((t) => {
 		const { pricingKey, ...rest } = t;
@@ -434,10 +449,7 @@ export function getModels(baseUrl: string = readConfiguredBaseUrl()): ModelDefin
 				pricing: table[pricingKey],
 			}
 			: { ...rest, pricing: table[pricingKey] };
-		const isM3Family =
-			t.id === 'MiniMax-M3' ||
-			t.id === 'MiniMax-M3-Priority' ||
-			t.id === 'MiniMax-M3.1-Flash-Preview';
+		const isM3Family = t.id === 'MiniMax-M3' || t.id === 'MiniMax-M3-Priority';
 		// Lifting the picker cap to 1M only changes `maxInputTokens`.
 		// The picker **price column** still shows the ≤512K base rate
 		// (¥2.1 for standard M3, ¥3.15 for priority). The >512K

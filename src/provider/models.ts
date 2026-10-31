@@ -2,7 +2,13 @@ import * as vscode from 'vscode';
 import { CONFIG_SECTION } from '../consts';
 import { t } from '../i18n';
 import { findModelById } from '../models/registry';
-import type { ModelDefinition, PriceCategory } from '../types';
+import {
+	DEFAULT_REASONING_EFFORT,
+	REASONING_EFFORT_LEVELS,
+	type ModelDefinition,
+	type PriceCategory,
+	type ReasoningEffort,
+} from '../types';
 
 /**
  * Thinking-capable models advertise a binary `thinking` switch on the
@@ -12,10 +18,11 @@ import type { ModelDefinition, PriceCategory } from '../types';
  *   - `disabled` — turn the typed `thinking` block off (M3 only;
  *     M2.x will keep thinking on regardless, per the docs)
  *
- * MiniMax does **not** expose a thinking-effort knob (no
- * `budget_tokens`, no `reasoning_effort`, no `reasoning_split` field
- * on the Anthropic surface). The `Mini-Agent` reference client
- * hardcodes `extra_body={"reasoning_split": true}` and ships no UI.
+ * There is no `budget_tokens`. MiniMax-M3.1-Flash is the exception to
+ * the binary switch: its thinking is always on (`disabled` returns
+ * 400) and its depth is tuned with `output_config.effort`
+ * (`low` … `max`), surfaced as a second dropdown keyed by
+ * `REASONING_EFFORT_KEY` on models with `thinking.supportsEffort`.
  *
  * The on/off switch is surfaced in Copilot Chat's model picker as a
  * per-model `configurationSchema` dropdown — the same path
@@ -36,6 +43,10 @@ export type ThinkingEffort = 'adaptive' | 'disabled';
  * layer agree on the field name.
  */
 export const THINKING_ENABLED_KEY = 'thinkingEnabled';
+
+/** Schema key for the thinking-depth dropdown (M3.1-Flash). The value is
+ *  sent as `output_config.effort`. */
+export const REASONING_EFFORT_KEY = 'reasoningEffort';
 
 export type ModelConfigurationOptions = vscode.ProvideLanguageModelChatResponseOptions & {
 	readonly modelConfiguration?: Record<string, unknown>;
@@ -128,9 +139,13 @@ export function toChatInfo(
 		// flag is true — M2.x is also a "thinking" model by capability
 		// but the API silently ignores `disabled` for the M2 family, so
 		// showing a toggle on M2.x would be a misleading no-op.
-		...(m.thinking.supportsAdaptive
-			? { configurationSchema: buildThinkingEnabledSchema() }
-			: {}),
+		// M3.1-Flash cannot turn thinking off; it gets the depth
+		// dropdown (`output_config.effort`) instead.
+		...(m.thinking.supportsEffort
+			? { configurationSchema: buildReasoningEffortSchema() }
+			: m.thinking.supportsAdaptive
+				? { configurationSchema: buildThinkingEnabledSchema() }
+				: {}),
 		...toModelCostInfo(m),
 	};
 }
@@ -166,12 +181,14 @@ export function formatPricingTooltip(m: ModelDefinition): string {
 		lines.push('', pricing.note);
 	}
 	// The picker advertises a single per-million-token rate, but
-	// MiniMax bills the >512K portion of an actual request at a
+	// MiniMax bills the >512K portion of an actual M3 request at a
 	// higher per-token rate (1.5× for standard M3, 3× for
 	// M3-Priority). When the user has lifted the cap to 1M via
 	// `minimax.toggleM31MContext` we surface that here so the
 	// tooltip is honest about what a >512K request will cost.
-	if (maxInputTokens > 512_000) {
+	// M3.1-Flash is billed flat, so it never gets the hint.
+	const hasLargeContextTier = m.id === 'MiniMax-M3' || m.id === 'MiniMax-M3-Priority';
+	if (hasLargeContextTier && maxInputTokens > 512_000) {
 		lines.push(
 			'',
 			t(
@@ -235,6 +252,48 @@ function buildThinkingEnabledSchema(): vscode.LanguageModelConfigurationSchema {
 }
 
 /**
+ * Build the thinking-depth dropdown for models with
+ * `thinking.supportsEffort` (M3.1-Flash). The selection arrives as
+ * `options.modelConfiguration[REASONING_EFFORT_KEY]` and is sent as
+ * `output_config.effort`. Defaults to `max`, the upstream default.
+ */
+function buildReasoningEffortSchema(): vscode.LanguageModelConfigurationSchema {
+	return {
+		properties: {
+			[REASONING_EFFORT_KEY]: {
+				type: 'string',
+				title: t('status.reasoningEffort'),
+				enum: [...REASONING_EFFORT_LEVELS],
+				enumItemLabels: REASONING_EFFORT_LEVELS.map((level) => t(`reasoningEffort.${level}`)),
+				enumDescriptions: REASONING_EFFORT_LEVELS.map((level) => t(`reasoningEffort.${level}.desc`)),
+				default: DEFAULT_REASONING_EFFORT,
+				group: 'navigation',
+			},
+		},
+	} as vscode.LanguageModelConfigurationSchema;
+}
+
+/**
+ * Resolve the thinking depth for a model with `thinking.supportsEffort`.
+ * Returns `undefined` for every other model, so no `output_config` is
+ * sent to them. Unknown values fall back to the upstream default `max`.
+ */
+export function getConfiguredReasoningEffort(
+	modelId: string,
+	options?: ModelConfigurationOptions,
+): ReasoningEffort | undefined {
+	const modelDef = findModelById(modelId);
+	if (!modelDef?.thinking.supportsEffort) {
+		return undefined;
+	}
+	const configured = options?.modelConfiguration?.[REASONING_EFFORT_KEY]
+		?? options?.configuration?.[REASONING_EFFORT_KEY];
+	return typeof configured === 'string' && (REASONING_EFFORT_LEVELS as readonly string[]).includes(configured)
+		? (configured as ReasoningEffort)
+		: DEFAULT_REASONING_EFFORT;
+}
+
+/**
  * Resolve the per-model thinking switch. The decision is made in
  * two steps:
  *
@@ -272,9 +331,8 @@ export function getConfiguredThinkingEffort(
 
 /**
  * Flip the `minimax.enableM31MContext` setting. The boolean controls
- * whether the M3-family entries in the model picker (**MiniMax-M3**,
- * **MiniMax-M3-Priority** and the post-trained
- * **MiniMax-M3.1-Flash-Preview**) advertise the safe 512K default
+ * whether the M3-family entries in the model picker (**MiniMax-M3** and
+ * **MiniMax-M3-Priority**) advertise the safe 512K default
  * (`false`) or the official 1M cap (`true`).
  *
  * Going on is **destructive** in three ways:

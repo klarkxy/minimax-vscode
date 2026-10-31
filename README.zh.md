@@ -7,14 +7,14 @@
 </p>
 
 <p align="center">
-  在 Copilot Chat 模型选择器里选 <b>MiniMax M3 / M2.7</b>。
+  在 Copilot Chat 模型选择器里选 <b>MiniMax M3.1 Flash / M3 / M2.7</b>。
 </p>
 
 ## 功能
 
-- **M3.1-Flash-Preview / M3 / M2.7 / M2.7-highspeed 进 Copilot Chat 模型选择器**，tooltip 里直接给价。M3 原生支持图片和视频；M2.7 系列在 Anthropic 兼容 API 上只支持文本和工具调用块。
+- **M3.1-Flash / M3 / M2.7 / M2.7-highspeed 进 Copilot Chat 模型选择器**，tooltip 里直接给价。M3.1-Flash 与 M3 原生支持图片和视频；M2.7 系列在 Anthropic 兼容 API 上只支持文本和工具调用块。
 - **M3 原生视频输入** — 直接发 `type: "video"` part，硬限 64 MB 请求体上限。
-- **思考模式开关** — Anthropic 兼容端点只暴露二值 `disabled` / `adaptive` 开关，挂在 M3 picker 下拉菜单里。
+- **picker 里的思考控制** — M3.1-Flash 提供思考深度下拉（`low` / `medium` / `high` / `xhigh` / `max`，默认 `max`）；M3 提供 `disabled` / `adaptive` 二值开关。
 - **让 Copilot utility 流程使用 MiniMax** — Agent 辅助流程、标题、摘要和 Source Control ✨ 提交信息都可路由到 MiniMax。
 - **按模型调采样** — `temperature` / `topK` / `topP` / `frequencyPenalty` 按 model 独立覆盖。
 - **累计用量追踪** — 跨会话累加每个模型的输入 / 输出 / 缓存 token。
@@ -88,14 +88,14 @@ Claude Code 会提示一次 `MiniMax-M3` 不在其模型目录中并按 200K 上
 
 ## 模型
 
-| Model                            | 上下文（官方 / 生效） | 原生媒体输入   | 备注                                                                                           |
-| -------------------------------- | --------------------: | -------------- | ---------------------------------------------------------------------------------------------- |
-| **MiniMax M3.1 Flash (Preview)** |   1,000,000 / 512,000 | ✅ 图片 + 视频 | M3 后训练版；能力、定价、512K 默认值与 1M 开关都与 M3 一致。                                   |
-| **MiniMax M3**                   |   1,000,000 / 512,000 | ✅ 图片 + 视频 | 顶级编码；原生视频输入（MP4 / AVI / MOV / MKV）。生效值 512K 是因为 >512K 输入层还在限量发布。 |
-| **MiniMax M2.7**                 |               204,800 | —              | 自迭代，~60 TPS；只支持文本和工具调用内容块。                                                  |
-| **MiniMax M2.7-highspeed**       |               204,800 | —              | 同质量，~100 TPS；只支持文本和工具调用内容块。                                                 |
+| Model                      | 上下文（官方 / 生效） | 原生媒体输入   | 备注                                                                                           |
+| -------------------------- | --------------------: | -------------- | ---------------------------------------------------------------------------------------------- |
+| **MiniMax M3.1 Flash**     | 1,000,000 / 1,000,000 | ✅ 图片 + 视频 | 新一代 Flash。思考始终开启，可在下拉里调深度（默认 `max`）；1M 窗口统一计价。                  |
+| **MiniMax M3**             |   1,000,000 / 512,000 | ✅ 图片 + 视频 | 顶级编码；原生视频输入（MP4 / AVI / MOV / MKV）。生效值 512K 是因为 >512K 输入层还在限量发布。 |
+| **MiniMax M2.7**           |               204,800 | —              | 自迭代，~60 TPS；只支持文本和工具调用内容块。                                                  |
+| **MiniMax M2.7-highspeed** |               204,800 | —              | 同质量，~100 TPS；只支持文本和工具调用内容块。                                                 |
 
-拿到 >512K 权限的用户可以跑 **MiniMax: 切换 M3 1M 上下文** 把 cap 抬到 1M（开之前会弹模态警告说明 1.5× 计费）。完整规格见 [Supported models 页](https://platform.minimaxi.com/docs/guides/text-generation)。
+拿到 >512K 权限的用户可以跑 **MiniMax: 切换 M3 1M 上下文** 把 M3 / M3-Priority 的 cap 抬到 1M（开之前会弹模态警告说明 1.5× 计费）。完整规格见 [Supported models 页](https://platform.minimaxi.com/docs/guides/text-generation)。
 
 **历史模型：** M2.5 / M2.1 / M2 不在默认 picker 里。
 
@@ -107,7 +107,7 @@ Claude Code 会提示一次 `MiniMax-M3` 不在其模型目录中并按 200K 上
 
 | Model                             |  输入 |   输出 | 缓存读取 | 缓存写入 |
 | --------------------------------- | ----: | -----: | -------: | -------: |
-| **MiniMax M3.1 Flash (Preview)**  | ¥2.10 |  ¥8.40 |    ¥0.42 |        — |
+| **MiniMax M3.1 Flash**            | ¥1.00 |  ¥4.00 |    ¥0.10 |        — |
 | **MiniMax M3 (≤512K 输入)**       | ¥2.10 |  ¥8.40 |    ¥0.42 |        — |
 | **MiniMax M3 (>512K 输入，限量)** | ¥4.20 | ¥16.80 |    ¥0.84 |        — |
 | **MiniMax M2.7**                  | ¥2.10 |  ¥8.40 |    ¥0.42 |   ¥2.625 |
@@ -127,26 +127,26 @@ Claude Code 会提示一次 `MiniMax-M3` 不在其模型目录中并按 200K 上
 
 ## 设置项
 
-| 设置                                                   | 默认                                                    | 用途                                                                                                                                                                               |
-| ------------------------------------------------------ | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `minimax.apiBaseUrl`                                   | _auto-picked_                                           | Anthropic 兼容基础 URL。激活时若未设置会自动按语言选，默认 `https://api.minimaxi.com/anthropic`。                                                                                  |
-| `minimax.visibleModels`                                | _所有 M 档_                                             | 限制 picker 里出现的模型。                                                                                                                                                         |
-| `minimax.maxOutputTokens`                              | `0`                                                     | 输出上限。`0` 让模型自己决定。上下文窗口看 `minimax.enableM31MContext`。                                                                                                           |
-| `minimax.enableM31MContext`                            | `false`                                                 | 把 M3 / M3-Priority / M3.1-Flash-Preview 从 512K 抬到 1M 上下文。默认关闭；切换命令会先弹计费警告。                                                                                |
-| `minimax.sampling`                                     | `{}`                                                    | 按模型覆盖 `temperature` / `topP` / `topK` / `frequencyPenalty`。键：`MiniMax-M3.1-Flash-Preview`、`MiniMax-M3`、`MiniMax-M3-Priority`、`MiniMax-M2.7`、`MiniMax-M2.7-highspeed`。 |
-| `minimax.experimental.modelDefPresets`                 | `{}`                                                    | 按模型逃生口，往请求体里塞自定义字段。                                                                                                                                             |
-| `minimax.debugMode`                                    | `minimal`                                               | `minimal` / `metadata` / `verbose`。                                                                                                                                               |
-| `minimax.modelIdOverrides`                             | `{}`                                                    | picker id → API id 映射（代理场景用）。                                                                                                                                            |
-| `minimax.dashboard.includeClaudeCode`                  | `true`                                                  | 用量面板里 Claude Code JSONL section 的总开关。                                                                                                                                    |
-| `minimax.claudeCode.logPath`                           | `~/.claude/projects`                                    | Claude Code JSONL 日志的根目录。                                                                                                                                                   |
-| `minimax.claudeCode.pollIntervalMs`                    | `30000`                                                 | 扫描间隔（毫秒）。夹在 `[5000, 600000]` 之间。                                                                                                                                     |
-| `minimax.experimental.stabilizeToolList`               | `false`                                                 | 合成 preflight tool call 让上游 prompt cache 保持热。**Experimental.**                                                                                                             |
-| `minimax.claudeCode.routing.enabled`                   | `false`                                                 | 通过本地代理把 Claude Code 的模型档位路由到 MiniMax。见 [Claude Code 路由](#claude-code-路由)。                                                                                    |
-| `minimax.claudeCode.routing.haikuModel`                | `MiniMax-M3`                                            | Claude Code Haiku 档位使用的 MiniMax 模型。留空 = 使用 Anthropic 的 Haiku。                                                                                                        |
-| `minimax.claudeCode.routing.sonnetModel` / `opusModel` | 空                                                      | Sonnet / Opus 档位可选的 MiniMax 模型。留空 = 使用 Anthropic 的模型。                                                                                                              |
-| `minimax.claudeCode.routing.port`                      | `4000`                                                  | 代理端口，同一安装和配置文件下的窗口共享。                                                                                                                                         |
-| `minimax.claudeCode.routing.passthroughUrl`            | 空                                                      | 非 MiniMax 请求的上游。留空 = VS Code 启动时的 `ANTHROPIC_BASE_URL`，否则为 `https://api.anthropic.com`。                                                                          |
-| `minimax.claudeCode.allowedModels`                     | `MiniMax-M3 / M2.7 / M2.7-highspeed / M2.5 / M2.1 / M2` | Claude Code JSONL 接入的模型白名单。Claude Code 可能跟其他 Anthropic 兼容 provider 通信，这里只统计 MiniMax 相关行。                                                               |
+| 设置                                                   | 默认                                                                                      | 用途                                                                                                                                                                       |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `minimax.apiBaseUrl`                                   | _auto-picked_                                                                             | Anthropic 兼容基础 URL。激活时若未设置会自动按语言选，默认 `https://api.minimaxi.com/anthropic`。                                                                          |
+| `minimax.visibleModels`                                | _所有 M 档_                                                                               | 限制 picker 里出现的模型。                                                                                                                                                 |
+| `minimax.maxOutputTokens`                              | `0`                                                                                       | 输出上限。`0` 让模型自己决定。上下文窗口看 `minimax.enableM31MContext`。                                                                                                   |
+| `minimax.enableM31MContext`                            | `false`                                                                                   | 把 M3 / M3-Priority 从 512K 抬到 1M 上下文（M3.1-Flash 默认就是 1M）。默认关闭；切换命令会先弹计费警告。                                                                   |
+| `minimax.sampling`                                     | `{}`                                                                                      | 按模型覆盖 `temperature` / `topP` / `topK` / `frequencyPenalty`。键：`MiniMax-M3.1-Flash`、`MiniMax-M3`、`MiniMax-M3-Priority`、`MiniMax-M2.7`、`MiniMax-M2.7-highspeed`。 |
+| `minimax.experimental.modelDefPresets`                 | `{}`                                                                                      | 按模型逃生口，往请求体里塞自定义字段。                                                                                                                                     |
+| `minimax.debugMode`                                    | `minimal`                                                                                 | `minimal` / `metadata` / `verbose`。                                                                                                                                       |
+| `minimax.modelIdOverrides`                             | `{}`                                                                                      | picker id → API id 映射（代理场景用）。                                                                                                                                    |
+| `minimax.dashboard.includeClaudeCode`                  | `true`                                                                                    | 用量面板里 Claude Code JSONL section 的总开关。                                                                                                                            |
+| `minimax.claudeCode.logPath`                           | `~/.claude/projects`                                                                      | Claude Code JSONL 日志的根目录。                                                                                                                                           |
+| `minimax.claudeCode.pollIntervalMs`                    | `30000`                                                                                   | 扫描间隔（毫秒）。夹在 `[5000, 600000]` 之间。                                                                                                                             |
+| `minimax.experimental.stabilizeToolList`               | `false`                                                                                   | 合成 preflight tool call 让上游 prompt cache 保持热。**Experimental.**                                                                                                     |
+| `minimax.claudeCode.routing.enabled`                   | `false`                                                                                   | 通过本地代理把 Claude Code 的模型档位路由到 MiniMax。见 [Claude Code 路由](#claude-code-路由)。                                                                            |
+| `minimax.claudeCode.routing.haikuModel`                | `MiniMax-M3`                                                                              | Claude Code Haiku 档位使用的 MiniMax 模型。留空 = 使用 Anthropic 的 Haiku。                                                                                                |
+| `minimax.claudeCode.routing.sonnetModel` / `opusModel` | 空                                                                                        | Sonnet / Opus 档位可选的 MiniMax 模型。留空 = 使用 Anthropic 的模型。                                                                                                      |
+| `minimax.claudeCode.routing.port`                      | `4000`                                                                                    | 代理端口，同一安装和配置文件下的窗口共享。                                                                                                                                 |
+| `minimax.claudeCode.routing.passthroughUrl`            | 空                                                                                        | 非 MiniMax 请求的上游。留空 = VS Code 启动时的 `ANTHROPIC_BASE_URL`，否则为 `https://api.anthropic.com`。                                                                  |
+| `minimax.claudeCode.allowedModels`                     | `MiniMax-M3.1-Flash / M3.1-Flash-Preview / M3 / M2.7 / M2.7-highspeed / M2.5 / M2.1 / M2` | Claude Code JSONL 接入的模型白名单。Claude Code 可能跟其他 Anthropic 兼容 provider 通信，这里只统计 MiniMax 相关行。                                                       |
 
 ## 命令
 

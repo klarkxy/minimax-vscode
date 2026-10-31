@@ -2,6 +2,20 @@
 
 > 英文版见 [CHANGELOG.md](./CHANGELOG.md)。
 
+## 2.7.0 — 2026-10-31
+
+### 变更 — M3.1 Flash 正式版（#15）
+
+- **`MiniMax M3.1 Flash（Preview）` 换成正式版 `MiniMax M3.1 Flash`（`MiniMax-M3.1-Flash`）。** 启动时会把 `minimax.visibleModels`、`minimax.sampling`、`minimax.modelIdOverrides`、`minimax.experimental.modelDefPresets` 与 `minimax.claudeCode.routing.*Model` 里的旧 ID `MiniMax-M3.1-Flash-Preview` 改写成新 ID；`minimax.claudeCode.allowedModels` 保留旧 ID 并补上新 ID，历史 Claude Code 日志照常计入面板。Claude Code 代理也会把手动设置的 `MiniMax-M3.1-Flash-Preview` 改写为 `MiniMax-M3.1-Flash`。
+- **思考深度下拉。** M3.1-Flash 始终开启思考（传 `thinking: { type: "disabled" }` 会返回 400），所以它的 picker 条目提供思考深度下拉代替开关：`low` / `medium` / `high` / `xhigh` / `max`，以 `output_config.effort` 发送，默认 `max`，与官方默认值一致。
+- **统一计价，完整 1M 窗口。** M3.1-Flash 全窗口统一按每百万 token ¥1.00 / ¥4.00 / ¥0.10（国际站 $0.15 / $0.60 / $0.015）计费，picker 默认显示 1M。`minimax.enableM31MContext` 与 **MiniMax: 切换 M3 1M 上下文** 现在只作用于 M3 与 M3-Priority，>512K 计费提示也只在这两个条目上显示。
+
+### 新增 — Claude Code 路由（可选，#14）
+
+- **把 Claude Code 的模型档位路由到 MiniMax。** 新增 `minimax.claudeCode.routing.*` 设置，默认关闭。开启后在 `127.0.0.1:4000` 起本地代理，为从 VS Code 启动的 Claude Code 会话设置 `ANTHROPIC_BASE_URL` 与配置好的 `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL`。`MiniMax-*` 请求用当前密钥池的 key 发往 MiniMax，其余请求带着用户自己的 Claude 凭据原样透传。Haiku 档默认 `MiniMax-M3`，可用命令另选；`MiniMax-M3-Priority` 会改写为 `MiniMax-M3` + `service_tier: "priority"`。
+- **按窗口生效、需要密钥。** 环境变量写在窗口自己的扩展宿主进程与终端上，不写进机器级设置；代理只接受带每个配置文件专属 secret 的请求，同机其他进程无法使用你的 MiniMax key。
+- **从 `minimax.apiKey` 导入 key。** 写在用户设置里的 key 会在激活时移入 SecretStorage，并清空明文设置。
+
 ## 2.6.0 — 2026-09-28
 
 ### 新增 — M3.1 Flash（预览版）

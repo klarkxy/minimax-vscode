@@ -16,6 +16,7 @@ import { initializeDiagnostics } from './diagnostics';
 import { registerProvider } from './provider';
 import { getAuthManager, setMcpProvider, getMcpProvider } from './commands';
 import { registerMiniMaxMcpProvider } from './mcp';
+import { migrateLegacyModelIds } from './legacyModelIds';
 import { showWelcomeIfNeeded } from './welcome';
 
 let activeProvider: MiniMaxChatProvider | undefined;
@@ -58,6 +59,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			}
 		})
 		.catch((error) => logger.warn('[MiniMax] Importing API key from settings failed', error));
+
+	// Retired picker ids (e.g. `MiniMax-M3.1-Flash-Preview`) in the
+	// user's settings are rewritten to the model that replaced them.
+	// Awaited so the first picker refresh already sees the new ids.
+	await migrateLegacyModelIds().catch((error) =>
+		logger.warn('[MiniMax] Migrating retired model ids failed', error),
+	);
 
 	// One-time cleanup of memento keys left behind by the removed
 	// Codex / OpenCode ingesters. The modules and their constants are

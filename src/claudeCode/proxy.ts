@@ -88,6 +88,8 @@ export function isMiniMaxModelId(model: string): boolean {
  */
 export const MINIMAX_ALIAS_OVERRIDES: Readonly<Record<string, { apiModelId: string; extra: Record<string, unknown> }>> = {
 	'MiniMax-M3-Priority': { apiModelId: 'MiniMax-M3', extra: { service_tier: 'priority' } },
+	// Retired preview id, kept working for hand-set Claude Code envs.
+	'MiniMax-M3.1-Flash-Preview': { apiModelId: 'MiniMax-M3.1-Flash', extra: {} },
 };
 
 /** Rewrite a Claude Code model id back to the upstream id + merge the

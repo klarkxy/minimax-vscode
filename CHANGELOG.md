@@ -1,8 +1,14 @@
 # Changelog
 
-## Unreleased
+## 2.7.0 — 2026-10-31
 
-### Added — Claude Code routing (opt-in)
+### Changed — M3.1 Flash is generally available (#15)
+
+- **`MiniMax M3.1 Flash (Preview)` is replaced by `MiniMax M3.1 Flash` (`MiniMax-M3.1-Flash`).** The retired `MiniMax-M3.1-Flash-Preview` id is rewritten to the new one on startup in `minimax.visibleModels`, `minimax.sampling`, `minimax.modelIdOverrides`, `minimax.experimental.modelDefPresets` and the `minimax.claudeCode.routing.*Model` settings; `minimax.claudeCode.allowedModels` keeps the old id and gains the new one, so historical Claude Code logs stay counted. The Claude Code proxy also rewrites a hand-set `MiniMax-M3.1-Flash-Preview` to `MiniMax-M3.1-Flash`.
+- **Thinking-depth dropdown.** M3.1-Flash always thinks (the API returns 400 for `thinking: { type: "disabled" }`), so its picker entry offers a depth dropdown instead of the on/off switch: `low` / `medium` / `high` / `xhigh` / `max`, sent as `output_config.effort`. The default is `max`, the same as the upstream default.
+- **Flat pricing, full 1M window.** M3.1-Flash is billed $0.15 / $0.60 / $0.015 per million tokens (¥1.00 / ¥4.00 / ¥0.10 on the China platform) across the whole window, so its picker entry advertises 1M by default. `minimax.enableM31MContext` and the **MiniMax: Toggle M3 1M Context** command now cover M3 and M3-Priority only, and the >512K pricing hint is shown for those two only.
+
+### Added — Claude Code routing (opt-in) (#14)
 
 - **Route Claude Code model tiers to MiniMax.** New `minimax.claudeCode.routing.*` settings, off by default. When enabled (**MiniMax: Enable Claude Code Routing**), the extension starts a local proxy on `127.0.0.1:4000` and sets `ANTHROPIC_BASE_URL` plus the configured `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL` for new Claude Code sessions started from VS Code (`claudeCode.environmentVariables` and VS Code terminals). Requests for `MiniMax-*` models go to MiniMax with the active key from the existing key pool; all other traffic passes through with the user's own Claude credentials, to their previous `ANTHROPIC_BASE_URL` or to `api.anthropic.com`. The Haiku tier defaults to `MiniMax-M3`; **MiniMax: Pick Claude Code Haiku Model** picks another one, and `MiniMax-M3-Priority` is rewritten to `MiniMax-M3` + `service_tier: "priority"`. A `MiniMax CC` status bar item shows the proxy state. Copilot Chat models are unchanged and work alongside it with the same key.
 - **Routing is scoped to the VS Code window, not the machine.** The variables are set on the window's extension host process and terminals instead of the machine-scoped `claudeCode.environmentVariables`, which over Remote-SSH is stored on the server and reached everyone sharing the remote account (their sessions timed out while the proxy was down, and used the owner's MiniMax key while it was up). Entries earlier builds wrote there are removed on start, restoring the user's previous values; the user's own entries for routed variables override routing and trigger a warning.

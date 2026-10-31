@@ -5,7 +5,7 @@ import { resolveApiModelId, getMaxTokens } from '../config';
 import { CONFIG_SECTION } from '../consts';
 import { t } from '../i18n';
 import { findModelById } from '../models/registry';
-import type { ConvertedConversation, MiniMaxRequest } from '../types';
+import type { ConvertedConversation, MiniMaxRequest, ReasoningEffort } from '../types';
 import { convertMessages, countMessageChars } from './convert';
 import {
 	classifyMiniMaxRequest,
@@ -15,7 +15,11 @@ import {
 	type CacheDiagnosticsRun,
 	type RequestKind,
 } from './debug';
-import { getConfiguredThinkingEffort, type ModelConfigurationOptions } from './models';
+import {
+	getConfiguredReasoningEffort,
+	getConfiguredThinkingEffort,
+	type ModelConfigurationOptions,
+} from './models';
 import type { ReplayMarkerMetadata } from './replay';
 import type { ConversationSegment } from './segment';
 import { prepareRequestTools, collectTrailingToolResultIds } from './tools/request';
@@ -45,6 +49,9 @@ export interface PreparedChatRequest {
 	 * the user's choice — they diverge when M3 is in disabled mode.
 	 */
 	thinkingEffort: 'adaptive' | 'disabled';
+	/** `output_config.effort` sent to models with
+	 *  `thinking.supportsEffort` (M3.1-Flash); `undefined` elsewhere. */
+	reasoningEffort?: ReasoningEffort;
 	totalRequestChars: number;
 	trailingToolResultIds: string[];
 	cacheDiagnostics: CacheDiagnosticsRun;
@@ -119,6 +126,13 @@ export async function prepareChatRequest({
 	// `provider/models.ts` for how the choice is read out of
 	// `options.modelConfiguration[THINKING_ENABLED_KEY]`.
 	const thinkingEffort = getConfiguredThinkingEffort(modelInfo.id, options as ModelConfigurationOptions);
+	// M3.1-Flash: thinking is always on and its depth rides on
+	// `output_config.effort`. It is applied after the user presets so
+	// the picker dropdown stays the single source of truth.
+	const reasoningEffort = getConfiguredReasoningEffort(modelInfo.id, options as ModelConfigurationOptions);
+	if (enrichedModelDef && reasoningEffort) {
+		enrichedModelDef.extra = withReasoningEffort(enrichedModelDef.extra, reasoningEffort);
+	}
 	// `isThinkingModel` reflects whether the *model* is a thinking
 	// model. `isThinkingEnabled` reflects whether the user has the
 	// switch on (i.e. the dropdown returned `开启` / `adaptive`).
@@ -222,6 +236,7 @@ export async function prepareChatRequest({
 		modelDef: enrichedModelDef,
 		isThinkingModel,
 		thinkingEffort,
+		reasoningEffort,
 		totalRequestChars,
 		trailingToolResultIds,
 		cacheDiagnostics: diagnosticsRun,
@@ -303,6 +318,23 @@ function readUserExtra(modelId: string): Record<string, unknown> | undefined {
  * Exported for unit tests; production callers should rely on the
  * request-prep pipeline wiring it via `modelDef.extraReserved`.
  */
+/**
+ * Return `extra` with `output_config.effort` set to `effort`, keeping
+ * any other `output_config` fields a user preset may carry. Exported
+ * for unit tests.
+ */
+export function withReasoningEffort(
+	extra: Record<string, unknown> | undefined,
+	effort: ReasoningEffort,
+): Record<string, unknown> {
+	const existing = extra?.output_config;
+	const outputConfig =
+		existing && typeof existing === 'object' && !Array.isArray(existing)
+			? (existing as Record<string, unknown>)
+			: {};
+	return { ...extra, output_config: { ...outputConfig, effort } };
+}
+
 export function mergeExtraPreservingReserved(
 	registryExtra: Record<string, unknown> | undefined,
 	userExtra: Record<string, unknown> | undefined,
@@ -360,12 +392,17 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  *     never emit the field; its reasoning arrives embedded as
  *     `<think>…</think>` inside the text content.
  */
-function buildThinkingPayload(
+export function buildThinkingPayload(
 	modelDef: ReturnType<typeof findModelById> | undefined,
 	effort: 'adaptive' | 'disabled',
 ): { type: 'adaptive' } | { type: 'disabled' } | undefined {
 	if (!modelDef?.capabilities.thinking) {
 		return undefined;
+	}
+	// M3.1-Flash always thinks and answers `disabled` with HTTP 400,
+	// so it always gets `adaptive`; depth goes via `output_config`.
+	if (modelDef.thinking.supportsEffort) {
+		return { type: 'adaptive' };
 	}
 	// M3 honours both `adaptive` and `disabled` (the docs explicitly
 	// say M3 thinking can be turned off). M2.x does not — even if we
@@ -578,8 +615,8 @@ function enforceInlineAttachmentSizeLimits(converted: ConvertedConversation): vo
 
 /**
  * Per-model request-body caps from the MiniMax Anthropic-API docs. The
- * picker models that accept inline media (M3 family — including the
- * post-trained M3.1-Flash-Preview variant — plus M2.7 / M2.7-highspeed)
+ * picker models that accept inline media (M3.1-Flash and the M3 family,
+ * plus M2.7 / M2.7-highspeed)
  * are subject to the 64 MB ceiling. The 32 MB fallback covers callers
  * that still point at historical models via `modelIdOverrides`.
  *
@@ -596,7 +633,7 @@ function MAX_REQUEST_BODY_BYTES_FOR_MODEL(modelId: string): number {
 	// registry's `apiModelId`, so it does not need a separate branch.
 	if (
 		modelId === 'MiniMax-M3' ||
-		modelId === 'MiniMax-M3.1-Flash-Preview' ||
+		modelId === 'MiniMax-M3.1-Flash' ||
 		modelId === 'MiniMax-M2.7' ||
 		modelId === 'MiniMax-M2.7-highspeed'
 	) return 64 * 1024 * 1024;

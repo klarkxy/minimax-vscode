@@ -21,7 +21,7 @@ const zh: Translations = {
 	// Model descriptions
 	'model.M3.detail': '原生多模态、1M 上下文 Frontier Coding 模型',
 	'model.M3-Priority.detail': 'M3 优先服务：响应更快、失败率更低（计费档位见 tooltip）',
-	'model.M3.1-Flash-Preview.detail': 'M3 后训练版本（闪电预览）：原生多模态、1M 上下文 Frontier Coding 模型',
+	'model.M3.1-Flash.detail': '新一代 Flash：原生多模态、1M 上下文 Frontier Coding 模型，思考深度可调',
 	'model.M2.7.detail': '开启模型的自我迭代（输出速度约 60 TPS）',
 	'model.M2.7-highspeed.detail': 'M2.7 极速版：效果不变，更快更敏捷（输出速度约 100 TPS）',
 	// Thinking mode — dropdown labels (rendered in Copilot Chat model picker)
@@ -29,13 +29,24 @@ const zh: Translations = {
 	'thinking.off': '关闭',
 	'thinking.on.desc': '模型输出 typed thinking 推理轨迹（默认）。temperature 强制为 1、禁 top_p。',
 	'thinking.off.desc': '关闭 typed thinking 内容块（仅 M3 受控）。temperature / topP 可用用户设置的采样值。',
+	// Thinking depth — M3.1-Flash dropdown (output_config.effort)
+	'reasoningEffort.low': '低',
+	'reasoningEffort.low.desc': '思考最浅：响应最快、输出 token 最少。',
+	'reasoningEffort.medium': '中',
+	'reasoningEffort.medium.desc': '适度思考，兼顾速度与质量。',
+	'reasoningEffort.high': '高',
+	'reasoningEffort.high.desc': '更充分的思考，适合多数编码任务。',
+	'reasoningEffort.xhigh': '超高',
+	'reasoningEffort.xhigh.desc': '深入思考，适合复杂的多步任务。',
+	'reasoningEffort.max': '最高',
+	'reasoningEffort.max.desc': '最深入的思考（默认，与官方默认值一致）：质量最高，延迟和输出 token 也最多。',
 
 	// M3 1M context — toggle / warning copy
-	'm31m.toggledOn': 'M3 / M3-Priority / M3.1-Flash-Preview 上下文已开启至 1M（`minimax.enableM31MContext = true`）——超过 512K 的请求按对应 >512K 档位费率计费。',
-	'm31m.toggledOff': 'M3 / M3-Priority / M3.1-Flash-Preview 上下文已恢复为安全默认值 512K（`minimax.enableM31MContext = false`）。',
-	'm31m.warning.title': '开启 M3 / M3-Priority / M3.1-Flash-Preview 1M 上下文窗口',
+	'm31m.toggledOn': 'M3 / M3-Priority 上下文已开启至 1M（`minimax.enableM31MContext = true`）——超过 512K 的请求按对应 >512K 档位费率计费。',
+	'm31m.toggledOff': 'M3 / M3-Priority 上下文已恢复为安全默认值 512K（`minimax.enableM31MContext = false`）。',
+	'm31m.warning.title': '开启 M3 / M3-Priority 1M 上下文窗口',
 	'm31m.warning.body':
-		'将把模型选择器中 **MiniMax-M3**、**MiniMax-M3-Priority** 与 **MiniMax-M3.1-Flash-Preview** 的上下文窗口从安全默认值 512K 抬升至官方规格 1,000,000。\n\n请确认以下条件均已满足：\n• 你的 MiniMax 账号已通过销售开通了 **>512K 输入层**——未开通时 API 会直接返回 HTTP 400。\n• 你清楚 >512K 部分按 **1.5 倍费率**（标准 M3 / M3.1-Flash-Preview）或 **3 倍费率**（M3-Priority）计费，具体以 picker tooltip 中显示的速率为准。\n• Token Plan 套餐内额度也按对应档位扣减。\n\n若不确定，可以先保持关闭；后续随时可调。',
+		'将把模型选择器中 **MiniMax-M3** 与 **MiniMax-M3-Priority** 的上下文窗口从安全默认值 512K 抬升至官方规格 1,000,000（**MiniMax-M3.1-Flash** 统一计价，默认就是 1M，不受此开关影响）。\n\n请确认以下条件均已满足：\n• 你的 MiniMax 账号已通过销售开通了 **>512K 输入层**——未开通时 API 会直接返回 HTTP 400。\n• 你清楚 >512K 部分按 **1.5 倍费率**（标准 M3）或 **3 倍费率**（M3-Priority）计费，具体以 picker tooltip 中显示的速率为准。\n• Token Plan 套餐内额度也按对应档位扣减。\n\n若不确定，可以先保持关闭；后续随时可调。',
 	'm31m.warning.confirm': '我已了解，启用 1M',
 
 	// API Key
@@ -173,6 +184,7 @@ const zh: Translations = {
 	// Usage / status
 	'usage.empty': '暂未产生任何请求。打开 Copilot Chat，选用一个 MiniMax 模型并发送消息即可。',
 	'status.thinking': '思考模式',
+	'status.reasoningEffort': '思考深度',
 	'usage.resetDone': '已清空用量统计。',
 
 	// Plan status bar (`src/dashboard/planStatusBar.ts`).
@@ -270,7 +282,7 @@ const en: Translations = {
 	// Model descriptions
 	'model.M3.detail': 'Native multimodal, 1M context frontier coding model',
 	'model.M3-Priority.detail': 'M3 with priority access — faster response, lower failure rate (see tooltip for billing)',
-	'model.M3.1-Flash-Preview.detail': 'Post-trained M3 variant (Flash preview): native multimodal, 1M context frontier coding model',
+	'model.M3.1-Flash.detail': 'Next-generation Flash: native multimodal, 1M context frontier coding model with tunable thinking depth',
 	'model.M2.7.detail': 'Self-iterating model (~60 TPS)',
 	'model.M2.7-highspeed.detail': 'M2.7 high-speed: same quality, faster',
 	// Thinking mode — toggle / status labels
@@ -280,13 +292,24 @@ const en: Translations = {
 		'Model emits a typed thinking block (default). Forces temperature=1, drops top_p per Anthropic constraint.',
 	'thinking.off.desc':
 		'Turns off the typed thinking block (M3 only — M2.x ignores this). User sampling temperature/topP take effect.',
+	// Thinking depth — M3.1-Flash dropdown (output_config.effort)
+	'reasoningEffort.low': 'Low',
+	'reasoningEffort.low.desc': 'Shallowest thinking: fastest responses, fewest output tokens.',
+	'reasoningEffort.medium': 'Medium',
+	'reasoningEffort.medium.desc': 'Moderate thinking that balances speed and quality.',
+	'reasoningEffort.high': 'High',
+	'reasoningEffort.high.desc': 'Thorough thinking for most coding tasks.',
+	'reasoningEffort.xhigh': 'Extra high',
+	'reasoningEffort.xhigh.desc': 'Deep thinking for complex multi-step tasks.',
+	'reasoningEffort.max': 'Max',
+	'reasoningEffort.max.desc': 'Deepest thinking (default, same as the upstream default): best quality, highest latency and output tokens.',
 
 	// M3 1M context — toggle / warning copy
-	'm31m.toggledOn': 'M3 / M3-Priority / M3.1-Flash-Preview context window lifted to 1M (`minimax.enableM31MContext = true`) — requests above 512K are billed at the >512K tier rate for each model.',
-	'm31m.toggledOff': 'M3 / M3-Priority / M3.1-Flash-Preview context window restored to the safe 512K default (`minimax.enableM31MContext = false`).',
-	'm31m.warning.title': 'Lift MiniMax-M3 / MiniMax-M3-Priority / MiniMax-M3.1-Flash-Preview context window to 1M',
+	'm31m.toggledOn': 'M3 / M3-Priority context window lifted to 1M (`minimax.enableM31MContext = true`) — requests above 512K are billed at the >512K tier rate for each model.',
+	'm31m.toggledOff': 'M3 / M3-Priority context window restored to the safe 512K default (`minimax.enableM31MContext = false`).',
+	'm31m.warning.title': 'Lift MiniMax-M3 / MiniMax-M3-Priority context window to 1M',
 	'm31m.warning.body':
-		'This raises the **MiniMax-M3**, **MiniMax-M3-Priority** and **MiniMax-M3.1-Flash-Preview** entries in the model picker from the safe 512K default up to the official 1,000,000-token cap.\n\nMake sure all of the following apply:\n• Your MiniMax account has been granted the **>512K input tier** by sales — without it the upstream API will return HTTP 400 for requests above 512K.\n• You understand that the >512K portion is billed at **1.5× the per-token rate** for standard M3 / M3.1-Flash-Preview or **3× the per-token rate** for M3-Priority (see the rate shown in the picker tooltip, or the [pricing page](https://platform.minimax.io/docs/guides/pricing-paygo)).\n• Token Plan quota also deducts at the corresponding tier rate.\n\nIf unsure, leave it off — you can flip it on later at any time.',
+		'This raises the **MiniMax-M3** and **MiniMax-M3-Priority** entries in the model picker from the safe 512K default up to the official 1,000,000-token cap (**MiniMax-M3.1-Flash** is billed flat and already advertises 1M, so this switch leaves it as is).\n\nMake sure all of the following apply:\n• Your MiniMax account has been granted the **>512K input tier** by sales — without it the upstream API will return HTTP 400 for requests above 512K.\n• You understand that the >512K portion is billed at **1.5× the per-token rate** for standard M3 or **3× the per-token rate** for M3-Priority (see the rate shown in the picker tooltip, or the [pricing page](https://platform.minimax.io/docs/guides/pricing-paygo)).\n• Token Plan quota also deducts at the corresponding tier rate.\n\nIf unsure, leave it off — you can flip it on later at any time.',
 	'm31m.warning.confirm': 'I understand, enable 1M',
 
 	// API Key
@@ -424,6 +447,7 @@ const en: Translations = {
 	// Usage / status
 	'usage.empty': 'No requests have been made yet. Open Copilot Chat, pick a MiniMax model, and send a message.',
 	'status.thinking': 'Thinking Mode',
+	'status.reasoningEffort': 'Thinking Depth',
 	'usage.resetDone': 'Usage statistics have been reset.',
 
 	// Plan status bar (`src/dashboard/planStatusBar.ts`).
