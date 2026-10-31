@@ -29,6 +29,7 @@
 - **Use MiniMax for Copilot utility flows** — configure Agent helpers, titles, summaries, and the Source Control ✨ commit button through MiniMax.
 - **Per-model sampling** — `temperature` / `topK` / `topP` / `frequencyPenalty` overrides per model.
 - **Cumulative usage tracker** — per-model input / output / cache tokens across the extension lifetime.
+- **Claude Code routing (opt-in)** — run Claude Code's Haiku tier (or any tier) on MiniMax through a local proxy, with the same API key; other tiers keep your own Claude login. See [Claude Code routing](#claude-code-routing).
 - **Usage dashboard** — today / 7-day / 30-day views, 30-day bar chart, per-model breakdown, platform `coding_plan/remains`, and Claude Code JSONL ingest.
 - **mmx-cli status detection** — dashboard shows whether the official MiniMax CLI / auth / SKILL is set up; copy the install prompt to the clipboard.
 - **MiniMax Web Search MCP (Agent Mode)** — VS Code's MCP runtime launches `uvx minimax-coding-plan-mcp` automatically once you've set an API key and a recognised host; the extension injects the key + host as env and re-fires the definition when either changes.
@@ -45,7 +46,7 @@
 ### Prerequisites
 
 - **VS Code 1.111.0+**
-- **GitHub Copilot Chat** installed and signed in
+- **GitHub Copilot Chat** installed and signed in (for the Copilot Chat models; not needed for [Claude Code routing](#claude-code-routing))
 - A MiniMax [Token Plan](https://platform.minimax.io/user-center/payment/token-plan) subscription and API key
 - **VS Code Insiders** to render M3 thinking blocks via the proposed `languageModelThinkingPart` API
 
@@ -60,14 +61,51 @@
 
 On first activation, if `minimax.apiBaseUrl` is still at its default, the extension picks `https://api.minimax.io/anthropic` automatically. Once you set the URL manually or run the switch command, the auto-picked value is preserved.
 
+## Claude Code routing
+
+Optional, and off by default. It lets Claude Code run some of its model tiers on MiniMax, for example the **Haiku** tier that Claude Code uses for background tasks, session titles, Explore and other subagents, and `/model haiku`. Every other tier keeps using your own Claude subscription or API login. GitHub Copilot Chat is not required for this.
+
+It uses the same API key pool as the Copilot Chat models, so one key can serve Copilot Chat, Claude Code, or both. The usage dashboard shows each frontend in its own tab.
+
+To turn it on, add a key (**MiniMax: Add API Key**) and run **MiniMax: Enable Claude Code Routing**. The extension then:
+
+1. Starts a local proxy on `http://127.0.0.1:4000`.
+2. Sets these variables for every **new** Claude Code session started from that VS Code window (Claude Code extension sessions, and `claude` run in its terminals):
+
+   ```json
+   {
+   	"ANTHROPIC_BASE_URL": "http://127.0.0.1:4000/<secret>",
+   	"ANTHROPIC_DEFAULT_HAIKU_MODEL": "MiniMax-M3"
+   }
+   ```
+
+   `<secret>` is a random path the proxy requires on every request; it is kept in your VS Code profile and shared by your windows.
+
+3. Routes each request by its `model`. `MiniMax-*` models go to MiniMax with your key. Everything else (Opus, Sonnet, OAuth / usage endpoints) is passed through unchanged with **your own** Claude credentials, to the `ANTHROPIC_BASE_URL` you had before (if any) or to `api.anthropic.com`.
+
+`ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` are never set, because they would replace your Claude login on every request. The proxy adds the MiniMax key itself. Changes apply to **new** Claude Code sessions; restart open ones. A standalone `claude` outside VS Code is never redirected.
+
+How your environment and settings are handled:
+
+- The variables are set in the window's extension host process (Claude Code copies its environment into each session it starts) and in its terminals, never in a settings file. They exist only while that window runs, so Claude Code is never left pointing at a dead port, and nobody else sees them.
+- Only `ANTHROPIC_BASE_URL` and the tiers you set a model for are set. A tier left empty is not touched, so your own `ANTHROPIC_DEFAULT_OPUS_MODEL` (for example) stays as it is. Turning routing off, or disabling the extension, puts back the values the window started with.
+- `claudeCode.environmentVariables` is applied on top of that environment, so your own entries there for these variables win over routing; the extension warns when that happens. Use `minimax.claudeCode.routing.passthroughUrl` for a custom gateway instead.
+- Earlier versions wrote routing into `claudeCode.environmentVariables`; those entries are removed (and your previous values restored) on the next start.
+
+**Shared remote accounts.** `claudeCode.environmentVariables` is a machine setting, so over Remote-SSH it is stored on the server and applies to everyone using that account. That is why routing no longer goes there: when several people share one remote login, only the windows that turned routing on are routed, and the proxy refuses requests without its secret (HTTP 403), so nobody else's sessions can use your MiniMax key, even though the proxy port is reachable by every process on the server.
+
+Multiple windows share one proxy as long as they belong to the same VS Code installation and profile (and therefore the same API keys, settings and secret). The proxy reads the active key, region and passthrough upstream on every request, so it does not matter which window started it. A MiniMax proxy from another installation (e.g. Insiders next to Stable), another profile or an older build of this extension is recognised through its health check and never used. Set a different `minimax.claudeCode.routing.port` there to run both.
+
+Claude Code prints a one-time note that `MiniMax-M3` is not in its model catalog and assumes a 200K context window; that is expected.
+
 ## Models
 
-| Model                             | Context (spec / effective) | Native media input | Notes                                                                                                                                   |
-| --------------------------------- | -------------------------: | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| **MiniMax M3.1 Flash (Preview)**  |        1,000,000 / 512,000 | ✅ image + video   | Post-trained M3 variant; shares M3's capabilities, pricing and the 512K safe default / 1M toggle.                                       |
-| **MiniMax M3**                    |        1,000,000 / 512,000 | ✅ image + video   | Top-tier coding; native video input (MP4 / AVI / MOV / MKV). Effective cap is 512K until the >512K tier is fully rolled out.            |
-| **MiniMax M2.7**                  |                    204,800 | —                  | Self-iterating, ~60 TPS; text and tool-call content blocks only.                                                                        |
-| **MiniMax M2.7-highspeed**        |                    204,800 | —                  | Same quality, ~100 TPS; text and tool-call content blocks only.                                                                         |
+| Model                            | Context (spec / effective) | Native media input | Notes                                                                                                                        |
+| -------------------------------- | -------------------------: | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| **MiniMax M3.1 Flash (Preview)** |        1,000,000 / 512,000 | ✅ image + video   | Post-trained M3 variant; shares M3's capabilities, pricing and the 512K safe default / 1M toggle.                            |
+| **MiniMax M3**                   |        1,000,000 / 512,000 | ✅ image + video   | Top-tier coding; native video input (MP4 / AVI / MOV / MKV). Effective cap is 512K until the >512K tier is fully rolled out. |
+| **MiniMax M2.7**                 |                    204,800 | —                  | Self-iterating, ~60 TPS; text and tool-call content blocks only.                                                             |
+| **MiniMax M2.7-highspeed**       |                    204,800 | —                  | Same quality, ~100 TPS; text and tool-call content blocks only.                                                              |
 
 Users with >512K access can run **MiniMax: Toggle M3 1M Context** to lift the cap (the command pops a modal warning about 1.5× billing before flipping the switch). The full spec is on the [Supported models page](https://platform.minimax.io/docs/guides/text-generation).
 
@@ -101,21 +139,26 @@ A Subscription Key covers language models plus speech / video / music / image en
 
 ## Settings
 
-| Setting                                  | Default                                                 | Purpose                                                                                                                                                                                |
-| ---------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `minimax.apiBaseUrl`                     | _auto-picked_                                           | Anthropic-compatible base URL. Auto-picked on first activation; defaults to `https://api.minimax.io/anthropic`.                                                                        |
-| `minimax.visibleModels`                  | _all M-series_                                          | Restrict which models appear in the picker. Defaults to `MiniMax-M3.1-Flash-Preview / MiniMax-M3 / MiniMax-M3-Priority / MiniMax-M2.7 / MiniMax-M2.7-highspeed`.                       |
-| `minimax.maxOutputTokens`                | `0`                                                     | Output cap. `0` lets the model decide. See `minimax.enableM31MContext` for the input/context window.                                                                                   |
-| `minimax.enableM31MContext`              | `false`                                                 | Lift M3 / M3-Priority from 512K to 1M context. Off by default; the toggle command pops a billing warning first.                                                                        |
-| `minimax.sampling`                       | `{}`                                                    | Per-model `temperature` / `topP` / `topK` / `frequencyPenalty` overrides. Keys: `MiniMax-M3.1-Flash-Preview`, `MiniMax-M3`, `MiniMax-M3-Priority`, `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`.                         |
-| `minimax.experimental.modelDefPresets`   | `{}`                                                    | Per-model escape hatch for request body fields.                                                                                                                                        |
-| `minimax.debugMode`                      | `minimal`                                               | `minimal` / `metadata` / `verbose`.                                                                                                                                                    |
-| `minimax.modelIdOverrides`               | `{}`                                                    | Map picker IDs to API IDs (useful for proxies).                                                                                                                                        |
-| `minimax.dashboard.includeClaudeCode`    | `true`                                                  | Master toggle for the Claude Code JSONL ingest section.                                                                                                                                |
-| `minimax.claudeCode.logPath`             | `~/.claude/projects`                                    | Root directory the ingester walks.                                                                                                                                                     |
-| `minimax.claudeCode.pollIntervalMs`      | `30000`                                                 | Scan interval in milliseconds. Clamped to `[5000, 600000]`.                                                                                                                            |
-| `minimax.experimental.stabilizeToolList` | `false`                                                 | Synthesise preflight tool calls to keep the upstream prompt cache warm. **Experimental.**                                                                                              |
-| `minimax.claudeCode.allowedModels`       | `MiniMax-M3.1-Flash-Preview / M3 / M2.7 / M2.7-highspeed / M2.5 / M2.1 / M2` | Allowlist of model IDs counted in the Claude Code section of the dashboard. Claude Code may be talking to other Anthropic-compatible providers; only MiniMax-related rows are counted. |
+| Setting                                                | Default                                                                      | Purpose                                                                                                                                                                                      |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `minimax.apiBaseUrl`                                   | _auto-picked_                                                                | Anthropic-compatible base URL. Auto-picked on first activation; defaults to `https://api.minimax.io/anthropic`.                                                                              |
+| `minimax.visibleModels`                                | _all M-series_                                                               | Restrict which models appear in the picker. Defaults to `MiniMax-M3.1-Flash-Preview / MiniMax-M3 / MiniMax-M3-Priority / MiniMax-M2.7 / MiniMax-M2.7-highspeed`.                             |
+| `minimax.maxOutputTokens`                              | `0`                                                                          | Output cap. `0` lets the model decide. See `minimax.enableM31MContext` for the input/context window.                                                                                         |
+| `minimax.enableM31MContext`                            | `false`                                                                      | Lift M3 / M3-Priority from 512K to 1M context. Off by default; the toggle command pops a billing warning first.                                                                              |
+| `minimax.sampling`                                     | `{}`                                                                         | Per-model `temperature` / `topP` / `topK` / `frequencyPenalty` overrides. Keys: `MiniMax-M3.1-Flash-Preview`, `MiniMax-M3`, `MiniMax-M3-Priority`, `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`. |
+| `minimax.experimental.modelDefPresets`                 | `{}`                                                                         | Per-model escape hatch for request body fields.                                                                                                                                              |
+| `minimax.debugMode`                                    | `minimal`                                                                    | `minimal` / `metadata` / `verbose`.                                                                                                                                                          |
+| `minimax.modelIdOverrides`                             | `{}`                                                                         | Map picker IDs to API IDs (useful for proxies).                                                                                                                                              |
+| `minimax.dashboard.includeClaudeCode`                  | `true`                                                                       | Master toggle for the Claude Code JSONL ingest section.                                                                                                                                      |
+| `minimax.claudeCode.logPath`                           | `~/.claude/projects`                                                         | Root directory the ingester walks.                                                                                                                                                           |
+| `minimax.claudeCode.pollIntervalMs`                    | `30000`                                                                      | Scan interval in milliseconds. Clamped to `[5000, 600000]`.                                                                                                                                  |
+| `minimax.experimental.stabilizeToolList`               | `false`                                                                      | Synthesise preflight tool calls to keep the upstream prompt cache warm. **Experimental.**                                                                                                    |
+| `minimax.claudeCode.routing.enabled`                   | `false`                                                                      | Route Claude Code model tiers to MiniMax through the local proxy. See [Claude Code routing](#claude-code-routing).                                                                           |
+| `minimax.claudeCode.routing.haikuModel`                | `MiniMax-M3`                                                                 | MiniMax model for Claude Code's Haiku tier. Empty = Anthropic's Haiku.                                                                                                                       |
+| `minimax.claudeCode.routing.sonnetModel` / `opusModel` | empty                                                                        | Optional MiniMax models for the Sonnet / Opus tiers. Empty = Anthropic's model.                                                                                                              |
+| `minimax.claudeCode.routing.port`                      | `4000`                                                                       | Proxy port, shared by the windows of one installation and profile.                                                                                                                           |
+| `minimax.claudeCode.routing.passthroughUrl`            | empty                                                                        | Upstream for non-MiniMax traffic. Empty = the `ANTHROPIC_BASE_URL` VS Code started with, else `https://api.anthropic.com`.                                                                   |
+| `minimax.claudeCode.allowedModels`                     | `MiniMax-M3.1-Flash-Preview / M3 / M2.7 / M2.7-highspeed / M2.5 / M2.1 / M2` | Allowlist of model IDs counted in the Claude Code section of the dashboard. Claude Code may be talking to other Anthropic-compatible providers; only MiniMax-related rows are counted.       |
 
 ## Commands
 
@@ -134,6 +177,9 @@ A Subscription Key covers language models plus speech / video / music / image en
 | **MiniMax: Show Logs**                                        | Focus the MiniMax output channel                                                                          |
 | **MiniMax: Open Request Dumps Folder**                        | Reveal verbose request dumps                                                                              |
 | **MiniMax: Open Usage Dashboard**                             | Open the usage dashboard                                                                                  |
+| **MiniMax: Enable / Disable Claude Code Routing**             | Turn Claude Code routing on or off (also available from the `MiniMax CC` status bar item)                 |
+| **MiniMax: Claude Code Routing…**                             | Routing menu: enable / disable, settings, Haiku model, keys, logs                                         |
+| **MiniMax: Pick Claude Code Haiku Model**                     | Pick the MiniMax model for Claude Code's Haiku tier                                                       |
 | **MiniMax: Rescan Claude Code Logs**                          | Force a fresh read of the Claude Code JSONL log directory                                                 |
 | **MiniMax: Open Claude Code Log Folder**                      | Reveal the resolved Claude Code log directory in the OS file manager                                      |
 | **MiniMax: Copy mmx-cli install prompt**                      | Copy the verbatim three-step install prompt to the clipboard                                              |
@@ -144,7 +190,9 @@ A Subscription Key covers language models plus speech / video / music / image en
 - **No models in the picker** — open **MiniMax: Open Usage Dashboard** to see whether an API key is set and which models are visible.
 - **HTTP 404 from the gateway** — make sure `minimax.apiBaseUrl` is `https://api.minimax.io/anthropic`, not a third-party proxy that expects the OpenAI protocol.
 - **"API key is missing its secret" warning in the dashboard** — VS Code SecretStorage lost the entry (e.g. after a settings reset or a workspace migration). Run **MiniMax: Add API Key** to re-add the key, or **MiniMax: Delete API Key** to drop the orphan metadata. The dashboard shows a `secret missing` badge next to affected entries.
-- **"API key not configured"** — run **MiniMax: Add API Key**; the key is stored in VS Code SecretStorage, not in `settings.json`.
+- **"API key not configured"** — run **MiniMax: Add API Key**; the key is stored in VS Code SecretStorage, not in `settings.json`. A key written into the user setting `minimax.apiKey` is moved into SecretStorage on activation and the setting is cleared.
+- **Claude Code requests still go to Anthropic** — routing is opt-in: run **MiniMax: Enable Claude Code Routing**, then start a **new** Claude Code session. The `MiniMax CC` status bar item shows the proxy state, and **MiniMax: Show Logs** prints `[ClaudeCode] POST /v1/messages model=MiniMax-M3 → MiniMax` for routed requests.
+- **`MiniMax CC` shows an error about the proxy port** — another program, or a MiniMax proxy from another VS Code installation / profile, holds the port. Change `minimax.claudeCode.routing.port`.
 - **`No utility model is configured for 'copilot-utility-small'` in Agent mode** — run **MiniMax: Set Copilot's Utility Models**, keep both utility slots selected, then reload Copilot Chat. Alternatively set `chat.byokUtilityModelDefault` to `mainAgent` in user settings.
 - **Source Control ✨ button does not invoke MiniMax** — run **MiniMax: Set Copilot's Utility Models** to set `chat.utilitySmallModel` to a MiniMax model, then restart Copilot Chat.
 - **M3 picker still shows 512K after toggling 1M on** — switch models in the picker once; some Copilot Chat versions cache the entry until the next message.

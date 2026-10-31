@@ -220,6 +220,23 @@ export const CLAUDE_CODE_USAGE_STATS_KEY = 'minimax-vscode.claudeCodeUsageStats'
  *  Code log ingester. JSON blob — see `src/dashboard/claudeCodeIngest.ts`. */
 export const CLAUDE_CODE_INGEST_CURSOR_KEY = 'minimax-vscode.claudeCodeIngestCursor';
 
+/** memento key for the `claudeCode.environmentVariables` entries older
+ *  builds of the routing bridge wrote, with the user's values from before.
+ *  `EnvOwnership` JSON — see `src/claudeCode/env.ts`. Read only to restore
+ *  them; current builds never write the setting. */
+export const CLAUDE_CODE_ENV_OWNERSHIP_KEY = 'minimax-vscode.claudeCodeEnvOwnership';
+
+/** memento key for the routing env the user was last told about, so
+ *  re-injecting the same env after a restart does not toast again. */
+export const CLAUDE_CODE_ENV_ANNOUNCED_KEY = 'minimax-vscode.claudeCodeEnvAnnounced';
+
+/** memento key for the routing proxy's path secret. The memento lives on
+ *  the VS Code client, so over Remote-SSH it is per person even when the
+ *  remote account is shared. Windows that share it share the key pool and
+ *  one proxy (which reports a hash of it from its health endpoint); a
+ *  proxy with another secret is never used. */
+export const CLAUDE_CODE_PROXY_SECRET_KEY = 'minimax-vscode.claudeCodeProxySecret';
+
 
 // ---- Claude Code log ingest defaults ----
 

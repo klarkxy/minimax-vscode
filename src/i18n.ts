@@ -239,6 +239,31 @@ const zh: Translations = {
 	// Claude Code (JSONL log ingest)
 	'claudeCode.folderMissing': '找不到 Claude Code 日志目录：{0}',
 	'claudeCode.showUsageEmpty': '暂无 Claude Code 用量记录。请运行 Claude Code CLI 或 Claude Code VSCode 扩展产生一些会话。',
+
+	// Claude Code routing proxy
+	'claudeCode.missingKey': '未配置 MiniMax API Key。请在 VS Code 命令面板运行 "MiniMax: 添加 API Key"。',
+	'claudeCode.portBusy': 'MiniMax：端口 {0} 被其他程序占用，Claude Code 路由已关闭。请修改 `minimax.claudeCode.routing.port`。（{1}）',
+	'claudeCode.envApplied': 'MiniMax：新的 Claude Code 会话将使用 {0}。请新建会话（或重启已打开的会话）以生效。',
+	'claudeCode.envRemoved': 'MiniMax：已关闭 Claude Code 路由，并恢复了之前的 Claude Code 环境变量。请重启已打开的 Claude Code 会话。',
+	'claudeCode.envShadowed': 'MiniMax：`claudeCode.environmentVariables` 中设置了 {0}，它会覆盖 Claude Code 路由。如需通过 MiniMax 路由，请删除这些条目（自定义网关可改用 `minimax.claudeCode.routing.passthroughUrl`）。',
+	'claudeCode.forbidden': '此 MiniMax 路由代理属于另一个 VS Code 会话。请在自己的 VS Code 中开启路由，或从 Claude Code 的环境中移除指向它的 ANTHROPIC_BASE_URL。',
+	'claudeCode.portForeign': 'MiniMax：端口 {0} 正被另一个 MiniMax 路由代理使用（PID {1}，来自其他 VS Code 安装、配置文件或旧版本扩展），它使用的是另一套 API Key 和设置，因此本窗口不会使用它，Claude Code 路由已关闭。请在此处修改 `minimax.claudeCode.routing.port`，或关闭另一个实例。',
+	'claudeCode.terminalDescription': 'MiniMax：将 Claude Code 的模型覆盖路由到 MiniMax',
+	'claudeCode.status.owner': 'MiniMax → Claude Code：本窗口在端口 {0} 运行路由代理。\n{1}',
+	'claudeCode.status.shared': 'MiniMax → Claude Code：路由代理（端口 {0}）由另一个 VS Code 窗口运行。\n{1}',
+	'claudeCode.status.noKey': 'MiniMax → Claude Code：请先添加 API Key 以启用路由。',
+	'claudeCode.menu.enable': '启用 Claude Code 路由',
+	'claudeCode.menu.disable': '停用 Claude Code 路由',
+	'claudeCode.menu.settings': '路由设置（模型 / 端口）',
+	'claudeCode.menu.keys': '管理 API Key',
+	'claudeCode.menu.logs': '查看日志',
+	'claudeCode.menu.haikuModel': '选择 Claude Code Haiku 模型',
+	'claudeCode.haikuPicker.title': '选择 Claude Code Haiku 使用的模型',
+	'claudeCode.haikuPicker.placeholder': '设置 `minimax.claudeCode.routing.haikuModel`',
+	'claudeCode.haikuPicker.current': '当前已选中',
+	'claudeCode.haikuPicker.resetLabel': '（使用 Anthropic 默认 Haiku）',
+	'claudeCode.haikuPicker.resetDetail': '将 `minimax.claudeCode.routing.haikuModel` 设为空字符串',
+	'claudeCode.haikuPicker.updated': '已将 Claude Code Haiku 模型设置为 {0}。请新建（或重启）Claude Code 会话以生效。',
 };
 
 const en: Translations = {
@@ -460,6 +485,31 @@ const en: Translations = {
 	// Claude Code (JSONL log ingest)
 	'claudeCode.folderMissing': 'Could not find the Claude Code log directory: {0}',
 	'claudeCode.showUsageEmpty': 'No Claude Code usage recorded yet. Run the Claude Code CLI or the Claude Code VSCode extension to generate some sessions.',
+
+	// Claude Code routing proxy
+	'claudeCode.missingKey': 'MiniMax API key is not configured. Run "MiniMax: Add API Key" from the VS Code command palette.',
+	'claudeCode.portBusy': 'MiniMax: port {0} is used by another program, so Claude Code routing is off. Change `minimax.claudeCode.routing.port`. ({1})',
+	'claudeCode.envApplied': 'MiniMax: new Claude Code sessions will use {0}. Start a new session (or restart open ones) to apply.',
+	'claudeCode.envRemoved': 'MiniMax: Claude Code routing is off and your previous Claude Code environment was restored. Restart open Claude Code sessions to apply.',
+	'claudeCode.envShadowed': 'MiniMax: `claudeCode.environmentVariables` sets {0}, which overrides Claude Code routing. Remove those entries to route through MiniMax (use `minimax.claudeCode.routing.passthroughUrl` for a custom gateway).',
+	'claudeCode.forbidden': 'This MiniMax routing proxy belongs to another VS Code session. Turn routing on in your own VS Code, or remove the ANTHROPIC_BASE_URL pointing at it from your Claude Code environment.',
+	'claudeCode.portForeign': 'MiniMax: port {0} is used by another MiniMax routing proxy (PID {1}) from a different VS Code installation, profile or extension version. It serves other API keys and settings, so this window does not use it and Claude Code routing is off. Change `minimax.claudeCode.routing.port` here, or close the other instance.',
+	'claudeCode.terminalDescription': 'MiniMax: routes Claude Code model overrides to MiniMax',
+	'claudeCode.status.owner': 'MiniMax → Claude Code: this window runs the routing proxy on port {0}.\n{1}',
+	'claudeCode.status.shared': 'MiniMax → Claude Code: the routing proxy (port {0}) runs in another VS Code window.\n{1}',
+	'claudeCode.status.noKey': 'MiniMax → Claude Code: add an API key to enable routing.',
+	'claudeCode.menu.enable': 'Enable Claude Code routing',
+	'claudeCode.menu.disable': 'Disable Claude Code routing',
+	'claudeCode.menu.settings': 'Routing settings (models / port)',
+	'claudeCode.menu.keys': 'Manage API keys',
+	'claudeCode.menu.logs': 'Show logs',
+	'claudeCode.menu.haikuModel': 'Pick Claude Code Haiku model',
+	'claudeCode.haikuPicker.title': 'Pick the model for Claude Code Haiku',
+	'claudeCode.haikuPicker.placeholder': 'Sets `minimax.claudeCode.routing.haikuModel`',
+	'claudeCode.haikuPicker.current': 'Currently selected',
+	'claudeCode.haikuPicker.resetLabel': '(use Anthropic’s default Haiku)',
+	'claudeCode.haikuPicker.resetDetail': 'Clears `minimax.claudeCode.routing.haikuModel`',
+	'claudeCode.haikuPicker.updated': 'Claude Code Haiku model set to {0}. Start a new (or restart an open) Claude Code session to apply.',
 
 };
 

@@ -1,7 +1,7 @@
 {
   "name": "minimax-vscode-copilot",
   "displayName": "Minimax VScode Copilot",
-  "description": "Language model provider for GitHub Copilot in VS Code: use MiniMax M3.1-Flash-Preview / M3 / M2.7 / M2.7-highspeed models for programming with a Token Plan API key over the Anthropic-compatible API. Does not add speech, video, or image generation APIs.",
+  "description": "Language model provider for GitHub Copilot in VS Code: use MiniMax M3.1-Flash-Preview / M3 / M2.7 / M2.7-highspeed models for programming with a Token Plan API key over the Anthropic-compatible API. Optionally routes Claude Code model tiers to MiniMax through a local proxy with the same key. Does not add speech, video, or image generation APIs.",
   "version": "2.6.0",
   "publisher": "klarkxy",
   "license": "SATA-2.1",
@@ -29,6 +29,8 @@
   ],
   "keywords": [
     "ai",
+    "claude code",
+    "claude",
     "minimax",
     "minimax-m3",
     "minimax m2.7",
@@ -110,6 +112,26 @@
       {
         "command": "minimax.refreshMcp",
         "title": "%minimax.command.refreshMcp%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.claudeCode.menu",
+        "title": "%minimax.command.claudeCode.menu%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.claudeCode.enableRouting",
+        "title": "%minimax.command.claudeCode.enableRouting%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.claudeCode.disableRouting",
+        "title": "%minimax.command.claudeCode.disableRouting%",
+        "category": "MiniMax"
+      },
+      {
+        "command": "minimax.claudeCode.selectHaikuModel",
+        "title": "%minimax.command.claudeCode.selectHaikuModel%",
         "category": "MiniMax"
       },
       {
@@ -305,6 +327,44 @@
             },
             "additionalProperties": false
           }
+        },
+        "minimax.claudeCode.routing.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "Route Claude Code's model overrides to MiniMax (opt-in). Starts a local proxy on `127.0.0.1` and, while it runs, sets `ANTHROPIC_BASE_URL` plus the configured `ANTHROPIC_DEFAULT_*_MODEL` overrides for new Claude Code sessions started from this window (its extension host and terminals; never written to a settings file, so other people sharing a remote account are not affected). The proxy only serves requests carrying a per-profile secret. Values you had for those variables are put back when routing is turned off or the extension stops; variables for tiers left empty are never touched. Requests for MiniMax models use your MiniMax API key; every other request passes through unchanged with your own Claude login."
+        },
+        "minimax.claudeCode.routing.port": {
+          "type": "integer",
+          "default": 4000,
+          "minimum": 1024,
+          "maximum": 65535,
+          "scope": "application",
+          "markdownDescription": "Local port of the Claude Code routing proxy. VS Code windows of the same installation and profile share one proxy (they share the same keys and settings); when the owning window closes, another one takes over. A proxy from a different installation or profile on this port is never used: pick a different port there."
+        },
+        "minimax.claudeCode.routing.haikuModel": {
+          "type": "string",
+          "default": "MiniMax-M3",
+          "scope": "application",
+          "markdownDescription": "MiniMax model Claude Code uses for its **Haiku** tier (background tasks, Explore subagents, `/model haiku`). Sets `ANTHROPIC_DEFAULT_HAIKU_MODEL`. The proxy rewrites picker aliases (e.g. `MiniMax-M3-Priority`) back to the upstream `apiModelId` and injects the extra fields the gateway needs (`service_tier: \"priority\"`). Empty = keep Anthropic's Haiku. Use the **MiniMax: Select Claude Code Haiku Model** command to pick from the model picker instead of typing the id."
+        },
+        "minimax.claudeCode.routing.sonnetModel": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "markdownDescription": "MiniMax model Claude Code uses for its **Sonnet** tier. Sets `ANTHROPIC_DEFAULT_SONNET_MODEL`. Empty (default) = keep Anthropic's Sonnet."
+        },
+        "minimax.claudeCode.routing.opusModel": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "markdownDescription": "MiniMax model Claude Code uses for its **Opus** tier. Sets `ANTHROPIC_DEFAULT_OPUS_MODEL`. Empty (default) = keep Anthropic's Opus."
+        },
+        "minimax.claudeCode.routing.passthroughUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "markdownDescription": "Where the proxy forwards non-MiniMax requests (with the caller's own credentials). Empty (default) = the `ANTHROPIC_BASE_URL` VS Code's extension host started with, or `https://api.anthropic.com` if there was none."
         },
         "minimax.dashboard.includeClaudeCode": {
           "type": "boolean",

@@ -488,3 +488,31 @@ test('addApiKey: unsupported probe without a configured setting falls back to th
 	assert.equal(entry.region, 'custom');
 	assert.equal(entry.apiBaseUrl, 'https://api.minimaxi.com/anthropic');
 });
+
+test('importApiKeyFromSetting moves a plaintext settings key into the pool and clears the setting', async () => {
+	const { context, secrets } = newContext();
+	const manager = loadManager(context, async (_apiKey, host) => host === 'global');
+	const config = mockConfig as Record<string, unknown>;
+	config['minimax.apiKey'] = '  sk-cp-from-settings  ';
+	try {
+		const entry = await manager.importApiKeyFromSetting();
+		assert.ok(entry);
+		assert.equal(entry.name, 'settings');
+		assert.equal(entry.region, 'global');
+		assert.equal(await secrets.get(`minimax-vscode.apiKeys.${entry.id}`), 'sk-cp-from-settings');
+		assert.equal(config['minimax.apiKey'], undefined);
+		assert.equal(await manager.getActiveApiKey(), 'sk-cp-from-settings');
+
+		// Re-importing the same key does not duplicate it; it re-activates it.
+		await manager.addApiKey({ name: 'other', apiKey: 'sk-other', probe: false });
+		config['minimax.apiKey'] = 'sk-cp-from-settings';
+		const again = await manager.importApiKeyFromSetting();
+		assert.equal(again?.id, entry.id);
+		assert.equal(manager.snapshot().keys.length, 2);
+		assert.equal(manager.snapshot().activeKeyId, entry.id);
+
+		assert.equal(await manager.importApiKeyFromSetting(), undefined);
+	} finally {
+		delete config['minimax.apiKey'];
+	}
+});

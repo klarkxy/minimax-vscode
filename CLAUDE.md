@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-A VS Code extension that registers **MiniMax M3 / M2.7 / M2.7-highspeed** as chat models inside **GitHub Copilot Chat** by implementing `vscode.LanguageModelChatProvider`. The extension talks to MiniMax's **Anthropic-compatible** surface (`@anthropic-ai/sdk` is the only runtime dep), so the SDK appends `/v1/messages` to `minimax.apiBaseUrl`. The default endpoint is China (`api.minimaxi.com/anthropic`); the international one is `api.minimax.io/anthropic`. The endpoint is auto-picked from `vscode.env.language` on first activation and re-selected on demand via the `minimax.switchToGlobal` / `minimax.switchToChina` commands.
+A VS Code extension that registers **MiniMax M3 / M2.7 / M2.7-highspeed** as chat models inside **GitHub Copilot Chat** by implementing `vscode.LanguageModelChatProvider`, and can optionally route Claude Code model tiers to MiniMax through a local proxy (see `src/claudeCode/`). Both frontends share one API key pool. The extension talks to MiniMax's **Anthropic-compatible** surface (`@anthropic-ai/sdk` is the only runtime dep), so the SDK appends `/v1/messages` to `minimax.apiBaseUrl`. The default endpoint is China (`api.minimaxi.com/anthropic`); the international one is `api.minimax.io/anthropic`. The endpoint is auto-picked from `vscode.env.language` on first activation and re-selected on demand via the `minimax.switchToGlobal` / `minimax.switchToChina` commands.
 
-Requires VS Code **1.111.0+**, GitHub Copilot Chat installed & signed in, and a MiniMax Token Plan API key. VS Code **Insiders** is required to render M3 thinking blocks via the proposed `languageModelThinkingPart` API.
+Requires VS Code **1.111.0+** and a MiniMax Token Plan API key; GitHub Copilot Chat (installed & signed in) is needed for the Copilot Chat models, not for Claude Code routing. VS Code **Insiders** is required to render M3 thinking blocks via the proposed `languageModelThinkingPart` API.
 
 ## Commands
 
@@ -34,16 +34,20 @@ CI (`.github/workflows/ci.yml`) runs `npm ci` → `npm run compile` → `prepare
 ## Architecture
 
 ### Entry point & activation
+
 - [`src/extension.ts`](src/extension.ts) is a one-liner that re-exports from [`src/runtime/lifecycle.ts`](src/runtime/lifecycle.ts).
 - `activate(context)` in [lifecycle.ts](src/runtime/lifecycle.ts) wires up: command context → diagnostics → commands → Claude Code JSONL ingester → action URLs → endpoint auto-selection → `registerProvider()` → chat-turn notifier binding → welcome walkthrough.
 - `deactivate()` calls `provider.prepareForDeactivate()` then disposes the logger.
 
 ### Provider layer — `src/provider/`
+
 The `MiniMaxChatProvider` in [index.ts](src/provider/index.ts) is the only `vscode.LanguageModelChatProvider` implementation. Two public methods:
+
 - `provideLanguageModelChatInformation` — returns one `LanguageModelChatInformation` per model in [models/registry.ts](src/models/registry.ts), filtered by `minimax.visibleModels`. Watches `onDidChangeConfiguration` for ~10 settings (apiKey, visibleModels, apiBaseUrl, debugMode, modelIdOverrides, enableM31MContext, maxOutputTokens / maxTokens, sampling, experimental.*) and fires the change emitter so the picker refreshes live. Also subscribes to `context.secrets.onDidChange` for multi-window API-key sync.
 - `provideLanguageModelChatResponse` — runs in this order: `dumpProviderInput` (debug) → `processToolFlow` (handles placeholder `activate_*` tools, may short-circuit) → `prepareChatRequest` → `streamChatCompletion`. Bracketed by `chatTurnNotifier.notifyTurnStart/End` so the dashboard's plan cache pulses at most once per Copilot user turn (not per internal API request).
 
 Key sub-modules:
+
 - [request.ts](src/provider/request.ts) — Builds the `MiniMaxRequest` body. Reads `minimax.sampling` (per-model `temperature`/`topP`/`topK`/`frequencyPenalty`) and `minimax.experimental.modelDefPresets` (request-body escape hatch; 11 reserved keys are stripped, `tools` is concatenated). Enforces the 64 MB request body cap and per-attachment caps (10 MB image, 50 MB video) with localised errors. The thinking field is the binary `disabled`/`adaptive` switch from [models.ts](src/provider/models.ts) — no `budget_tokens`, no `reasoning_effort`. When thinking is on, `temperature=1` is forced and `top_p` is dropped (Anthropic rule). M2.x always stays `adaptive` (the gateway ignores `disabled` for the M2 family). M3 reads the user's choice from `options.modelConfiguration[THINKING_ENABLED_KEY]` (the dropdown in the Copilot Chat model picker).
 - [convert.ts](src/provider/convert.ts) — Copilot `LanguageModelChatRequestMessage` → Anthropic-format messages/tools.
 - [stream.ts](src/provider/stream.ts) — SSE consumption, emits typed `thinking` blocks (proposed API) for M3 and `<think>…</think>` text for M2.x, handles replay markers, calibrates `charsPerToken` via EMA on real `usage` data. Also emits a Copilot-side `LanguageModelDataPart` (`usage` MIME) per response so the host's context-window indicator and quota are kept in sync (mirrors `deepseek-v4-for-copilot` #60).
@@ -53,11 +57,23 @@ Key sub-modules:
 
 > Note: there is no `src/provider/vision/` module. The M2.x vision captioning path was deliberately **not** implemented — MCP supplies an image-understanding tool instead, so there is nothing to configure in this extension. The historical references in older commits and in some inline code comments (`the vision pipeline (provider/vision) to have already resolved this`) are aspirational; do not reintroduce that directory without first removing the MCP image tool.
 
+### Claude Code routing — `src/claudeCode/`
+
+Opt-in (`minimax.claudeCode.routing.enabled`, default `false`); independent of Copilot Chat, which is not required for it.
+
+- [proxy.ts](src/claudeCode/proxy.ts) — Pure-Node HTTP proxy (no `vscode` import). Requests whose JSON `model` starts with `MiniMax` go to the active key's Anthropic-compatible base URL with `x-api-key` = MiniMax key (caller `authorization` / `x-api-key` / `anthropic-beta` stripped). Everything else is piped verbatim to the passthrough upstream with the caller's own credentials — this is what keeps Claude subscription/OAuth logins working. The MiniMax target and the passthrough upstream are both resolved **per request** (`resolveMiniMax` / `resolvePassthrough`), so the proxy does not depend on which window started it. `GET /__minimax/health` returns `{ id, pid, scope }` so other windows can identify it. With `secret` set, every other request must be under `/<secret>/…` (stripped before forwarding) or gets a 403 `permission_error`: the port is reachable by every process on the machine, including other people on a shared remote account.
+- [bridge.ts](src/claudeCode/bridge.ts) — `ClaudeCodeBridge`: starts the proxy, or stands by as `shared` when the port is held by a proxy reporting the same `scope` (a hash of the random path secret in `CLAUDE_CODE_PROXY_SECRET_KEY`; globalState lives on the VS Code client, so it is per person even on a shared remote account), polling every 5 s to take over or re-converge when the owner pid changes. A proxy with another scope (other install / profile / older build) is an `error` state: never shared, env not injected. Routing is **opt-in** (`minimax.claudeCode.routing.enabled` defaults to `false`). While enabled, with a key and a usable proxy, it sets `ANTHROPIC_BASE_URL` (`http://127.0.0.1:<port>/<secret>`) + the non-empty `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL` on the extension host's own `process.env` (Claude Code spawns sessions with `{...process.env, ...claudeCode.environmentVariables}`) and on `context.environmentVariableCollection` (non-persistent). **Never write `claudeCode.environmentVariables`**: it is `machine`-scoped, so over Remote-SSH it lands in the server's shared remote settings and reaches everyone on that account. It is only written to remove entries older builds left there; the user's own entries for routed names shadow routing and trigger a warning. Disabling restores the inherited env but leaves a running proxy up so already-started sessions keep working. `shutdown()` (called from `deactivate`) restores the inherited env, then closes the proxy if this window owns it; a standby window takes over the port.
+- [env.ts](src/claudeCode/env.ts) — Pure helpers. `applyManagedEnv` / `pickManagedEnv` set the managed names on a `process.env` and put inherited values back; `shadowedNames` finds routed names the setting overrides. Legacy cleanup: `planEnvironmentVariables` computes the next `claudeCode.environmentVariables` from the desired env and the persisted `EnvOwnership` (`CLAUDE_CODE_ENV_OWNERSHIP_KEY`: per held name, the injected value and the user's original). It only touches names it injects or holds, restores originals exactly (removing names that were absent), leaves values the user changed alone, and turns a hand edit while routing is on into the new restore value. `adoptUnrecordedEntries` claims entries left by builds that did not record ownership (base URL = this proxy). `resolvePassthroughUrl`: explicit setting → the `ANTHROPIC_BASE_URL` the extension host inherited → `https://api.anthropic.com`. **Never inject `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`**: they would override the user's Claude login for passthrough traffic.
+- Env is deliberately scoped to the VS Code window (not `~/.claude/settings.json` or any settings file) so a standalone CLI, or another person on a shared remote account, never points at a dead or foreign proxy.
+
 ### Client layer — `src/client/`
+
 Thin wrapper around `@anthropic-ai/sdk`. [core.ts](src/client/core.ts) holds `MiniMaxClient` and the `ChatOptions` / request builder; [error.ts](src/client/error.ts) normalises transport / SDK errors into `MiniMaxRequestError` + `createUserFacingError` so the provider can surface them with action URLs. **The error normaliser preserves the upstream Anthropic-compatible envelope's `error.type` and `request_id`** (see `MiniMaxRequestError.serverErrorType` / `serverRequestId`) and includes them in the 401/402 toast text plus the diagnostic channel. The 401/402 action buttons resolve their platform host from the configured `minimax.apiBaseUrl` via `resolvePlatformHost()` (defined in `src/consts.ts`) — the previous hard-coded `api.minimaxi.com` was wrong for international users (see issue #2).
 
 ### Dashboard — `src/dashboard/`
+
 Webview panel + the data plumbing that feeds it.
+
 - [panel.ts](src/dashboard/panel.ts) — Owns the `WebviewPanel` lifetime. Renders HTML in a template literal with inline JS; messages are a `{type, payload}` discriminated union handled in `handleMessage`. Locale is picked from `vscode.env.language` and persisted in webview state. **The dashboard is a tab bar**: `总` (always shown) + `copilot` / `claude` (each shown only when its source has data). Tabs with no backing source are hidden entirely.
 - [aggregator.ts](src/dashboard/aggregator.ts) — `buildDashboardView` stitches together three sources into a `DashboardView`: (1) the local `UsageStore` from [src/usage.ts](src/usage.ts) (every API call the extension makes), (2) the platform `coding_plan/remains` snapshot, (3) the Claude Code JSONL ingester. Exposes a shared `PlanCache` (singleton, **5 minute** TTL, in-flight dedup) consumed by both the panel and `planStatusBar`. The TTL matches the cadence the platform's own UI uses for auto-syncing the Token Plan card, so a burst of `refresh()` calls (one per chat turn, dashboard open, apiBaseUrl switch) collapses into a single HTTP round-trip per window.
 - [api.ts](src/dashboard/api.ts) — `fetchPlanUsage(apiKey, host)` for the platform quota data.
@@ -66,6 +82,7 @@ Webview panel + the data plumbing that feeds it.
 - [planStatusBar.ts](src/dashboard/planStatusBar.ts) — Status bar quota items (`$(bolt) 5h 73%`, `$(calendar) Week 11%`) coloured by `statusBarItem.{remote,warning,error}Background` tokens.
 
 ### Runtime — `src/runtime/`
+
 - [commands.ts](src/runtime/commands.ts) — Registers every `minimax.*` command (one per `package.json#contributes.commands` entry). Caches `AuthManager`, `UsageStore`, `PlanCache`, `MmxCliCache`, `PlanStatusBar`, `ClaudeCodeIngestHandle` at module scope so the dashboard panel and status bar share the same instances. `setClaudeCodeIngest` rebuilds the ingester when `includeClaudeCode` / `logPath` / `pollIntervalMs` change.
 - [endpoint.ts](src/runtime/endpoint.ts) — `autoSelectEndpointIfUnset` — picks China vs global from `vscode.env.language`; no-op once the user has manually set the URL.
 - [provider.ts](src/runtime/provider.ts) — `registerProvider` instantiates the chat provider, registers the `setApiKey` / `clearApiKey` commands, and calls `vscode.lm.registerLanguageModelChatProvider('minimax', provider)`. Eagerly activates `github.copilot-chat` so the first model-picker refresh reaches a live listener.
@@ -75,10 +92,12 @@ Webview panel + the data plumbing that feeds it.
 - [lifecycle.ts](src/runtime/lifecycle.ts) — `activate` / `deactivate` orchestration.
 
 ### Git integration — `src/git/`
+
 - [commitMessage.ts](src/git/commitMessage.ts) — Generates a Conventional Commits + gitmoji draft of the staged diff via the built-in `vscode.git` extension, falls back to working-tree changes when nothing is staged. Caps the diff at 32 KB and the file list at 80 entries. Existing text in the input box is treated as a draft to polish (temperature 0.2, max_tokens 256). The model is `minimax.commitModel` (default M3).
 - [scm.ts](src/git/scm.ts) — Thin `vscode.git` extension wrapper (the proposed `contribSourceControlInputBoxMenu` API puts the generate button in the SCM input box `⋯` menu).
 
 ### Other
+
 - [auth.ts](src/auth.ts) — SecretStorage-backed API key (`minimax-vscode.apiKey`). Falls back to the `minimax.apiKey` setting in CI/automation contexts only.
 - [config.ts](src/config.ts) — Typed getters around `vscode.workspace.getConfiguration('minimax')`. No defaults sneak in here; they're declared in `package.json#contributes.configuration` and surface in the Settings UI.
 - [usage.ts](src/usage.ts) — Memento-backed `UsageStore` (`USAGE_STATS_KEY`) with `read / record / reset / readDailySeries` and the shared `todayKey` helper that the Claude Code ingester also uses.
@@ -114,4 +133,5 @@ Each test file should `import { describe, it } from 'node:test'` and `import * a
 - **URLs in English-language docs and code comments point to the international platform `platform.minimax.io`.** The China platform `platform.minimaxi.com` is only correct for Chinese-language user-facing copy and for the mmx-cli install-prompt page (which only exists on the China platform; annotate as `(Chinese-language source)` when referenced from English). The `PLATFORM_URL_GLOBAL` / `PLATFORM_URL_CHINA` constants in [src/consts.ts](src/consts.ts) are the user-facing namespacing rule; comments and JSDoc should use the URL that matches the reader's language, not the source URL of whatever was hard-coded in the bug.
 - All chat models are advertised as `isBYOK: true` in [models.ts](src/provider/models.ts) — MiniMax token-plan billing is wholly separate from Copilot's premium-request budget, and the host needs the flag to avoid charging the round-trip to its own quota. The field is part of the same proposed-API bucket as `configurationSchema`; keep the literal-`true` type and inline comment so any host that knows about the field picks it up.
 </content>
+
 </invoke>

@@ -444,6 +444,35 @@ export class KeyManager {
 		this.fireChange();
 	}
 
+	/** Move a key written into the user-level `minimax.apiKey` setting
+	 *  into the named pool (SecretStorage, region-probed, made active)
+	 *  and clear the plaintext setting. A key already in the pool is
+	 *  just activated. The setting is only cleared once the secret is
+	 *  stored, so CI hosts without SecretStorage keep their fallback.
+	 *  Returns the pool entry, or `undefined` when there was nothing
+	 *  to import. */
+	async importApiKeyFromSetting(): Promise<KeyMetadata | undefined> {
+		const config = vscode.workspace.getConfiguration('minimax');
+		const raw = config.inspect<string>('apiKey')?.globalValue?.trim();
+		if (!raw) {
+			return undefined;
+		}
+		const fingerprint = this.fingerprintOf(raw);
+		const meta = this.readMetadata();
+		let entry = meta.keys.find((k) => k.fingerprint === fingerprint);
+		if (entry) {
+			await this.switchApiKey(entry.id);
+		} else {
+			let name = 'settings';
+			for (let i = 2; meta.keys.some((k) => k.name === name); i++) {
+				name = `settings-${i}`;
+			}
+			entry = await this.addApiKey({ name, apiKey: raw });
+		}
+		await config.update('apiKey', undefined, vscode.ConfigurationTarget.Global);
+		return entry;
+	}
+
 	/** Update `lastUsedAt` for the currently active key. Called from
 	 *  the request path so the dashboard can show "last used". */
 	async touchActiveKey(): Promise<void> {

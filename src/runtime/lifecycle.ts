@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { registerClaudeCodeBridge, type ClaudeCodeBridge } from '../claudeCode';
 import { t } from '../i18n';
 import { logger } from '../logger';
 import { MiniMaxChatProvider } from '../provider';
@@ -18,6 +19,7 @@ import { registerMiniMaxMcpProvider } from './mcp';
 import { showWelcomeIfNeeded } from './welcome';
 
 let activeProvider: MiniMaxChatProvider | undefined;
+let claudeCodeBridge: ClaudeCodeBridge | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	setCommandContext(context);
@@ -43,6 +45,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	} catch (error) {
 		logger.warn('[MiniMax] Legacy key migration failed', error);
 	}
+
+	// A key pasted into the `minimax.apiKey` setting is moved into
+	// SecretStorage. Fire-and-forget: the region probe hits the network,
+	// and every consumer (provider, Claude Code bridge) re-reads the pool
+	// on its change event.
+	void getKeyManager()
+		.importApiKeyFromSetting()
+		.then((entry) => {
+			if (entry) {
+				logger.info(`[MiniMax] Imported API key from settings into SecretStorage as "${entry.name}".`);
+			}
+		})
+		.catch((error) => logger.warn('[MiniMax] Importing API key from settings failed', error));
 
 	// One-time cleanup of memento keys left behind by the removed
 	// Codex / OpenCode ingesters. The modules and their constants are
@@ -70,6 +85,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	// provider's API call layer never runs (e.g. user only uses
 	// Claude Code CLI / Claude Code VSCode extension).
 	setClaudeCodeIngest(context);
+	// Route Claude Code's model overrides (by default the Haiku tier)
+	// through the local MiniMax proxy. Independent of Copilot Chat.
+	claudeCodeBridge = registerClaudeCodeBridge(context, getKeyManager());
 	registerActionUrls(context);
 
 	// Register the MiniMax Web Search MCP server definition provider
@@ -132,11 +150,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export async function deactivate(): Promise<void> {
 	try {
+		// Hand Claude Code's env back before the proxy stops, so it is not
+		// left pointing at a dead localhost port (e.g. on disable/uninstall).
+		await claudeCodeBridge?.shutdown();
 		await activeProvider?.prepareForDeactivate();
 	} catch (error) {
 		logger.warn(t('extension.deactivateFailed'), error);
 	} finally {
 		activeProvider = undefined;
+		claudeCodeBridge = undefined;
 		logger.info('Extension deactivated');
 		logger.dispose();
 	}
