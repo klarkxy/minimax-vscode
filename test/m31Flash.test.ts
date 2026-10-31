@@ -16,6 +16,7 @@ import {
 	type ModelConfigurationOptions,
 } from '../src/provider/models.js';
 import { buildThinkingPayload, withReasoningEffort } from '../src/provider/request.js';
+import { MiniMaxClient } from '../src/client/index.js';
 import { applyAliasOverride } from '../src/claudeCode/proxy.js';
 import { DEFAULT_CLAUDE_CODE_ALLOWED_MODELS } from '../src/config.js';
 import { migrateLegacyModelIds, migrateModelIdValue } from '../src/runtime/legacyModelIds.js';
@@ -151,4 +152,22 @@ test('Claude Code: proxy maps the preview id, allowlist counts both ids', () => 
 	assert.deepEqual(body, { model: FLASH, messages: [] });
 	assert.ok(DEFAULT_CLAUDE_CODE_ALLOWED_MODELS.includes(FLASH));
 	assert.ok(DEFAULT_CLAUDE_CODE_ALLOWED_MODELS.includes(PREVIEW));
+});
+
+test('request builder: output_config.effort lands at the top level of the body', () => {
+	const flash = findModelById(FLASH)!;
+	const body = new MiniMaxClient().buildRequest(
+		FLASH,
+		[{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+		undefined,
+		1024,
+		undefined,
+		buildThinkingPayload(flash, 'adaptive'),
+		1,
+		undefined,
+		{ ...flash, extra: withReasoningEffort(flash.extra, 'low') },
+	) as unknown as Record<string, unknown>;
+	assert.deepEqual(body.thinking, { type: 'adaptive' });
+	assert.deepEqual(body.output_config, { effort: 'low' });
+	assert.equal(body.top_p, undefined);
 });
